@@ -1,0 +1,752 @@
+"""전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
+
+STRATEGY_SPEC.md 기반 구현.
+국면: CRISIS / STRONG_UP / WEAK_UP / WEAK_DOWN / RANGE (판정 우선순위순).
+전략: A(추세추종), B(반전포착), C(브레이크아웃), D(스캘핑), E(DCA).
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
+
+from app.data_types import (
+    MarketSnapshot,
+    OrderSide,
+    Regime,
+    Signal,
+    Strategy,
+    Tier,
+)
+from strategy.coin_profiler import CoinProfiler, TierParams
+from strategy.indicators import IndicatorPack, compute_indicators
+
+logger = logging.getLogger(__name__)
+
+KST = timezone(timedelta(hours=9))
+
+# ─── 국면별 전략 허용 매핑 ───
+REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
+    Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.SCALPING],
+    Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
+    Regime.RANGE: [Strategy.MEAN_REVERSION, Strategy.BREAKOUT],
+    Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION],
+    Regime.CRISIS: [],  # 전량 청산만
+}
+
+# 국면별 포지션 배수
+REGIME_POSITION_MULT: dict[Regime, float] = {
+    Regime.STRONG_UP: 1.5,
+    Regime.WEAK_UP: 1.0,
+    Regime.RANGE: 1.0,
+    Regime.WEAK_DOWN: 0.6,
+    Regime.CRISIS: 0.0,
+}
+
+# 전략 → 점수 그룹 매핑
+STRATEGY_GROUP: dict[Strategy, int] = {
+    Strategy.TREND_FOLLOW: 1,
+    Strategy.MEAN_REVERSION: 1,
+    Strategy.BREAKOUT: 2,
+    Strategy.SCALPING: 2,
+    Strategy.DCA: 3,
+}
+
+
+# ─── 보조 플래그 ───
+@dataclass
+class AuxFlags:
+    """보조 플래그."""
+
+    range_volatile: bool = False
+    down_accel: bool = False
+
+
+# ─── 히스테리시스 상태 ───
+@dataclass
+class RegimeState:
+    """코인별 국면 상태 (히스테리시스)."""
+
+    current: Regime = Regime.RANGE
+    pending: Regime | None = None
+    confirm_count: int = 0
+    cooldown_remaining: int = 0
+    crisis_release_count: int = 0
+
+
+# ─── 점수 결과 ───
+@dataclass
+class ScoreResult:
+    """전략 점수 결과."""
+
+    strategy: Strategy
+    score: float
+    detail: dict[str, float] = field(default_factory=dict)
+
+
+# ─── 컷오프 판정 ───
+class SizeDecision:
+    """Full / Probe / HOLD 판정."""
+
+    FULL = "FULL"
+    PROBE = "PROBE"
+    HOLD = "HOLD"
+
+
+class RuleEngine:
+    """전략 엔진 — 5국면 + 전략 점수 + Layer 1."""
+
+    def __init__(
+        self,
+        profiler: CoinProfiler | None = None,
+        score_cutoff: object | None = None,
+        regime_config: object | None = None,
+        execution_config: object | None = None,
+    ) -> None:
+        """초기화.
+
+        Args:
+            profiler: 코인 프로파일러.
+            score_cutoff: ScoreCutoffConfig.
+            regime_config: RegimeConfig.
+            execution_config: ExecutionConfig.
+        """
+        self._profiler = profiler or CoinProfiler()
+        self._score_cutoff = score_cutoff
+        self._regime_config = regime_config
+        self._exec_config = execution_config
+        self._regime_states: dict[str, RegimeState] = {}
+
+    def _get_regime_state(self, symbol: str) -> RegimeState:
+        """코인별 국면 상태를 가져온다."""
+        if symbol not in self._regime_states:
+            self._regime_states[symbol] = RegimeState()
+        return self._regime_states[symbol]
+
+    # ═══════════════════════════════════════════
+    # 국면 분류
+    # ═══════════════════════════════════════════
+
+    def classify_regime(
+        self, symbol: str, ind_1h: IndicatorPack, candles_1h_close: np.ndarray
+    ) -> tuple[Regime, AuxFlags]:
+        """1H 지표 기반 국면을 판정한다 (히스테리시스 적용).
+
+        Args:
+            symbol: 코인 심볼.
+            ind_1h: 1H 지표 패키지.
+            candles_1h_close: 1H 종가 배열.
+
+        Returns:
+            (Regime, AuxFlags) 튜플.
+        """
+        state = self._get_regime_state(symbol)
+        raw_regime = self._raw_classify(ind_1h, candles_1h_close)
+        aux = self._detect_aux_flags(ind_1h, candles_1h_close)
+
+        # CRISIS 즉시 진입
+        if raw_regime == Regime.CRISIS:
+            state.current = Regime.CRISIS
+            state.pending = None
+            state.confirm_count = 0
+            state.cooldown_remaining = 0
+            state.crisis_release_count = 0
+            return state.current, aux
+
+        # CRISIS 해제: 6봉 연속 정상 확인
+        if state.current == Regime.CRISIS:
+            if raw_regime != Regime.CRISIS:
+                state.crisis_release_count += 1
+                if state.crisis_release_count >= 6:
+                    state.current = raw_regime
+                    state.crisis_release_count = 0
+                    state.cooldown_remaining = 6
+            else:
+                state.crisis_release_count = 0
+            return state.current, aux
+
+        # 쿨다운 중이면 전환 안 함
+        if state.cooldown_remaining > 0:
+            state.cooldown_remaining -= 1
+            return state.current, aux
+
+        # 같은 국면이면 리셋
+        if raw_regime == state.current:
+            state.pending = None
+            state.confirm_count = 0
+            return state.current, aux
+
+        # 히스테리시스: 3봉 확인
+        if raw_regime == state.pending:
+            state.confirm_count += 1
+            if state.confirm_count >= 3:
+                state.current = raw_regime
+                state.pending = None
+                state.confirm_count = 0
+                state.cooldown_remaining = 6  # 재전환 금지
+        else:
+            state.pending = raw_regime
+            state.confirm_count = 1
+
+        return state.current, aux
+
+    def _raw_classify(
+        self, ind: IndicatorPack, close: np.ndarray
+    ) -> Regime:
+        """히스테리시스 없이 순수 국면을 판정한다."""
+        n = len(close)
+        if n < 25:
+            return Regime.RANGE
+
+        # 필요 지표 최신값
+        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
+        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
+        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
+        ema20 = self._last_valid(ind.ema20)
+        ema50 = self._last_valid(ind.ema50)
+        ema200 = self._last_valid(ind.ema200)
+        atr_now = self._last_valid(ind.atr)
+
+        # ATR 20일 평균 (480봉 = 20일 × 24봉)
+        valid_atr = ind.atr[~np.isnan(ind.atr)]
+        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
+
+        # 24H 가격변동률
+        if n >= 24:
+            price_change_24h = (close[-1] - close[-24]) / close[-24]
+        else:
+            price_change_24h = 0.0
+
+        # 1. CRISIS
+        if atr_20d_avg > 0 and atr_now > atr_20d_avg * 2.5 and price_change_24h < -0.10:
+            return Regime.CRISIS
+
+        # 2. STRONG_UP
+        if ema20 > ema50 > ema200 and adx_val > 25 and plus_di > minus_di:
+            return Regime.STRONG_UP
+
+        # 3. WEAK_UP
+        if ema20 > ema50 and 20 <= adx_val <= 25 and plus_di > minus_di:
+            return Regime.WEAK_UP
+
+        # 4. WEAK_DOWN
+        if ema20 < ema50 and minus_di > plus_di:
+            return Regime.WEAK_DOWN
+
+        # 5. RANGE
+        return Regime.RANGE
+
+    def _detect_aux_flags(
+        self, ind: IndicatorPack, close: np.ndarray
+    ) -> AuxFlags:
+        """보조 플래그를 감지한다."""
+        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
+        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
+        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
+        ema20 = self._last_valid(ind.ema20)
+        ema50 = self._last_valid(ind.ema50)
+        ema200 = self._last_valid(ind.ema200)
+        atr_now = self._last_valid(ind.atr)
+
+        valid_atr = ind.atr[~np.isnan(ind.atr)]
+        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
+
+        range_volatile = (
+            adx_val < 20 and atr_20d_avg > 0 and atr_now > atr_20d_avg * 1.2
+        )
+        down_accel = (
+            ema20 < ema50 < ema200 and adx_val > 22 and minus_di > plus_di
+        )
+
+        return AuxFlags(range_volatile=range_volatile, down_accel=down_accel)
+
+    # ═══════════════════════════════════════════
+    # Layer 1: 환경 필터
+    # ═══════════════════════════════════════════
+
+    def _check_layer1(
+        self,
+        regime: Regime,
+        snap: MarketSnapshot,
+        ind_15m: IndicatorPack,
+        tier_params: TierParams,
+    ) -> tuple[bool, str]:
+        """Layer 1 환경 필터를 적용한다.
+
+        Returns:
+            (통과 여부, 거부 사유).
+        """
+        # 1. 국면 != CRISIS
+        if regime == Regime.CRISIS:
+            return False, "L1: CRISIS 국면"
+
+        # 2. 거래량 >= 20봉 평균 × 0.8
+        if len(ind_15m.obv) > 20:
+            volumes = np.array([c.volume for c in snap.candles_15m])
+            if len(volumes) >= 20:
+                avg_vol = float(np.mean(volumes[-20:]))
+                current_vol = volumes[-1] if len(volumes) > 0 else 0
+                if avg_vol > 0 and current_vol < avg_vol * 0.8:
+                    return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
+
+        # 3. 스프레드 < Tier별 한도
+        if snap.orderbook:
+            spread = snap.orderbook.spread_pct
+            if spread > tier_params.spread_limit:
+                return False, f"L1: 스프레드 초과 ({spread:.4f} > {tier_params.spread_limit})"
+
+        # 4. 시간대 필터 (00:00~06:00 KST → Tier 3 스킵)
+        now_kst = datetime.now(KST)
+        if 0 <= now_kst.hour < 6 and tier_params.tier == Tier.TIER3:
+            return False, "L1: 심야 시간대 Tier 3 거래 중단"
+
+        return True, ""
+
+    # ═══════════════════════════════════════════
+    # 전략 점수 계산 (Layer 2)
+    # ═══════════════════════════════════════════
+
+    def _score_strategy_a(
+        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack
+    ) -> ScoreResult:
+        """전략 A 추세추종 점수를 계산한다."""
+        detail: dict[str, float] = {}
+        score = 0.0
+
+        # 1H 추세 일치 (30점): 15M 방향과 1H EMA 방향 일치
+        ema20_1h = self._last_valid(ind_1h.ema20)
+        ema50_1h = self._last_valid(ind_1h.ema50)
+        ema20_15m = self._last_valid(ind_15m.ema20)
+        ema50_15m = self._last_valid(ind_15m.ema50)
+        if ema20_1h > ema50_1h and ema20_15m > ema50_15m:
+            detail["trend_align"] = 30.0
+            score += 30.0
+        elif ema20_1h > ema50_1h:
+            detail["trend_align"] = 15.0
+            score += 15.0
+        else:
+            detail["trend_align"] = 0.0
+
+        # MACD 상태 (25점): 골든크로스 + 히스토그램 양수
+        if ind_15m.macd:
+            macd_line = self._last_valid(ind_15m.macd.macd_line)
+            signal_line = self._last_valid(ind_15m.macd.signal_line)
+            histogram = self._last_valid(ind_15m.macd.histogram)
+            if macd_line > signal_line and histogram > 0:
+                detail["macd"] = 25.0
+                score += 25.0
+            elif macd_line > signal_line:
+                detail["macd"] = 12.0
+                score += 12.0
+            else:
+                detail["macd"] = 0.0
+        else:
+            detail["macd"] = 0.0
+
+        # 거래량 (20점): 20봉 평균의 1.5배 이상
+        detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
+        score += detail["volume"]
+
+        # RSI 위치 (15점): 40~60 범위 (풀백 구간)
+        rsi = self._last_valid(ind_15m.rsi)
+        if 40 <= rsi <= 60:
+            detail["rsi_pullback"] = 15.0
+            score += 15.0
+        elif 35 <= rsi <= 65:
+            detail["rsi_pullback"] = 8.0
+            score += 8.0
+        else:
+            detail["rsi_pullback"] = 0.0
+
+        # SuperTrend (10점): BULLISH 상태
+        if ind_15m.supertrend and len(ind_15m.supertrend.direction) > 0:
+            if ind_15m.supertrend.direction[-1] == 1:
+                detail["supertrend"] = 10.0
+                score += 10.0
+            else:
+                detail["supertrend"] = 0.0
+        else:
+            detail["supertrend"] = 0.0
+
+        return ScoreResult(strategy=Strategy.TREND_FOLLOW, score=score, detail=detail)
+
+    def _score_strategy_b(
+        self, ind_15m: IndicatorPack
+    ) -> ScoreResult:
+        """전략 B 반전포착 점수를 계산한다."""
+        detail: dict[str, float] = {}
+        score = 0.0
+
+        # RSI 반등 (30점): RSI 30 이하에서 35 이상으로 복귀
+        rsi_arr = ind_15m.rsi
+        valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
+        if len(valid_rsi) >= 3:
+            prev_rsi = valid_rsi[-3]
+            curr_rsi = valid_rsi[-1]
+            if prev_rsi <= 30 and curr_rsi >= 35:
+                detail["rsi_bounce"] = 30.0
+                score += 30.0
+            elif curr_rsi <= 35:
+                detail["rsi_bounce"] = 15.0
+                score += 15.0
+            else:
+                detail["rsi_bounce"] = 0.0
+        else:
+            detail["rsi_bounce"] = 0.0
+
+        # BB 위치 (25점): 하단밴드 이탈 후 복귀
+        if ind_15m.bb:
+            lower = ind_15m.bb.lower
+            if len(lower) >= 3:
+                # 간소화: 현재 RSI < 35이면 BB 반등 가능성 높음
+                curr_rsi = self._last_valid(ind_15m.rsi)
+                if curr_rsi < 40:
+                    detail["bb_position"] = 25.0
+                    score += 25.0
+                elif curr_rsi < 50:
+                    detail["bb_position"] = 12.0
+                    score += 12.0
+                else:
+                    detail["bb_position"] = 0.0
+            else:
+                detail["bb_position"] = 0.0
+        else:
+            detail["bb_position"] = 0.0
+
+        # 거래량 급증 (25점): 20봉 평균의 2배 이상
+        detail["volume"] = self._score_volume(ind_15m, threshold=2.0, max_pts=25.0)
+        score += detail["volume"]
+
+        # Z-score (20점): -2.0 이하
+        zscore = self._last_valid(ind_15m.zscore)
+        if zscore <= -2.0:
+            detail["zscore"] = 20.0
+            score += 20.0
+        elif zscore <= -1.5:
+            detail["zscore"] = 10.0
+            score += 10.0
+        else:
+            detail["zscore"] = 0.0
+
+        return ScoreResult(strategy=Strategy.MEAN_REVERSION, score=score, detail=detail)
+
+    def _score_strategy_c(
+        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack, candles_15m: list
+    ) -> ScoreResult:
+        """전략 C 브레이크아웃 점수를 계산한다."""
+        detail: dict[str, float] = {}
+        score = 0.0
+
+        # 돌파 확인 (35점): 20봉 고점 돌파 + 1봉 확인봉
+        if len(candles_15m) >= 22:
+            highs = np.array([c.high for c in candles_15m])
+            close_curr = candles_15m[-1].close
+            high_20 = float(np.max(highs[-22:-2]))  # 2봉 전까지의 20봉 고점
+            close_prev = candles_15m[-2].close
+
+            if close_prev > high_20 and close_curr > high_20:
+                detail["breakout"] = 35.0
+                score += 35.0
+            elif close_curr > high_20:
+                detail["breakout"] = 18.0
+                score += 18.0
+            else:
+                detail["breakout"] = 0.0
+        else:
+            detail["breakout"] = 0.0
+
+        # 거래량 (30점): 돌파봉 거래량 > 평균 2배
+        detail["volume"] = self._score_volume(ind_15m, threshold=2.0, max_pts=30.0)
+        score += detail["volume"]
+
+        # ATR 확대 (20점): 현재 ATR > 14봉 ATR 평균 × 1.3
+        atr_now = self._last_valid(ind_15m.atr)
+        valid_atr = ind_15m.atr[~np.isnan(ind_15m.atr)]
+        atr_avg = float(np.mean(valid_atr[-14:])) if len(valid_atr) >= 14 else atr_now
+        if atr_avg > 0 and atr_now > atr_avg * 1.3:
+            detail["atr_expand"] = 20.0
+            score += 20.0
+        elif atr_avg > 0 and atr_now > atr_avg:
+            detail["atr_expand"] = 10.0
+            score += 10.0
+        else:
+            detail["atr_expand"] = 0.0
+
+        # 1H 추세 (15점): 돌파 방향과 1H EMA 방향 일치
+        ema20_1h = self._last_valid(ind_1h.ema20)
+        ema50_1h = self._last_valid(ind_1h.ema50)
+        if ema20_1h > ema50_1h:
+            detail["trend_1h"] = 15.0
+            score += 15.0
+        else:
+            detail["trend_1h"] = 0.0
+
+        return ScoreResult(strategy=Strategy.BREAKOUT, score=score, detail=detail)
+
+    def _score_strategy_d(
+        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack, snap: MarketSnapshot
+    ) -> ScoreResult:
+        """전략 D 스캘핑 점수를 계산한다."""
+        detail: dict[str, float] = {}
+        score = 0.0
+
+        # RSI 바운스 (30점): 15M RSI 30이하에서 반등 시작
+        rsi_arr = ind_15m.rsi
+        valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
+        if len(valid_rsi) >= 2:
+            prev_rsi = valid_rsi[-2]
+            curr_rsi = valid_rsi[-1]
+            if prev_rsi <= 30 and curr_rsi > prev_rsi:
+                detail["rsi_bounce"] = 30.0
+                score += 30.0
+            elif curr_rsi <= 35:
+                detail["rsi_bounce"] = 15.0
+                score += 15.0
+            else:
+                detail["rsi_bounce"] = 0.0
+        else:
+            detail["rsi_bounce"] = 0.0
+
+        # 1H 추세 일치 (30점): 상위 TF 추세 방향과 일치
+        ema20_1h = self._last_valid(ind_1h.ema20)
+        ema50_1h = self._last_valid(ind_1h.ema50)
+        if ema20_1h > ema50_1h:
+            detail["trend_1h"] = 30.0
+            score += 30.0
+        else:
+            detail["trend_1h"] = 0.0
+
+        # 스프레드 (20점): Bid-Ask 스프레드 < 0.15%
+        if snap.orderbook and snap.orderbook.spread_pct < 0.0015:
+            detail["spread"] = 20.0
+            score += 20.0
+        elif snap.orderbook and snap.orderbook.spread_pct < 0.003:
+            detail["spread"] = 10.0
+            score += 10.0
+        else:
+            detail["spread"] = 0.0
+
+        # 거래량 (20점): 현재 거래량 > 평균 1.5배
+        detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
+        score += detail["volume"]
+
+        return ScoreResult(strategy=Strategy.SCALPING, score=score, detail=detail)
+
+    def _score_volume(
+        self, ind: IndicatorPack, threshold: float, max_pts: float
+    ) -> float:
+        """거래량 점수를 계산한다 (OBV 증분 기반 간접)."""
+        obv = ind.obv
+        if len(obv) < 20:
+            return 0.0
+        # OBV 변화율로 거래량 급증 판단
+        obv_diff = obv[-1] - obv[-2] if len(obv) >= 2 else 0
+        avg_diff = float(np.mean(np.abs(np.diff(obv[-20:])))) if len(obv) >= 20 else 1
+        if avg_diff > 0 and abs(obv_diff) > avg_diff * threshold:
+            return max_pts
+        if avg_diff > 0 and abs(obv_diff) > avg_diff:
+            return max_pts * 0.5
+        return 0.0
+
+    # ═══════════════════════════════════════════
+    # 컷오프 판정
+    # ═══════════════════════════════════════════
+
+    def _decide_size(self, strategy: Strategy, score: float) -> str:
+        """3그룹 컷오프 판정."""
+        group = STRATEGY_GROUP.get(strategy, 1)
+
+        if self._score_cutoff:
+            if group == 1:
+                g = self._score_cutoff.group1
+            elif group == 2:
+                g = self._score_cutoff.group2
+            else:
+                g = self._score_cutoff.group3
+            full = g.full
+            probe_min = g.probe_min
+        else:
+            # 기본값
+            if group == 1:
+                full, probe_min = 72, 55
+            elif group == 2:
+                full, probe_min = 78, 62
+            else:
+                full, probe_min = 68, 53
+
+        if score >= full:
+            return SizeDecision.FULL
+        if score >= probe_min:
+            return SizeDecision.PROBE
+        return SizeDecision.HOLD
+
+    # ═══════════════════════════════════════════
+    # 메인 신호 생성
+    # ═══════════════════════════════════════════
+
+    def generate_signals(
+        self, snapshots: dict[str, MarketSnapshot]
+    ) -> list[Signal]:
+        """스냅샷에서 매매 신호를 생성한다.
+
+        Args:
+            snapshots: 코인별 MarketSnapshot.
+
+        Returns:
+            Signal 리스트.
+        """
+        signals: list[Signal] = []
+
+        for symbol, snap in snapshots.items():
+            if not snap.candles_15m or len(snap.candles_15m) < 30:
+                continue
+            if not snap.candles_1h or len(snap.candles_1h) < 30:
+                continue
+
+            # 지표 계산 (15M + 1H 이중)
+            ind_15m = compute_indicators(snap.candles_15m)
+            ind_1h = compute_indicators(snap.candles_1h)
+            close_1h = np.array([c.close for c in snap.candles_1h], dtype=np.float64)
+
+            # 국면 분류
+            regime, aux = self.classify_regime(symbol, ind_1h, close_1h)
+
+            # Tier 확인
+            tier_params = self._profiler.get_tier(symbol)
+
+            # Layer 1 환경 필터
+            l1_pass, l1_reason = self._check_layer1(regime, snap, ind_15m, tier_params)
+            if not l1_pass:
+                continue
+
+            # 해당 국면에서 허용되는 전략들 점수 계산
+            allowed = REGIME_STRATEGY_MAP.get(regime, [])
+            best_signal = self._evaluate_strategies(
+                symbol, snap, regime, aux, tier_params,
+                allowed, ind_15m, ind_1h,
+            )
+            if best_signal:
+                signals.append(best_signal)
+
+        return signals
+
+    def _evaluate_strategies(
+        self,
+        symbol: str,
+        snap: MarketSnapshot,
+        regime: Regime,
+        aux: AuxFlags,
+        tier_params: TierParams,
+        allowed: list[Strategy],
+        ind_15m: IndicatorPack,
+        ind_1h: IndicatorPack,
+    ) -> Signal | None:
+        """허용된 전략들의 점수를 계산하고 최고점 신호를 반환한다."""
+        results: list[ScoreResult] = []
+
+        for strat in allowed:
+            if strat == Strategy.TREND_FOLLOW:
+                sr = self._score_strategy_a(ind_15m, ind_1h)
+                # WEAK_UP이면 보수적 (점수 0.8배)
+                if regime == Regime.WEAK_UP:
+                    sr = ScoreResult(
+                        strategy=sr.strategy,
+                        score=sr.score * 0.8,
+                        detail=sr.detail,
+                    )
+                results.append(sr)
+
+            elif strat == Strategy.MEAN_REVERSION:
+                sr = self._score_strategy_b(ind_15m)
+                # DOWN_ACCEL이면 점수 0.4배
+                if aux.down_accel:
+                    sr = ScoreResult(
+                        strategy=sr.strategy,
+                        score=sr.score * 0.4,
+                        detail=sr.detail,
+                    )
+                # RANGE_VOLATILE이면 half
+                if aux.range_volatile and regime == Regime.RANGE:
+                    sr = ScoreResult(
+                        strategy=sr.strategy,
+                        score=sr.score * 0.5,
+                        detail=sr.detail,
+                    )
+                results.append(sr)
+
+            elif strat == Strategy.BREAKOUT:
+                # RANGE_VOLATILE + Tier3이면 스킵
+                if aux.range_volatile and tier_params.tier == Tier.TIER3:
+                    continue
+                sr = self._score_strategy_c(ind_15m, ind_1h, snap.candles_15m)
+                results.append(sr)
+
+            elif strat == Strategy.SCALPING:
+                sr = self._score_strategy_d(ind_15m, ind_1h, snap)
+                results.append(sr)
+
+        if not results:
+            return None
+
+        # 최고 점수 선택
+        best = max(results, key=lambda r: r.score)
+        decision = self._decide_size(best.strategy, best.score)
+        if decision == SizeDecision.HOLD:
+            return None
+
+        # SL/TP 계산
+        price = snap.current_price
+        if price <= 0:
+            return None
+
+        atr_val = self._last_valid(ind_15m.atr)
+        if np.isnan(atr_val) or atr_val <= 0:
+            atr_val = price * 0.02
+
+        sl_mult = tier_params.atr_stop_mult
+        if best.strategy == Strategy.SCALPING:
+            stop_loss = price * (1 - 0.008)  # 고정 0.8%
+            take_profit = price * (1 + 0.015)  # 고정 1.5%
+        elif best.strategy == Strategy.BREAKOUT:
+            stop_loss = price - atr_val * 3.0
+            take_profit = price + atr_val * 3.0 * 3  # R:R 3:1
+        elif best.strategy == Strategy.MEAN_REVERSION:
+            stop_loss = price - atr_val * 1.5
+            take_profit = price + atr_val * 1.5 * 1.2  # R:R 1.2:1
+        else:  # TREND_FOLLOW
+            stop_loss = price - atr_val * sl_mult
+            take_profit = price + atr_val * sl_mult * 2.5  # R:R 2.5:1
+
+        return Signal(
+            symbol=symbol,
+            direction=OrderSide.BUY,
+            strategy=best.strategy,
+            score=best.score,
+            regime=regime,
+            tier=tier_params.tier,
+            entry_price=price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            timestamp=int(time.time() * 1000),
+        )
+
+    # ─── 유틸 ───
+
+    @staticmethod
+    def _last_valid(arr: np.ndarray) -> float:
+        """배열에서 마지막 유효값을 반환한다."""
+        if arr is None or len(arr) == 0:
+            return 0.0
+        for i in range(len(arr) - 1, -1, -1):
+            if not np.isnan(arr[i]):
+                return float(arr[i])
+        return 0.0
+
+    def get_regime(self, symbol: str) -> Regime:
+        """코인의 현재 국면을 반환한다."""
+        state = self._regime_states.get(symbol)
+        return state.current if state else Regime.RANGE

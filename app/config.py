@@ -12,7 +12,6 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-
 # 프로젝트 루트
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -32,6 +32,57 @@ class Tier(int, Enum):
     TIER3 = 3
 
 
+class Strategy(str, Enum):
+    """전략 유형."""
+
+    TREND_FOLLOW = "trend_follow"
+    MEAN_REVERSION = "mean_reversion"
+    BREAKOUT = "breakout"
+    SCALPING = "scalping"
+    DCA = "dca"
+
+
+class Pool(str, Enum):
+    """자금 풀 유형."""
+
+    ACTIVE = "active"
+    CORE = "core"
+    RESERVE = "reserve"
+
+
+class OrderStatus(str, Enum):
+    """주문 상태."""
+
+    NEW = "NEW"
+    PLACED = "PLACED"
+    PARTIAL = "PARTIAL"
+    FILLED = "FILLED"
+    CANCELED = "CANCELED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+
+
+class OrderSide(str, Enum):
+    """주문 방향."""
+
+    BUY = "bid"
+    SELL = "ask"
+
+
+class ExitReason(str, Enum):
+    """청산 사유."""
+
+    TP = "tp"
+    SL = "sl"
+    TRAILING = "trailing"
+    TIME = "time"
+    REGIME = "regime"
+    MANUAL = "manual"
+    CRISIS = "crisis"
+    DEMOTION = "demotion"
+
+
 @dataclass
 class Candle:
     """캔들 데이터."""
@@ -59,3 +110,107 @@ class Ticker:
     units_traded_24h: float
     fluctate_24h: float
     fluctate_rate_24h: float
+
+
+@dataclass
+class OrderbookEntry:
+    """호가 항목."""
+
+    price: float
+    quantity: float
+
+
+@dataclass
+class Orderbook:
+    """호가창 데이터."""
+
+    timestamp: int
+    bids: list[OrderbookEntry] = field(default_factory=list)
+    asks: list[OrderbookEntry] = field(default_factory=list)
+
+    @property
+    def best_bid(self) -> float:
+        """최우선 매수 호가."""
+        return self.bids[0].price if self.bids else 0.0
+
+    @property
+    def best_ask(self) -> float:
+        """최우선 매도 호가."""
+        return self.asks[0].price if self.asks else 0.0
+
+    @property
+    def spread_pct(self) -> float:
+        """스프레드 비율."""
+        if self.best_bid <= 0:
+            return 0.0
+        return (self.best_ask - self.best_bid) / self.best_bid
+
+
+@dataclass
+class MarketSnapshot:
+    """시장 스냅샷."""
+
+    symbol: str
+    current_price: float
+    candles_5m: list[Candle] = field(default_factory=list)
+    candles_15m: list[Candle] = field(default_factory=list)
+    candles_1h: list[Candle] = field(default_factory=list)
+    orderbook: Orderbook | None = None
+    ticker: Ticker | None = None
+
+
+@dataclass
+class Signal:
+    """매매 신호."""
+
+    symbol: str
+    direction: OrderSide
+    strategy: Strategy
+    score: float
+    regime: Regime
+    tier: Tier
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    timestamp: int = 0
+
+
+@dataclass
+class Position:
+    """포지션 정보."""
+
+    symbol: str
+    entry_price: float
+    entry_time: int
+    size_krw: float
+    qty: float
+    stop_loss: float
+    take_profit: float
+    strategy: Strategy
+    pool: Pool
+    tier: Tier
+    regime: Regime = Regime.RANGE
+    promoted: bool = False
+    entry_score: float = 0.0
+    signal_price: float = 0.0
+    entry_fee_krw: float = 0.0
+    order_id: str = ""
+
+
+@dataclass
+class OrderTicket:
+    """주문 티켓."""
+
+    ticket_id: str
+    symbol: str
+    side: OrderSide
+    price: float
+    qty: float
+    status: OrderStatus = OrderStatus.NEW
+    exchange_order_id: str = ""
+    filled_qty: float = 0.0
+    filled_price: float = 0.0
+    created_at: int = 0
+    updated_at: int = 0
+    retry_count: int = 0
+    error_msg: str = ""
