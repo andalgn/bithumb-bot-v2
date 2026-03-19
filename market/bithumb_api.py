@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import ssl
 import time
 import urllib.parse
 from typing import Any
@@ -64,7 +65,14 @@ class BithumbClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """세션을 가져오거나 생성한다."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=self._timeout)
+            # VPN 환경 SSL 인증서 문제 대응
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, connector=connector
+            )
         return self._session
 
     async def close(self) -> None:

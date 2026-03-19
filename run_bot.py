@@ -22,6 +22,8 @@ logging.basicConfig(
         logging.FileHandler("data/bot.log", encoding="utf-8"),
     ],
 )
+# 전략 엔진 디버그 로그 활성화 (국면/점수 상세)
+logging.getLogger("strategy.rule_engine").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 

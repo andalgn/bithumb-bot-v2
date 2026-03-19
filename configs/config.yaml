@@ -3,6 +3,7 @@
 
 run_mode: DRY  # DRY | PAPER | LIVE
 cycle_interval_sec: 900  # 15분
+paper_test: false  # 임시 RSI 테스트 전략 (true = 활성화)
 
 # 대상 코인
 coins:

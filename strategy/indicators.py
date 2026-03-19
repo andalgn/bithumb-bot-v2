@@ -145,7 +145,8 @@ def calc_rsi(close: NDArray, period: int = 14) -> NDArray:
     avg_gain = _wilder_smooth(gains, period)
     avg_loss = _wilder_smooth(losses, period)
 
-    rs = np.where(avg_loss != 0, avg_gain / avg_loss, 100.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = np.where(avg_loss != 0, avg_gain / avg_loss, 100.0)
     rsi = 100.0 - 100.0 / (1.0 + rs)
 
     # delta보다 close가 1개 더 많으므로 앞에 nan 추가
@@ -246,12 +247,14 @@ def calc_adx(
     sm_minus_dm = _wilder_smooth(minus_dm, period)
 
     # +DI, -DI
-    di_plus = np.where(sm_tr != 0, 100.0 * sm_plus_dm / sm_tr, 0.0)
-    di_minus = np.where(sm_tr != 0, 100.0 * sm_minus_dm / sm_tr, 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        di_plus = np.where(sm_tr != 0, 100.0 * sm_plus_dm / sm_tr, 0.0)
+        di_minus = np.where(sm_tr != 0, 100.0 * sm_minus_dm / sm_tr, 0.0)
 
     # DX
     di_sum = di_plus + di_minus
-    dx = np.where(di_sum != 0, 100.0 * np.abs(di_plus - di_minus) / di_sum, 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dx = np.where(di_sum != 0, 100.0 * np.abs(di_plus - di_minus) / di_sum, 0.0)
 
     # ADX = Wilder smoothing of DX (nan 구간 건너뛰기)
     # dx에서 첫 유효값 인덱스 찾기

@@ -139,3 +139,37 @@
 - 테스트 20개 파일, 181개 테스트 전체 통과
 - `ruff check .` 오류 없음
 - DRY 모드 Phase 6 실행 성공 (2.7초)
+
+### Phase 2 감사 및 보완 (2026-03-19 22:00~)
+**구현 개선:**
+- `strategy/rule_engine.py`:
+  - 전략 B BB 점수: RSI 프록시 → 실제 BB 하단밴드 이탈/복귀 확인으로 개선
+  - 전략 C 거래량: OBV 간접 → `_score_volume_direct()` 실제 캔들 volume 비교
+  - 전략 E (DCA) 신규 구현: Tier1 확인(30점) + RSI 과매도(25점) + EMA200 이하(25점) + Z-score(20점)
+  - 국면별 전략 매핑에 DCA 추가: WEAK_DOWN + CRISIS → DCA 허용
+  - CRISIS 국면에서 Layer 1 우회 (DCA만 예외 허용)
+- `app/main.py`:
+  - 네트워크 장애 텔레그램 알림 (연속 2회 실패 시 + 복구 알림)
+  - 시그널 발생/미발생 로깅 추가
+  - 체결/청산 텔레그램 알림 추가
+  - 포지션 app_state.json 영속화 (재시작 시 복원)
+  - `_close_position` 동기→비동기 전환
+  - `paper_test` 모드 플래그 지원
+
+**PAPER 테스트 파이프라인 검증 완료:**
+- 시그널 → RiskGate → 사이징 → 가상 체결 ✅
+- journal.db 거래 기록 ✅ (RENDER -67원, -0.99%, SL 발동)
+- 포지션 보유 → SL 충족 → 가상 청산 ✅
+- 텔레그램 체결/청산 알림 ✅
+
+**테스트 확장 (86→213개):**
+- CRISIS 즉시 진입 + 6봉 해제 테스트
+- 보조 플래그 타입/하락가속 테스트
+- 전략 C/D/E 점수 상세 키 + 범위 테스트
+- Layer 1 필터: CRISIS 차단, 정상 통과, 스프레드 초과
+- 국면별 전략 매핑 5개 케이스
+- generate_signals: 복수 코인, 필수 필드, paper_test 모드
+- 거래량 직접 비교 (높음/낮음)
+- 컷오프 경계값 전수 테스트
+
+**검증:** 213 passed, ruff clean

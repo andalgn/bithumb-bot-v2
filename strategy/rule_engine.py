@@ -34,8 +34,8 @@ REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
     Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.SCALPING],
     Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
     Regime.RANGE: [Strategy.MEAN_REVERSION, Strategy.BREAKOUT],
-    Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION],
-    Regime.CRISIS: [],  # 전량 청산만
+    Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],
+    Regime.CRISIS: [Strategy.DCA],
 }
 
 # 국면별 포지션 배수
@@ -284,14 +284,14 @@ class RuleEngine:
         if regime == Regime.CRISIS:
             return False, "L1: CRISIS 국면"
 
-        # 2. 거래량 >= 20봉 평균 × 0.8
-        if len(ind_15m.obv) > 20:
+        # 2. 거래량 >= 20봉 평균 × 0.8 (마지막 완성봉 기준)
+        if snap.candles_15m and len(snap.candles_15m) >= 22:
             volumes = np.array([c.volume for c in snap.candles_15m])
-            if len(volumes) >= 20:
-                avg_vol = float(np.mean(volumes[-20:]))
-                current_vol = volumes[-1] if len(volumes) > 0 else 0
-                if avg_vol > 0 and current_vol < avg_vol * 0.8:
-                    return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
+            # 마지막 봉은 미완성일 수 있으므로 -2번째 사용
+            avg_vol = float(np.mean(volumes[-22:-2]))
+            current_vol = float(volumes[-2])
+            if avg_vol > 0 and current_vol < avg_vol * 0.8:
+                return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
 
         # 3. 스프레드 < Tier별 한도
         if snap.orderbook:
@@ -375,7 +375,7 @@ class RuleEngine:
         return ScoreResult(strategy=Strategy.TREND_FOLLOW, score=score, detail=detail)
 
     def _score_strategy_b(
-        self, ind_15m: IndicatorPack
+        self, ind_15m: IndicatorPack, candles_15m: list | None = None,
     ) -> ScoreResult:
         """전략 B 반전포착 점수를 계산한다."""
         detail: dict[str, float] = {}
@@ -398,18 +398,29 @@ class RuleEngine:
         else:
             detail["rsi_bounce"] = 0.0
 
-        # BB 위치 (25점): 하단밴드 이탈 후 복귀
-        if ind_15m.bb:
+        # BB 위치 (25점): 하단밴드 이탈 후 복귀 (실제 close vs BB lower)
+        if ind_15m.bb and candles_15m and len(candles_15m) >= 5:
             lower = ind_15m.bb.lower
-            if len(lower) >= 3:
-                # 간소화: 현재 RSI < 35이면 BB 반등 가능성 높음
-                curr_rsi = self._last_valid(ind_15m.rsi)
-                if curr_rsi < 40:
-                    detail["bb_position"] = 25.0
-                    score += 25.0
-                elif curr_rsi < 50:
-                    detail["bb_position"] = 12.0
-                    score += 12.0
+            n = min(len(candles_15m), len(lower))
+            if n >= 5:
+                closes = np.array([c.close for c in candles_15m[-n:]])
+                bb_lower = lower[-n:]
+                # 최근 5봉 내 close < BB lower 이탈 확인
+                valid_mask = ~np.isnan(bb_lower[-5:])
+                if np.any(valid_mask):
+                    was_below = bool(np.any(
+                        closes[-5:-1][valid_mask[:-1]]
+                        < bb_lower[-5:-1][valid_mask[:-1]]
+                    )) if np.any(valid_mask[:-1]) else False
+                    curr_above = not np.isnan(bb_lower[-1]) and closes[-1] >= bb_lower[-1]
+                    if was_below and curr_above:
+                        detail["bb_position"] = 25.0
+                        score += 25.0
+                    elif was_below:
+                        detail["bb_position"] = 12.0
+                        score += 12.0
+                    else:
+                        detail["bb_position"] = 0.0
                 else:
                     detail["bb_position"] = 0.0
             else:
@@ -459,8 +470,10 @@ class RuleEngine:
         else:
             detail["breakout"] = 0.0
 
-        # 거래량 (30점): 돌파봉 거래량 > 평균 2배
-        detail["volume"] = self._score_volume(ind_15m, threshold=2.0, max_pts=30.0)
+        # 거래량 (30점): 돌파봉 거래량 > 평균 2배 (실제 캔들 volume)
+        detail["volume"] = self._score_volume_direct(
+            candles_15m, threshold=2.0, max_pts=30.0,
+        )
         score += detail["volume"]
 
         # ATR 확대 (20점): 현재 ATR > 14봉 ATR 평균 × 1.3
@@ -552,6 +565,84 @@ class RuleEngine:
             return max_pts * 0.5
         return 0.0
 
+    def _score_strategy_e(
+        self, ind_1h: IndicatorPack, symbol: str,
+        current_price: float = 0.0,
+    ) -> ScoreResult:
+        """전략 E DCA 매집 점수를 계산한다.
+
+        Tier 1 코인(BTC, ETH)만 대상. CRISIS/WEAK_DOWN 국면.
+        """
+        detail: dict[str, float] = {}
+        score = 0.0
+
+        # Tier 1 확인 (30점): BTC 또는 ETH
+        tier = self._profiler.get_tier(symbol)
+        if tier.tier == Tier.TIER1:
+            detail["tier1"] = 30.0
+            score += 30.0
+        else:
+            detail["tier1"] = 0.0
+            return ScoreResult(strategy=Strategy.DCA, score=0, detail=detail)
+
+        # RSI 위치 (25점): RSI < 35 (과매도 매집 적기)
+        rsi = self._last_valid(ind_1h.rsi)
+        if rsi < 30:
+            detail["rsi_oversold"] = 25.0
+            score += 25.0
+        elif rsi < 35:
+            detail["rsi_oversold"] = 15.0
+            score += 15.0
+        else:
+            detail["rsi_oversold"] = 0.0
+
+        # 장기 EMA 관계 (25점): 가격이 EMA200 이하 (저평가)
+        ema200 = self._last_valid(ind_1h.ema200)
+        if ema200 > 0:
+            close = current_price if current_price > 0 else self._last_valid(ind_1h.ema20)
+            if close > 0 and close < ema200 * 0.95:
+                detail["below_ema200"] = 25.0
+                score += 25.0
+            elif close > 0 and close < ema200:
+                detail["below_ema200"] = 12.0
+                score += 12.0
+            else:
+                detail["below_ema200"] = 0.0
+        else:
+            detail["below_ema200"] = 0.0
+
+        # Z-score (20점): -1.5 이하
+        zscore = self._last_valid(ind_1h.zscore)
+        if zscore <= -2.0:
+            detail["zscore"] = 20.0
+            score += 20.0
+        elif zscore <= -1.5:
+            detail["zscore"] = 10.0
+            score += 10.0
+        else:
+            detail["zscore"] = 0.0
+
+        return ScoreResult(strategy=Strategy.DCA, score=score, detail=detail)
+
+    @staticmethod
+    def _score_volume_direct(
+        candles: list, threshold: float, max_pts: float
+    ) -> float:
+        """실제 캔들 거래량을 직접 비교하여 점수를 계산한다.
+
+        마지막 완성봉(-2)을 기준으로 평가한다.
+        """
+        if len(candles) < 22:
+            return 0.0
+        volumes = np.array([c.volume for c in candles])
+        avg_vol = float(np.mean(volumes[-22:-2]))
+        curr_vol = float(volumes[-2])  # 마지막 완성봉
+        if avg_vol > 0 and curr_vol > avg_vol * threshold:
+            return max_pts
+        if avg_vol > 0 and curr_vol > avg_vol:
+            return max_pts * 0.5
+        return 0.0
+
     # ═══════════════════════════════════════════
     # 컷오프 판정
     # ═══════════════════════════════════════════
@@ -589,16 +680,21 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def generate_signals(
-        self, snapshots: dict[str, MarketSnapshot]
+        self, snapshots: dict[str, MarketSnapshot],
+        paper_test: bool = False,
     ) -> list[Signal]:
         """스냅샷에서 매매 신호를 생성한다.
 
         Args:
             snapshots: 코인별 MarketSnapshot.
+            paper_test: True이면 임시 RSI 테스트 전략 사용.
 
         Returns:
             Signal 리스트.
         """
+        if paper_test:
+            return self._generate_test_signals(snapshots)
+
         signals: list[Signal] = []
 
         for symbol, snap in snapshots.items():
@@ -618,13 +714,27 @@ class RuleEngine:
             # Tier 확인
             tier_params = self._profiler.get_tier(symbol)
 
-            # Layer 1 환경 필터
+            # 국면/Tier 로깅 (4사이클마다)
+            rsi_15m = self._last_valid(ind_15m.rsi)
+            logger.debug(
+                "%s 국면=%s Tier=%d RSI=%.1f 가격=%.0f%s%s",
+                symbol, regime.value, tier_params.tier.value, rsi_15m,
+                snap.current_price,
+                " [RV]" if aux.range_volatile else "",
+                " [DA]" if aux.down_accel else "",
+            )
+
+            # 해당 국면에서 허용되는 전략들
+            allowed = REGIME_STRATEGY_MAP.get(regime, [])
+
+            # Layer 1 환경 필터 (CRISIS에서 DCA만 예외 허용)
             l1_pass, l1_reason = self._check_layer1(regime, snap, ind_15m, tier_params)
             if not l1_pass:
-                continue
-
-            # 해당 국면에서 허용되는 전략들 점수 계산
-            allowed = REGIME_STRATEGY_MAP.get(regime, [])
+                if regime == Regime.CRISIS and Strategy.DCA in allowed:
+                    allowed = [Strategy.DCA]
+                else:
+                    logger.debug("%s L1 거부: %s", symbol, l1_reason)
+                    continue
             best_signal = self._evaluate_strategies(
                 symbol, snap, regime, aux, tier_params,
                 allowed, ind_15m, ind_1h,
@@ -661,7 +771,7 @@ class RuleEngine:
                 results.append(sr)
 
             elif strat == Strategy.MEAN_REVERSION:
-                sr = self._score_strategy_b(ind_15m)
+                sr = self._score_strategy_b(ind_15m, snap.candles_15m)
                 # DOWN_ACCEL이면 점수 0.4배
                 if aux.down_accel:
                     sr = ScoreResult(
@@ -689,13 +799,28 @@ class RuleEngine:
                 sr = self._score_strategy_d(ind_15m, ind_1h, snap)
                 results.append(sr)
 
+            elif strat == Strategy.DCA:
+                sr = self._score_strategy_e(ind_1h, symbol, snap.current_price)
+                results.append(sr)
+
         if not results:
             return None
+
+        # 전략별 점수 로깅
+        for sr in results:
+            logger.debug(
+                "%s 전략=%s 점수=%.0f %s",
+                symbol, sr.strategy.value, sr.score, sr.detail,
+            )
 
         # 최고 점수 선택
         best = max(results, key=lambda r: r.score)
         decision = self._decide_size(best.strategy, best.score)
         if decision == SizeDecision.HOLD:
+            logger.debug(
+                "%s HOLD: %s %.0f점 (컷오프 미달)",
+                symbol, best.strategy.value, best.score,
+            )
             return None
 
         # SL/TP 계산
@@ -750,3 +875,57 @@ class RuleEngine:
         """코인의 현재 국면을 반환한다."""
         state = self._regime_states.get(symbol)
         return state.current if state else Regime.RANGE
+
+    # ═══════════════════════════════════════════
+    # PAPER 테스트용 간단 RSI 전략
+    # ═══════════════════════════════════════════
+
+    def _generate_test_signals(
+        self, snapshots: dict[str, MarketSnapshot],
+    ) -> list[Signal]:
+        """PAPER 테스트용 RSI 기반 간단 시그널을 생성한다.
+
+        RSI < 45이면 매수 시그널. SL -0.3%, TP +0.5%.
+        최대 3개 시그널만 반환 (가장 낮은 RSI 순).
+        """
+        candidates: list[tuple[float, Signal]] = []
+
+        for symbol, snap in snapshots.items():
+            if not snap.candles_15m or len(snap.candles_15m) < 30:
+                continue
+            price = snap.current_price
+            if price <= 0:
+                continue
+
+            ind_15m = compute_indicators(snap.candles_15m)
+            rsi = self._last_valid(ind_15m.rsi)
+            if rsi <= 0 or np.isnan(rsi):
+                continue
+
+            if rsi < 45:
+                atr = self._last_valid(ind_15m.atr)
+                if atr <= 0 or np.isnan(atr):
+                    atr = price * 0.01
+
+                tier = self._profiler.get_tier(symbol).tier
+                signal = Signal(
+                    symbol=symbol,
+                    direction=OrderSide.BUY,
+                    strategy=Strategy.MEAN_REVERSION,
+                    score=75.0,
+                    regime=Regime.RANGE,
+                    tier=tier,
+                    entry_price=price,
+                    stop_loss=price * 0.997,   # -0.3%
+                    take_profit=price * 1.005,  # +0.5%
+                    timestamp=int(time.time() * 1000),
+                )
+                candidates.append((rsi, signal))
+                logger.info(
+                    "[TEST] %s RSI=%.1f 가격=%.0f → 시그널 후보",
+                    symbol, rsi, price,
+                )
+
+        # RSI 낮은 순으로 최대 3개
+        candidates.sort(key=lambda x: x[0])
+        return [sig for _, sig in candidates[:3]]

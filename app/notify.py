@@ -1,15 +1,25 @@
 """텔레그램 알림 모듈.
 
 aiohttp 기반 비동기 전송. 실패 시 로그만 남기고 봇을 중단하지 않는다.
+VPN 환경의 SSL 인증서 문제 대응 포함.
 """
 
 from __future__ import annotations
 
 import logging
+import ssl
 
 import aiohttp
 
 logger = logging.getLogger(__name__)
+
+
+def _make_ssl_context() -> ssl.SSLContext:
+    """VPN 환경에서 자체서명 인증서를 허용하는 SSL 컨텍스트를 생성한다."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 class TelegramNotifier:
@@ -29,6 +39,7 @@ class TelegramNotifier:
         self._chat_id = chat_id
         self._timeout = aiohttp.ClientTimeout(total=timeout_sec)
         self._url = self.BASE_URL.format(token=token)
+        self._ssl_ctx = _make_ssl_context()
 
     async def send(self, text: str, parse_mode: str = "HTML") -> bool:
         """메시지를 전송한다.
@@ -41,7 +52,7 @@ class TelegramNotifier:
             전송 성공 여부.
         """
         if not self._token or not self._chat_id:
-            logger.warning("텔레그램 토큰 또는 chat_id가 설정되지 않음 — 알림 건너뜀")
+            logger.warning("텔레그램 토큰 또는 chat_id가 설정되지 않음")
             return False
 
         payload = {
@@ -51,7 +62,10 @@ class TelegramNotifier:
         }
 
         try:
-            async with aiohttp.ClientSession(timeout=self._timeout) as session:
+            connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
+            async with aiohttp.ClientSession(
+                timeout=self._timeout, connector=connector
+            ) as session:
                 async with session.post(self._url, json=payload) as resp:
                     if resp.status == 200:
                         logger.info("텔레그램 메시지 전송 성공")

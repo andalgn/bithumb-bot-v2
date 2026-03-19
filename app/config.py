@@ -165,6 +165,7 @@ class AppConfig:
 
     run_mode: str = "DRY"
     cycle_interval_sec: int = 900
+    paper_test: bool = False
     coins: list[str] = field(default_factory=list)
     sizing: SizingConfig = field(default_factory=SizingConfig)
     score_cutoff: ScoreCutoffConfig = field(default_factory=ScoreCutoffConfig)
@@ -282,6 +283,7 @@ def load_config(
     return AppConfig(
         run_mode=run_mode,
         cycle_interval_sec=raw.get("cycle_interval_sec", 900),
+        paper_test=raw.get("paper_test", False),
         coins=raw.get("coins", []),
         sizing=_build_sizing(raw.get("sizing", {})),
         score_cutoff=_build_score_cutoff(raw.get("score_cutoff", {})),
