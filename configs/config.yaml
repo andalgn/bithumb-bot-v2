@@ -1,27 +1,20 @@
-# Bithumb Auto Trading Bot v2 — 통합 설정
-# docs/PARAMS.md 기반
-
-run_mode: DRY  # DRY | PAPER | LIVE
-cycle_interval_sec: 900  # 15분
-paper_test: false  # 임시 RSI 테스트 전략 (true = 활성화)
-
-# 대상 코인
+run_mode: DRY
+cycle_interval_sec: 900
+paper_test: false
 coins:
-  - BTC
-  - ETH
-  - XRP
-  - SOL
-  - RENDER
-  - VIRTUAL
-  - EIGEN
-  - ONDO
-  - TAO
-  - LDO
-
-# 사이징
+- BTC
+- ETH
+- XRP
+- SOL
+- RENDER
+- VIRTUAL
+- EIGEN
+- ONDO
+- TAO
+- LDO
 sizing:
   active_risk_pct: 0.03
-  core_risk_pct: 0.10
+  core_risk_pct: 0.1
   reserve_risk_pct: 0.05
   dca_core_pct: 0.04
   pool_cap_pct: 0.25
@@ -31,43 +24,40 @@ sizing:
   vol_target_mult_max: 1.5
   defense_mult_min: 0.3
   defense_mult_max: 1.0
-
-# 점수 컷오프 (v2: 상향 조정 — 진입 품질 향상)
 score_cutoff:
-  group1:  # 전략 A, B
+  group1:
     full: 75
     probe_min: 60
     probe_max: 74
-  group2:  # 전략 C, D
+  group2:
     full: 80
     probe_min: 65
     probe_max: 79
-  group3:  # 전략 E (DCA)
+  group3:
     full: 75
     probe_min: 68
     probe_max: 74
   high_bonus:
     plus10_mult: 1.15
     plus20_mult: 1.25
-
-# 국면 분류
 regime:
-  ema_periods: [20, 50, 200]
+  ema_periods:
+  - 20
+  - 50
+  - 200
   adx_period: 14
   strong_up_adx: 25
   weak_up_adx: 20
   crisis_atr_mult: 2.5
-  crisis_24h_drop: -0.10
+  crisis_24h_drop: -0.1
   transition_confirm_bars: 3
   transition_cooldown_bars: 6
   crisis_release_bars: 6
   aux_flag_confirm_bars: 2
-
-# 전략별 SL/TP 파라미터
 strategy_params:
   trend_follow:
-    sl_mult: 2.0
-    tp_rr: 2.5
+    sl_mult: 1.0
+    tp_rr: 3.5
   mean_reversion:
     sl_mult: 1.5
     tp_rr: 2.0
@@ -80,8 +70,6 @@ strategy_params:
   dca:
     sl_pct: 0.03
     tp_pct: 0.05
-
-# 승격
 promotion:
   profit_pct: 0.012
   profit_hold_bars: 2
@@ -92,14 +80,12 @@ promotion:
   dca_profit_min: 0.02
   dca_max_per_position: 1
   re_promotion_verify_bars: 6
-
-# RiskGate
 risk_gate:
   daily_dd_pct: 0.04
   weekly_dd_pct: 0.08
   monthly_dd_pct: 0.12
-  total_dd_pct: 0.20
-  max_exposure_pct: 0.90
+  total_dd_pct: 0.2
+  max_exposure_pct: 0.9
   coin_quarantine_failures: 3
   coin_quarantine_sec: 120
   global_quarantine_failures: 8
@@ -107,8 +93,6 @@ risk_gate:
   auth_error_quarantine_sec: 600
   consecutive_loss_limit: 5
   cooldown_min: 60
-
-# 체결
 execution:
   order_timeout_sec: 30
   retry_count: 3
@@ -116,8 +100,8 @@ execution:
   price_deviation_pct: 0.003
   slippage:
     tier1: 0.0005
-    tier2: 0.0010
-    tier3: 0.0020
+    tier2: 0.001
+    tier3: 0.002
   spread_limit:
     tier1: 0.0018
     tier2: 0.0025
@@ -126,69 +110,68 @@ execution:
     tier1: 5
     tier2: 3
     tier3: 2
-
-# Darwinian
 darwinian:
   shadow_count_min: 20
   shadow_count_max: 30
   shadow_groups:
-    conservative: {start: 1, end: 7, variation_pct: 0.10}
-    moderate: {start: 8, end: 15, variation_pct: 0.20}
-    innovative: {start: 16, end: 30, variation_pct: null}
+    conservative:
+      start: 1
+      end: 7
+      variation_pct: 0.1
+    moderate:
+      start: 8
+      end: 15
+      variation_pct: 0.2
+    innovative:
+      start: 16
+      end: 30
+      variation_pct: null
   tournament_top_survive: 5
   champion_change_max_per_month: 1
   champion_cooldown_days: 14
   composite_weights:
-    expectancy: 0.30
-    profit_factor: 0.20
-    mdd: 0.20
-    sharpe: 0.20
-    execution_quality: 0.10
+    expectancy: 0.3
+    profit_factor: 0.2
+    mdd: 0.2
+    sharpe: 0.2
+    execution_quality: 0.1
   regime_change_freeze_hours: 48
   mutation_rsi_delta: 3
   mutation_atr_delta: 0.3
-
-# 상관관계
 correlation:
-  calc_time: "00:00"
+  calc_time: 00:00
   rolling_days: 20
   skip_threshold: 0.85
-  reduce_threshold_min: 0.70
+  reduce_threshold_min: 0.7
   reduce_threshold_max: 0.85
   reduce_mult: 0.5
-
-# 백테스트
 backtest:
   walk_forward:
-    time: "00:30"
+    time: 00:30
     data_days: 30
     slide_days: 7
     segments: 4
     pass_all: 4
     pass_good: 3
-    overfit_diff_pct: 0.50
+    overfit_diff_pct: 0.5
   monte_carlo:
-    time: "01:00"
+    time: 01:00
     day: sunday
     iterations: 1000
     safe_percentile_pnl_positive: true
-    danger_mdd_pct: 0.20
+    danger_mdd_pct: 0.2
   sensitivity:
-    time: "01:30"
+    time: 01:30
     day: sunday
-    variation_pct: 0.10
+    variation_pct: 0.1
     steps: 5
     robust_cv: 0.1
     warning_cv: 0.3
-
-# 데이터 축적
 market_store:
   candle_5m_retention_days: 180
-  candle_15m_retention_days: -1  # 영구
-  candle_1h_retention_days: -1   # 영구
+  candle_15m_retention_days: -1
+  candle_1h_retention_days: -1
   orderbook_retention_days: 90
-
-# Tier 분류
 tier:
   tier1:
     atr_pct_max: 0.03
@@ -209,8 +192,6 @@ tier:
     rsi_min: 25
     rsi_max: 75
     atr_stop_mult: 1.5
-
-# LIVE 승인 기준
 live_gate:
   paper_days: 28
   min_trades: 120
@@ -218,16 +199,12 @@ live_gate:
   max_daily_dd_pct: 0.035
   min_uptime_pct: 0.99
   slippage_error_pct: 0.25
-
-# 빗썸 API
 bithumb:
   base_url: https://api.bithumb.com
-  public_rate_limit: 15  # 초당
-  private_rate_limit: 10  # 초당
+  public_rate_limit: 15
+  private_rate_limit: 10
   min_order_krw: 5000
   max_candle_count: 1000
-
-# 텔레그램
 telegram:
   timeout_sec: 5
   parse_mode: HTML
