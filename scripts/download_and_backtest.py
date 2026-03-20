@@ -454,6 +454,7 @@ async def main() -> None:
 
     finally:
         await client.close()
+        await notifier.close()
         store.close()
 
 
