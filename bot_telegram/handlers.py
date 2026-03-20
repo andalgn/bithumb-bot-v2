@@ -34,6 +34,7 @@ class TelegramHandler:
         "/pause": "봇 일시 중지",
         "/resume": "봇 재개",
         "/close": "수동 청산 (/close BTC)",
+        "/restore_params": "LIVE risk_pct 정상화",
         "/help": "명령어 목록",
     }
 
@@ -136,6 +137,7 @@ class TelegramHandler:
             "/pause": self._cmd_pause,
             "/resume": self._cmd_resume,
             "/close": lambda: self._cmd_close(args),
+            "/restore_params": self._cmd_restore_params,
             "/help": self._cmd_help,
         }
 
@@ -283,9 +285,20 @@ class TelegramHandler:
         await self._reply("봇 일시 중지됨 (신규 진입 차단, 기존 포지션 관리 계속)")
 
     async def _cmd_resume(self) -> None:
-        """봇을 재개한다."""
+        """봇을 재개한다. LIVE 전환 시 risk_pct 50% 축소 적용."""
         self._bot._paused = False
-        await self._reply("봇 재개됨 (신규 진입 허용)")
+        self._bot._live_risk_reduction = True
+        self._bot._live_start_time = time.time()
+        await self._reply(
+            "<b>봇 재개</b>\n"
+            "LIVE 전환 시 risk_pct 50% 축소 적용됨\n"
+            "7일 후 자동 해제 또는 /restore_params로 수동 해제"
+        )
+
+    async def _cmd_restore_params(self) -> None:
+        """LIVE risk_pct 축소를 수동 해제한다."""
+        self._bot._live_risk_reduction = False
+        await self._reply("<b>파라미터 복원 완료</b>\nrisk_pct 정상화")
 
     async def _cmd_close(self, args: list[str]) -> None:
         """특정 코인을 수동 청산한다."""

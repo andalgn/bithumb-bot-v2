@@ -188,6 +188,10 @@ class TradingBot:
         self._paused = False
         self._bot_start_time = time.time()
 
+        # LIVE 전환 risk_pct 50% 축소
+        self._live_risk_reduction = False
+        self._live_start_time: float = 0.0
+
         # 네트워크 장애 추적
         self._consecutive_data_failures = 0
         self._data_failure_alert_threshold = 2  # 연속 2회 실패 시 알림
@@ -262,6 +266,10 @@ class TradingBot:
             "pm_consecutive_losses", 0,
         )
 
+        # LIVE risk_pct 축소 상태 복원
+        self._live_risk_reduction = self._storage.get("live_risk_reduction", False)
+        self._live_start_time = self._storage.get("live_start_time", 0.0)
+
     def _save_state(self) -> None:
         """현재 상태를 저장한다."""
         self._storage.set("dd_limits", self._dd_limits.dump_state())
@@ -307,6 +315,10 @@ class TradingBot:
         self._storage.set(
             "pm_consecutive_losses", self._position_manager._consecutive_losses,
         )
+
+        # LIVE risk_pct 축소 상태 영속화
+        self._storage.set("live_risk_reduction", self._live_risk_reduction)
+        self._storage.set("live_start_time", self._live_start_time)
 
         self._storage.save()
 
@@ -538,6 +550,17 @@ class TradingBot:
                     weekly_dd_pct=weekly_dd,
                     candles_1h=snapshots[signal.symbol].candles_1h,
                 )
+
+            # LIVE 전환 첫 7일: risk_pct 50% 축소
+            if self._live_risk_reduction and sizing.size_krw > 0:
+                sizing = SizingResult(
+                    pool=sizing.pool,
+                    size_krw=sizing.size_krw * 0.5,
+                    detail={**sizing.detail, "live_reduction": 0.5},
+                )
+                if time.time() - self._live_start_time > 7 * 86400:
+                    self._live_risk_reduction = False
+                    logger.info("LIVE risk_pct 축소 자동 해제 (7일 경과)")
 
             if sizing.size_krw <= 0:
                 logger.info(
