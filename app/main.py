@@ -18,6 +18,7 @@ from app.journal import Journal
 from app.notify import TelegramNotifier
 from app.storage import StateStorage
 from backtesting.daemon import BacktestDaemon
+from bot_telegram.handlers import TelegramHandler
 from execution.order_manager import OrderManager
 from execution.partial_exit import ExitAction, PartialExitManager
 from execution.quarantine import QuarantineManager
@@ -182,6 +183,10 @@ class TradingBot:
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
+
+        # 텔레그램 핸들러 / 일시 중지 / 시작 시간
+        self._paused = False
+        self._bot_start_time = time.time()
 
         # 네트워크 장애 추적
         self._consecutive_data_failures = 0
@@ -448,9 +453,13 @@ class TradingBot:
                     await self._close_position(symbol, price, "crisis")
 
         # 7. 신호 생성
-        signals = self._rule_engine.generate_signals(
-            snapshots, paper_test=self._paper_test,
-        )
+        if self._paused:
+            logger.info("봇 일시 중지 중 — 신규 진입 스킵")
+            signals = []
+        else:
+            signals = self._rule_engine.generate_signals(
+                snapshots, paper_test=self._paper_test,
+            )
         if signals:
             for sig in signals:
                 logger.info(
@@ -818,6 +827,16 @@ class TradingBot:
             f"사이클: {self._cycle_interval}초"
         )
 
+        # 텔레그램 명령어 핸들러 시작
+        self._telegram_handler = TelegramHandler(
+            token=self._config.secrets.telegram_bot_token,
+            chat_id=self._config.secrets.telegram_chat_id,
+            bot=self,
+        )
+        self._telegram_task = asyncio.create_task(
+            self._telegram_handler.start_polling(),
+        )
+
         # BacktestDaemon 백그라운드 시작
         self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
         self._daemon_task.add_done_callback(_on_daemon_done)
@@ -838,6 +857,8 @@ class TradingBot:
     async def stop(self) -> None:
         """봇을 중지한다."""
         self._running = False
+        if hasattr(self, "_telegram_handler"):
+            await self._telegram_handler.stop()
         await self._backtest_daemon.stop()
         self._save_state()
         await self._client.close()
