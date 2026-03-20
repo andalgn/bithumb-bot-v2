@@ -27,17 +27,20 @@ logging.getLogger("strategy.rule_engine").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-async def run_bot(once: bool = False) -> None:
+async def run_bot(once: bool = False, mode_override: str | None = None) -> None:
     """봇을 실행한다.
 
     Args:
         once: True이면 사이클 1회 실행 후 종료.
+        mode_override: CLI에서 지정한 운영 모드 오버라이드.
     """
     config = load_config()
+    if mode_override:
+        config.run_mode = mode_override
     bot = TradingBot(config)
 
     # 종료 신호 핸들러
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
     def _shutdown(*_: object) -> None:
@@ -89,7 +92,7 @@ def main() -> None:
     Path("data").mkdir(exist_ok=True)
 
     logger.info("Bithumb Auto Trading Bot v2 시작")
-    asyncio.run(run_bot(once=args.once))
+    asyncio.run(run_bot(once=args.once, mode_override=args.mode))
 
 
 if __name__ == "__main__":
