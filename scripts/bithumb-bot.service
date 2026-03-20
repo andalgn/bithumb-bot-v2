@@ -1,0 +1,30 @@
+[Unit]
+Description=Bithumb Auto Trading Bot v2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=byjune
+Group=byjune
+WorkingDirectory=/home/byjune/bithumb-bot-v2
+ExecStart=/home/byjune/bithumb-bot-v2/venv/bin/python run_bot.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# 로그
+StandardOutput=append:/home/byjune/bithumb-bot-v2/data/bot_stdout.log
+StandardError=append:/home/byjune/bithumb-bot-v2/data/bot_stderr.log
+
+# 리소스 제한
+MemoryMax=2G
+CPUQuota=80%
+
+# 보안
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/byjune/bithumb-bot-v2/data
+
+[Install]
+WantedBy=multi-user.target
