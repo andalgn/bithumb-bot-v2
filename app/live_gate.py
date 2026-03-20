@@ -1,6 +1,6 @@
 """LIVE 승인 자동 검증 모듈.
 
-LIVE_GATE.md 기반 9개 조건 자동 체크.
+LIVE_GATE.md 기반 10개 조건 자동 체크.
 """
 
 from __future__ import annotations

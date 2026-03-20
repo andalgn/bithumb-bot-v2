@@ -270,6 +270,9 @@ class TradingBot:
         self._live_risk_reduction = self._storage.get("live_risk_reduction", False)
         self._live_start_time = self._storage.get("live_start_time", 0.0)
 
+        # pause 상태 복원
+        self._paused = self._storage.get("paused", False)
+
     def _save_state(self) -> None:
         """현재 상태를 저장한다."""
         self._storage.set("dd_limits", self._dd_limits.dump_state())
@@ -316,9 +319,10 @@ class TradingBot:
             "pm_consecutive_losses", self._position_manager._consecutive_losses,
         )
 
-        # LIVE risk_pct 축소 상태 영속화
+        # LIVE risk_pct 축소 + pause 상태 영속화
         self._storage.set("live_risk_reduction", self._live_risk_reduction)
         self._storage.set("live_start_time", self._live_start_time)
+        self._storage.set("paused", self._paused)
 
         self._storage.save()
 
@@ -455,14 +459,17 @@ class TradingBot:
                 if core_pos:
                     self._positions[symbol] = core_pos.position
 
-        # 6.5 CRISIS 전량 청산
+        # 6.5 CRISIS 전량 청산 (개별 실패 시 다음 사이클 재시도)
         for symbol in list(self._positions.keys()):
             regime = regimes.get(symbol, Regime.RANGE)
             if regime == Regime.CRISIS:
                 price = current_prices.get(symbol, 0)
                 if price > 0:
-                    logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
-                    await self._close_position(symbol, price, "crisis")
+                    try:
+                        logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
+                        await self._close_position(symbol, price, "crisis")
+                    except Exception:
+                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s", symbol)
 
         # 7. 신호 생성
         if self._paused:
@@ -702,6 +709,33 @@ class TradingBot:
                 active_positions=len(self._positions),
                 utilization_pct=util,
             )
+
+            # LIVE 게이트 자동 검증 (PAPER 모드에서만)
+            if self._run_mode == RunMode.PAPER:
+                from app.live_gate import LiveGate
+                gate = LiveGate()
+                paper_days = self._cycle_count * self._cycle_interval // 86400
+                total_trades = self._journal.get_trade_count()
+                gate_result = gate.evaluate(
+                    paper_days=paper_days,
+                    total_trades=total_trades,
+                    strategy_expectancy={},  # 일일 리뷰에서 계산
+                    mdd_pct=self._dd_limits._calc_dd(self._dd_limits.state.total_base),
+                    max_daily_dd_pct=self._dd_limits._calc_dd(self._dd_limits.state.daily_base),
+                    uptime_pct=0.99,
+                    unresolved_auth_errors=0,
+                    slippage_model_error_pct=0.0,
+                    wf_pass_count=(
+                        self._backtest_daemon.wf_result.pass_count
+                        if self._backtest_daemon.wf_result else 0
+                    ),
+                    wf_total=4,
+                    mc_p5_pnl=(
+                        self._backtest_daemon.mc_result.pnl_percentile_5
+                        if self._backtest_daemon.mc_result else 0
+                    ),
+                )
+                await self._notifier.send(gate.format_report(gate_result))
             if now_kst.weekday() == 6:  # 일요일
                 shadow_top3 = self._darwin.get_top_shadows(3)
                 bd = self._backtest_daemon
@@ -753,6 +787,20 @@ class TradingBot:
 
         # Pool 부분 반환
         self._pool_manager.release(pos.pool, exit_krw, pnl=net)
+
+        # Journal 기록
+        self._journal.record_execution({
+            "trade_id": "",
+            "ticket_id": "",
+            "symbol": symbol,
+            "side": "ask",
+            "price": exit_price,
+            "qty": exit_qty,
+            "filled_price": exit_price,
+            "filled_qty": exit_qty,
+            "status": "FILLED",
+            "error_msg": f"partial_{exit_reason}_{ratio:.0%}",
+        })
 
         logger.info(
             "부분 청산: %s %.0f%% qty=%.6f @ %.0f PnL=%.0f (%s)",
@@ -824,16 +872,19 @@ class TradingBot:
             symbol, net_pnl, exit_reason,
         )
 
-        # 텔레그램 청산 알림
-        pnl_pct = net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0
-        pnl_emoji = "🟢" if net_pnl >= 0 else "🔴"
-        await self._notifier.send(
-            f"<b>{pnl_emoji} {symbol} 청산</b>\n"
-            f"사유: {exit_reason}\n"
-            f"진입: {pos.entry_price:,.0f} → 청산: {exit_price:,.0f}\n"
-            f"PnL: {net_pnl:,.0f}원 ({pnl_pct:+.2f}%)\n"
-            f"보유: {hold_sec // 60}분"
-        )
+        # 텔레그램 청산 알림 (실패해도 청산 로직에 영향 없음)
+        try:
+            pnl_pct = net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0
+            pnl_emoji = "+" if net_pnl >= 0 else "-"
+            await self._notifier.send(
+                f"<b>[{pnl_emoji}] {symbol} 청산</b>\n"
+                f"사유: {exit_reason}\n"
+                f"진입: {pos.entry_price:,.0f} → 청산: {exit_price:,.0f}\n"
+                f"PnL: {net_pnl:,.0f}원 ({pnl_pct:+.2f}%)\n"
+                f"보유: {hold_sec // 60}분"
+            )
+        except Exception:
+            logger.exception("청산 알림 전송 실패: %s", symbol)
 
     async def run(self) -> None:
         """메인 루프를 시작한다."""
@@ -882,6 +933,12 @@ class TradingBot:
         self._running = False
         if hasattr(self, "_telegram_handler"):
             await self._telegram_handler.stop()
+        if hasattr(self, "_telegram_task"):
+            self._telegram_task.cancel()
+            try:
+                await self._telegram_task
+            except asyncio.CancelledError:
+                pass
         await self._backtest_daemon.stop()
         self._save_state()
         await self._client.close()

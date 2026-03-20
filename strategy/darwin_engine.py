@@ -234,13 +234,22 @@ class DarwinEngine:
                 self._open_positions[sid] = {}
             open_pos = self._open_positions[sid]
 
-            # 1. 기존 오픈 포지션 평가 (이전 사이클 진입분)
+            # 1. 기존 오픈 포지션 평가 (SL/TP 기반 exit)
             for sym in list(open_pos.keys()):
                 snap = snapshots.get(sym)
                 if not snap or snap.current_price <= 0:
                     continue
-                entry = open_pos[sym]
-                raw_pnl = (snap.current_price - entry) / entry
+                entry, sl, tp = open_pos[sym]
+                price = snap.current_price
+
+                # SL/TP 도달 여부 확인
+                hit_sl = price <= sl
+                hit_tp = price >= tp
+                if not hit_sl and not hit_tp:
+                    continue  # 보유 유지
+
+                exit_price = sl if hit_sl else tp
+                raw_pnl = (exit_price - entry) / entry
                 slippage = SLIPPAGE_BY_TIER.get(Tier.TIER1, 0.001)
                 virtual_pnl = raw_pnl - (FEE_PCT + slippage * 2)
 
@@ -267,7 +276,9 @@ class DarwinEngine:
                 self._trades.append(trade)
 
                 if would_enter and signal.entry_price > 0:
-                    open_pos[signal.symbol] = signal.entry_price
+                    open_pos[signal.symbol] = (
+                        signal.entry_price, signal.stop_loss, signal.take_profit,
+                    )
                     if self._journal:
                         self._journal.record_shadow_trade({
                             "shadow_id": trade.shadow_id,

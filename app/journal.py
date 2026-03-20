@@ -263,6 +263,11 @@ class Journal:
         )
         self._conn.commit()
 
+    def get_trade_count(self) -> int:
+        """전체 거래 수를 반환한다."""
+        row = self._conn.execute("SELECT COUNT(*) FROM trades").fetchone()
+        return row[0] if row else 0
+
     def get_recent_trades(
         self, strategy: str = "", limit: int = 50
     ) -> list[dict]:

@@ -10,9 +10,13 @@ import asyncio
 import logging
 import signal
 import sys
+from pathlib import Path as _Path
 
 from app.config import load_config
 from app.main import TradingBot
+
+# data 디렉토리 생성 (FileHandler보다 먼저)
+_Path("data").mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,9 +91,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # data 디렉토리 생성
-    from pathlib import Path
-    Path("data").mkdir(exist_ok=True)
+
 
     logger.info("Bithumb Auto Trading Bot v2 시작")
     asyncio.run(run_bot(once=args.once, mode_override=args.mode))

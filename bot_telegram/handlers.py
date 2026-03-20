@@ -32,7 +32,8 @@ class TelegramHandler:
         "/regime": "국면 분류",
         "/pnl": "PnL 요약",
         "/pause": "봇 일시 중지",
-        "/resume": "봇 재개",
+        "/resume": "봇 재개 (pause 해제)",
+        "/golive": "LIVE 모드 전환 (risk 50% 축소 7일)",
         "/close": "수동 청산 (/close BTC)",
         "/restore_params": "LIVE risk_pct 정상화",
         "/help": "명령어 목록",
@@ -136,6 +137,7 @@ class TelegramHandler:
             "/pnl": self._cmd_pnl,
             "/pause": self._cmd_pause,
             "/resume": self._cmd_resume,
+            "/golive": self._cmd_golive,
             "/close": lambda: self._cmd_close(args),
             "/restore_params": self._cmd_restore_params,
             "/help": self._cmd_help,
@@ -285,14 +287,22 @@ class TelegramHandler:
         await self._reply("봇 일시 중지됨 (신규 진입 차단, 기존 포지션 관리 계속)")
 
     async def _cmd_resume(self) -> None:
-        """봇을 재개한다. LIVE 전환 시 risk_pct 50% 축소 적용."""
+        """봇을 재개한다 (pause 해제만, LIVE 전환은 /golive)."""
+        self._bot._paused = False
+        await self._reply("<b>봇 재개</b>\n신규 진입 허용됨")
+
+    async def _cmd_golive(self) -> None:
+        """LIVE 모드로 전환한다 (risk_pct 50% 축소 7일)."""
+        from app.data_types import RunMode
+        self._bot._config.run_mode = "LIVE"
+        self._bot._run_mode = RunMode.LIVE
         self._bot._paused = False
         self._bot._live_risk_reduction = True
         self._bot._live_start_time = time.time()
         await self._reply(
-            "<b>봇 재개</b>\n"
-            "LIVE 전환 시 risk_pct 50% 축소 적용됨\n"
-            "7일 후 자동 해제 또는 /restore_params로 수동 해제"
+            "<b>LIVE 모드 전환</b>\n"
+            "risk_pct 50% 축소 적용 (7일)\n"
+            "/restore_params로 수동 해제 가능"
         )
 
     async def _cmd_restore_params(self) -> None:
@@ -321,9 +331,14 @@ class TelegramHandler:
             return
 
         pos = self._bot._positions[matched_sym]
-        # 현재가는 entry_price로 대체 (실시간 조회 어려움)
-        # 실제 청산 시 order_manager가 시장가 처리
-        exit_price = pos.entry_price
+        # 현재가 조회 (ticker API)
+        try:
+            ticker = await self._bot._client.get_ticker(matched_sym)
+            exit_price = float(ticker.get("closing_price", 0))
+        except Exception:
+            exit_price = 0
+        if exit_price <= 0:
+            exit_price = pos.entry_price  # fallback
 
         await self._bot._close_position(matched_sym, exit_price, "manual")
         await self._reply(f"{matched_sym} 수동 청산 요청 완료")
