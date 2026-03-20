@@ -122,6 +122,14 @@ class Journal:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS backtest_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_type TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                details TEXT,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trade_id TEXT,
@@ -215,6 +223,19 @@ class Journal:
                (event_type, priority, symbol, detail, created_at)
                VALUES (?, ?, ?, ?, ?)""",
             (event_type, priority, symbol, detail, now),
+        )
+        self._conn.commit()
+
+    def record_shadow_trade(self, data: dict[str, Any]) -> None:
+        """Shadow 거래를 기록한다."""
+        now = int(time.time() * 1000)
+        self._conn.execute(
+            """INSERT INTO shadow_trades
+               (shadow_id, symbol, strategy, params_json, would_enter, signal_score, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (data["shadow_id"], data["symbol"], data["strategy"],
+             data.get("params_json", ""), data.get("would_enter", 0),
+             data.get("signal_score", 0), now),
         )
         self._conn.commit()
 

@@ -167,7 +167,7 @@ class TradingBot:
         self._exit_manager = PartialExitManager()
 
         # Phase 5: Darwin + BacktestDaemon
-        self._darwin = DarwinEngine(population_size=20)
+        self._darwin = DarwinEngine(population_size=20, journal=self._journal)
         self._backtest_daemon = BacktestDaemon(
             journal=self._journal, notifier=self._notifier,
         )
@@ -438,6 +438,15 @@ class TradingBot:
                 if core_pos:
                     self._positions[symbol] = core_pos.position
 
+        # 6.5 CRISIS 전량 청산
+        for symbol in list(self._positions.keys()):
+            regime = regimes.get(symbol, Regime.RANGE)
+            if regime == Regime.CRISIS:
+                price = current_prices.get(symbol, 0)
+                if price > 0:
+                    logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
+                    await self._close_position(symbol, price, "crisis")
+
         # 7. 신호 생성
         signals = self._rule_engine.generate_signals(
             snapshots, paper_test=self._paper_test,
@@ -670,6 +679,10 @@ class TradingBot:
                     mc_p5=bd.mc_result.pnl_percentile_5 if bd.mc_result else 0,
                     mc_mdd=bd.mc_result.worst_mdd if bd.mc_result else 0,
                 )
+
+            # 월 1일 00:00~00:15 KST: 월간 심층 리뷰
+            if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
+                await self._review_engine.run_monthly_review()
 
         # 12. 상태 저장
         self._save_state()

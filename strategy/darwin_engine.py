@@ -7,13 +7,19 @@ DARWINIAN_SPEC.md 기반.
 from __future__ import annotations
 
 import copy
+import dataclasses
+import json
 import logging
 import random
 import time
 import uuid
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.data_types import MarketSnapshot, Signal, Tier
+
+if TYPE_CHECKING:
+    from app.journal import Journal
 
 logger = logging.getLogger(__name__)
 
@@ -136,15 +142,18 @@ class DarwinEngine:
         self,
         population_size: int = 20,
         champion_params: ShadowParams | None = None,
+        journal: Journal | None = None,
     ) -> None:
         """초기화.
 
         Args:
             population_size: Shadow 개수 (20~30).
             champion_params: 챔피언 파라미터. None이면 기본값.
+            journal: 거래 기록 저장소. Shadow 거래 기록용.
         """
         self._pop_size = population_size
         self._champion = champion_params or ShadowParams(shadow_id="champion")
+        self._journal = journal
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
@@ -259,6 +268,15 @@ class DarwinEngine:
 
                 if would_enter and signal.entry_price > 0:
                     open_pos[signal.symbol] = signal.entry_price
+                    if self._journal:
+                        self._journal.record_shadow_trade({
+                            "shadow_id": trade.shadow_id,
+                            "symbol": trade.symbol,
+                            "strategy": trade.strategy,
+                            "params_json": json.dumps(dataclasses.asdict(shadow)),
+                            "would_enter": 1,
+                            "signal_score": trade.signal_score,
+                        })
 
                 count += 1
 
