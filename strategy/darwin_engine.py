@@ -242,9 +242,9 @@ class DarwinEngine:
                 entry, sl, tp = open_pos[sym]
                 price = snap.current_price
 
-                # SL/TP 도달 여부 확인
-                hit_sl = price <= sl
-                hit_tp = price >= tp
+                # SL/TP 도달 여부 확인 (0이면 미설정 → 무시)
+                hit_sl = sl > 0 and price <= sl
+                hit_tp = tp > 0 and price >= tp
                 if not hit_sl and not hit_tp:
                     continue  # 보유 유지
 

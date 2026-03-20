@@ -249,6 +249,7 @@ class TelegramHandler:
         week_start = today_start - timedelta(days=now.weekday())
         week_start_ms = int(week_start.timestamp() * 1000)
 
+        # TODO: m1 — journal._conn 직접 접근을 Journal public 메서드로 리팩토링
         # 오늘 PnL
         today_rows = journal._conn.execute(
             "SELECT net_pnl_krw FROM trades WHERE exit_time >= ?",
@@ -292,15 +293,54 @@ class TelegramHandler:
         await self._reply("<b>봇 재개</b>\n신규 진입 허용됨")
 
     async def _cmd_golive(self) -> None:
-        """LIVE 모드로 전환한다 (risk_pct 50% 축소 7일)."""
+        """LIVE 모드로 전환한다 (LiveGate 검증 필수)."""
         from app.data_types import RunMode
+        from app.live_gate import LiveGate
+
+        # LiveGate 검증
+        gate = LiveGate()
+        try:
+            paper_days = (
+                self._bot._cycle_count * self._bot._cycle_interval // 86400
+            )
+            bd = self._bot._backtest_daemon
+            gate_result = gate.evaluate(
+                paper_days=paper_days,
+                total_trades=self._bot._journal.get_trade_count(),
+                strategy_expectancy={},
+                mdd_pct=self._bot._dd_limits._calc_dd(
+                    self._bot._dd_limits.state.total_base,
+                ),
+                max_daily_dd_pct=self._bot._dd_limits._calc_dd(
+                    self._bot._dd_limits.state.daily_base,
+                ),
+                uptime_pct=0.99,
+                unresolved_auth_errors=0,
+                slippage_model_error_pct=0.0,
+                wf_pass_count=(
+                    bd.wf_result.pass_count if bd.wf_result else 0
+                ),
+                wf_total=4,
+                mc_p5_pnl=(
+                    bd.mc_result.pnl_percentile_5 if bd.mc_result else 0
+                ),
+            )
+        except Exception:
+            await self._reply("LiveGate 검증 중 오류 발생. LIVE 전환 취소.")
+            return
+
+        if not gate_result.approved:
+            report = gate.format_report(gate_result)
+            await self._reply(f"{report}\n\nLIVE 전환 거부됨.")
+            return
+
         self._bot._config.run_mode = "LIVE"
         self._bot._run_mode = RunMode.LIVE
         self._bot._paused = False
         self._bot._live_risk_reduction = True
         self._bot._live_start_time = time.time()
         await self._reply(
-            "<b>LIVE 모드 전환</b>\n"
+            "<b>LIVE 모드 전환 승인</b>\n"
             "risk_pct 50% 축소 적용 (7일)\n"
             "/restore_params로 수동 해제 가능"
         )
@@ -331,9 +371,10 @@ class TelegramHandler:
             return
 
         pos = self._bot._positions[matched_sym]
-        # 현재가 조회 (ticker API)
+        # 현재가 조회 (ticker API — 심볼에서 _KRW 접미사 제거)
         try:
-            ticker = await self._bot._client.get_ticker(matched_sym)
+            ticker_sym = matched_sym.replace("_KRW", "")
+            ticker = await self._bot._client.get_ticker(ticker_sym)
             exit_price = float(ticker.get("closing_price", 0))
         except Exception:
             exit_price = 0

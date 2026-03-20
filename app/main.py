@@ -460,6 +460,7 @@ class TradingBot:
                     self._positions[symbol] = core_pos.position
 
         # 6.5 CRISIS 전량 청산 (개별 실패 시 다음 사이클 재시도)
+        crisis_failed: set[str] = set()
         for symbol in list(self._positions.keys()):
             regime = regimes.get(symbol, Regime.RANGE)
             if regime == Regime.CRISIS:
@@ -470,6 +471,7 @@ class TradingBot:
                         await self._close_position(symbol, price, "crisis")
                     except Exception:
                         logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s", symbol)
+                        crisis_failed.add(symbol)
 
         # 7. 신호 생성
         if self._paused:
@@ -638,6 +640,9 @@ class TradingBot:
         # 9. 포지션 관리: 부분청산/트레일링/시간 제한
         now_ms = int(time.time() * 1000)
         for symbol in list(self._positions.keys()):
+            # CRISIS 청산 실패한 포지션은 일반 exit 스킵 (exit_reason 왜곡 방지)
+            if symbol in crisis_failed:
+                continue
             pos = self._positions[symbol]
             price = current_prices.get(symbol, 0)
             if price <= 0:

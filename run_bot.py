@@ -15,7 +15,7 @@ from pathlib import Path as _Path
 from app.config import load_config
 from app.main import TradingBot
 
-# data 디렉토리 생성 (FileHandler보다 먼저)
+# TODO: m2 — nssm CWD 불일치 시 __file__ 기준 절대 경로로 변경
 _Path("data").mkdir(exist_ok=True)
 
 logging.basicConfig(
