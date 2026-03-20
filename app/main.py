@@ -139,6 +139,7 @@ class TradingBot:
             score_cutoff=config.score_cutoff,
             regime_config=config.regime,
             execution_config=config.execution,
+            strategy_params=config.strategy_params,
         )
 
         # Phase 3: Pool + Position + Promotion

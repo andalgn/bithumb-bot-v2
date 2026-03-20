@@ -106,6 +106,7 @@ class RuleEngine:
         score_cutoff: object | None = None,
         regime_config: object | None = None,
         execution_config: object | None = None,
+        strategy_params: dict | None = None,
     ) -> None:
         """초기화.
 
@@ -114,11 +115,13 @@ class RuleEngine:
             score_cutoff: ScoreCutoffConfig.
             regime_config: RegimeConfig.
             execution_config: ExecutionConfig.
+            strategy_params: 전략별 SL/TP 파라미터.
         """
         self._profiler = profiler or CoinProfiler()
         self._score_cutoff = score_cutoff
         self._regime_config = regime_config
         self._exec_config = execution_config
+        self._strategy_params = strategy_params or {}
         self._regime_states: dict[str, RegimeState] = {}
 
     def _get_regime_state(self, symbol: str) -> RegimeState:
@@ -862,26 +865,21 @@ class RuleEngine:
 
         # Tier별 SL 최대 비율 상한
         max_sl_pct = {Tier.TIER1: 0.015, Tier.TIER2: 0.025, Tier.TIER3: 0.035}
+        sp = self._strategy_params.get(best.strategy.value, {})
         sl_cap = price * max_sl_pct.get(tier_params.tier, 0.025)
 
         if best.strategy == Strategy.SCALPING:
-            stop_loss = price * (1 - 0.008)   # 고정 0.8%
-            take_profit = price * (1 + 0.015)  # 고정 1.5%, R:R ~1.9:1
-        elif best.strategy == Strategy.BREAKOUT:
-            sl_dist = min(atr_val * 2.0, sl_cap)
-            take_profit = price + sl_dist * 3  # R:R 3:1
-            stop_loss = price - sl_dist
-        elif best.strategy == Strategy.MEAN_REVERSION:
-            sl_dist = min(atr_val * 1.5, sl_cap)
-            take_profit = price + sl_dist * 2.0  # R:R 2.0:1
-            stop_loss = price - sl_dist
+            stop_loss = price * (1 - sp.get("sl_pct", 0.008))
+            take_profit = price * (1 + sp.get("tp_pct", 0.015))
         elif best.strategy == Strategy.DCA:
-            stop_loss = price * (1 - 0.03)     # 고정 -3%
-            take_profit = price * (1 + 0.05)   # 고정 +5%, R:R ~1.7:1
-        else:  # TREND_FOLLOW
-            sl_dist = min(atr_val * sl_mult, sl_cap)
-            take_profit = price + sl_dist * 2.5  # R:R 2.5:1
+            stop_loss = price * (1 - sp.get("sl_pct", 0.03))
+            take_profit = price * (1 + sp.get("tp_pct", 0.05))
+        else:
+            sl_m = sp.get("sl_mult", sl_mult)
+            tp_r = sp.get("tp_rr", 2.5)
+            sl_dist = min(atr_val * sl_m, sl_cap)
             stop_loss = price - sl_dist
+            take_profit = price + sl_dist * tp_r
 
         return Signal(
             symbol=symbol,

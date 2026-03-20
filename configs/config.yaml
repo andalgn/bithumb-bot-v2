@@ -63,6 +63,24 @@ regime:
   crisis_release_bars: 6
   aux_flag_confirm_bars: 2
 
+# 전략별 SL/TP 파라미터
+strategy_params:
+  trend_follow:
+    sl_mult: 2.0
+    tp_rr: 2.5
+  mean_reversion:
+    sl_mult: 1.5
+    tp_rr: 2.0
+  breakout:
+    sl_mult: 2.0
+    tp_rr: 3.0
+  scalping:
+    sl_pct: 0.008
+    tp_pct: 0.015
+  dca:
+    sl_pct: 0.03
+    tp_pct: 0.05
+
 # 승격
 promotion:
   profit_pct: 0.012

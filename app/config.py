@@ -176,6 +176,7 @@ class AppConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     bithumb: BithumbConfig = field(default_factory=BithumbConfig)
     secrets: EnvSecrets = field(default_factory=EnvSecrets)
+    strategy_params: dict = field(default_factory=dict)
 
 
 def _load_env() -> EnvSecrets:
@@ -302,4 +303,5 @@ def load_config(
             **{k: v for k, v in raw.get("bithumb", {}).items() if v is not None}
         ),
         secrets=secrets,
+        strategy_params=raw.get("strategy_params", {}),
     )
