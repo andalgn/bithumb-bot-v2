@@ -62,10 +62,14 @@ class TestShadowRecord:
         assert count > 0
 
     def test_performance_updated(self, engine: DarwinEngine) -> None:
-        """성과 업데이트 확인."""
+        """성과 업데이트 확인 (2사이클: 진입 → 평가)."""
         signals = [_make_signal(score=90)]
         snapshots = {"BTC": _make_snapshot(price=51_000_000)}
+        # 사이클 1: 가상 진입
         engine.record_cycle(snapshots, signals)
+        # 사이클 2: 가격 변동 후 평가
+        snapshots2 = {"BTC": _make_snapshot(price=52_000_000)}
+        engine.record_cycle(snapshots2, [])
 
         # 최소 1개 Shadow에서 trade_count > 0
         has_trades = any(

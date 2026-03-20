@@ -96,6 +96,8 @@ class ReviewEngine:
         self._deepseek_url = deepseek_base_url
         self._backtester = Backtester()
         self._adjustments: list[Adjustment] = []
+        self._risk_gate: object | None = None  # 외부에서 주입
+        self._rule_engine: object | None = None  # 외부에서 주입
         self._last_daily: str = ""
         self._last_weekly: str = ""
 
@@ -238,6 +240,10 @@ class ReviewEngine:
                 }
                 adjustments.append(adj)
                 logger.info("조정: %s 24시간 쿨다운 (%s)", coin, adj["reason"])
+
+                # 실제 적용: RiskGate 쿨다운 타이머 설정
+                if self._risk_gate and hasattr(self._risk_gate, "record_entry"):
+                    self._risk_gate.record_entry(coin)
 
         return adjustments
 

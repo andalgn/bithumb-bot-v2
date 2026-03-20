@@ -171,6 +171,10 @@ class PoolManager:
         dst.allocated += amount
         dst.position_count += 1
 
+        # total_balance도 이동 (잔액 정합성)
+        src.total_balance = max(0.0, src.total_balance - amount)
+        dst.total_balance += amount
+
         logger.info(
             "Pool 이관: %s→%s, 금액=%.0f",
             from_pool.value, to_pool.value, amount,

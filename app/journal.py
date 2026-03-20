@@ -17,6 +17,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 RETENTION_DAYS = 90
+TRADES_RETENTION_DAYS = 365  # trades는 1년 보관
 DAY_MS = 86400 * 1000
 
 
@@ -31,7 +32,7 @@ class Journal:
         """
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._db_path))
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
@@ -285,6 +286,15 @@ class Journal:
                 (cutoff,),
             )
             total += cursor.rowcount
+
+        # trades는 1년 보관
+        trades_cutoff = int(time.time() * 1000) - TRADES_RETENTION_DAYS * DAY_MS
+        cursor = self._conn.execute(
+            "DELETE FROM trades WHERE created_at < ?",
+            (trades_cutoff,),
+        )
+        total += cursor.rowcount
+
         self._conn.commit()
         if total > 0:
             logger.info("Journal 정리: %d건 삭제", total)

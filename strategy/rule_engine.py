@@ -311,7 +311,8 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def _score_strategy_a(
-        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack
+        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack,
+        candles_15m: list | None = None,
     ) -> ScoreResult:
         """전략 A 추세추종 점수를 계산한다."""
         detail: dict[str, float] = {}
@@ -347,8 +348,13 @@ class RuleEngine:
         else:
             detail["macd"] = 0.0
 
-        # 거래량 (20점): 20봉 평균의 1.5배 이상
-        detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
+        # 거래량 (20점): 20봉 평균의 1.5배 이상 (실제 캔들 volume)
+        if candles_15m:
+            detail["volume"] = self._score_volume_direct(
+                candles_15m, threshold=1.5, max_pts=20.0,
+            )
+        else:
+            detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
         score += detail["volume"]
 
         # RSI 위치 (15점): 40~60 범위 (풀백 구간)
@@ -576,9 +582,9 @@ class RuleEngine:
         detail: dict[str, float] = {}
         score = 0.0
 
-        # Tier 1 확인 (30점): BTC 또는 ETH
-        tier = self._profiler.get_tier(symbol)
-        if tier.tier == Tier.TIER1:
+        # DCA 대상 확인 (30점): BTC 또는 ETH만 허용
+        dca_eligible = symbol in ("BTC", "ETH")
+        if dca_eligible:
             detail["tier1"] = 30.0
             score += 30.0
         else:
@@ -758,9 +764,12 @@ class RuleEngine:
         """허용된 전략들의 점수를 계산하고 최고점 신호를 반환한다."""
         results: list[ScoreResult] = []
 
+        # 대형 코인(BTC) 보수적 점수 조정 배수
+        large_cap_penalty = 0.75 if symbol == "BTC" else 1.0
+
         for strat in allowed:
             if strat == Strategy.TREND_FOLLOW:
-                sr = self._score_strategy_a(ind_15m, ind_1h)
+                sr = self._score_strategy_a(ind_15m, ind_1h, snap.candles_15m)
                 # WEAK_UP이면 보수적 (점수 0.8배)
                 if regime == Regime.WEAK_UP:
                     sr = ScoreResult(
@@ -768,9 +777,19 @@ class RuleEngine:
                         score=sr.score * 0.8,
                         detail=sr.detail,
                     )
+                # BTC는 추세추종 점수 0.75배 (높은 컷오프 요구)
+                if large_cap_penalty < 1.0:
+                    sr = ScoreResult(
+                        strategy=sr.strategy,
+                        score=sr.score * large_cap_penalty,
+                        detail=sr.detail,
+                    )
                 results.append(sr)
 
             elif strat == Strategy.MEAN_REVERSION:
+                # BTC는 반전포착 제외 (백테스트 0% 승률)
+                if symbol == "BTC":
+                    continue
                 sr = self._score_strategy_b(ind_15m, snap.candles_15m)
                 # DOWN_ACCEL이면 점수 0.4배
                 if aux.down_accel:
@@ -793,6 +812,13 @@ class RuleEngine:
                 if aux.range_volatile and tier_params.tier == Tier.TIER3:
                     continue
                 sr = self._score_strategy_c(ind_15m, ind_1h, snap.candles_15m)
+                # BTC 보수적 조정
+                if large_cap_penalty < 1.0:
+                    sr = ScoreResult(
+                        strategy=sr.strategy,
+                        score=sr.score * large_cap_penalty,
+                        detail=sr.detail,
+                    )
                 results.append(sr)
 
             elif strat == Strategy.SCALPING:
@@ -833,18 +859,29 @@ class RuleEngine:
             atr_val = price * 0.02
 
         sl_mult = tier_params.atr_stop_mult
+
+        # Tier별 SL 최대 비율 상한
+        max_sl_pct = {Tier.TIER1: 0.015, Tier.TIER2: 0.025, Tier.TIER3: 0.035}
+        sl_cap = price * max_sl_pct.get(tier_params.tier, 0.025)
+
         if best.strategy == Strategy.SCALPING:
-            stop_loss = price * (1 - 0.008)  # 고정 0.8%
-            take_profit = price * (1 + 0.015)  # 고정 1.5%
+            stop_loss = price * (1 - 0.008)   # 고정 0.8%
+            take_profit = price * (1 + 0.015)  # 고정 1.5%, R:R ~1.9:1
         elif best.strategy == Strategy.BREAKOUT:
-            stop_loss = price - atr_val * 3.0
-            take_profit = price + atr_val * 3.0 * 3  # R:R 3:1
+            sl_dist = min(atr_val * 2.0, sl_cap)
+            take_profit = price + sl_dist * 3  # R:R 3:1
+            stop_loss = price - sl_dist
         elif best.strategy == Strategy.MEAN_REVERSION:
-            stop_loss = price - atr_val * 1.5
-            take_profit = price + atr_val * 1.5 * 1.2  # R:R 1.2:1
+            sl_dist = min(atr_val * 1.5, sl_cap)
+            take_profit = price + sl_dist * 2.0  # R:R 2.0:1
+            stop_loss = price - sl_dist
+        elif best.strategy == Strategy.DCA:
+            stop_loss = price * (1 - 0.03)     # 고정 -3%
+            take_profit = price * (1 + 0.05)   # 고정 +5%, R:R ~1.7:1
         else:  # TREND_FOLLOW
-            stop_loss = price - atr_val * sl_mult
-            take_profit = price + atr_val * sl_mult * 2.5  # R:R 2.5:1
+            sl_dist = min(atr_val * sl_mult, sl_cap)
+            take_profit = price + sl_dist * 2.5  # R:R 2.5:1
+            stop_loss = price - sl_dist
 
         return Signal(
             symbol=symbol,

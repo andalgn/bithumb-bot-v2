@@ -145,8 +145,8 @@ class RiskGate:
         """
         is_buy = signal.direction == OrderSide.BUY
 
-        # P1: 인증 오류 격리
-        if self._quarantine.is_auth_quarantined():
+        # P1: 인증 오류 격리 (BUY만 차단, SELL은 항상 허용)
+        if is_buy and self._quarantine.is_auth_quarantined():
             return RiskCheckResult(
                 allowed=False,
                 reason="P1: 인증 오류 격리 중",

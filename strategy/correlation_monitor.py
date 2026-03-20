@@ -131,8 +131,9 @@ class CorrelationMonitor:
                 max_corr = corr
                 correlated_with = held_coin
 
-        # 판정
-        if max_corr >= self._skip:
+        # 판정 (절대값 기반: 역상관도 집중 리스크)
+        abs_corr = abs(max_corr)
+        if abs_corr >= self._skip:
             return CorrelationResult(
                 allowed=False,
                 size_mult=0.0,
@@ -144,7 +145,7 @@ class CorrelationMonitor:
                 correlated_with=correlated_with,
             )
 
-        if max_corr >= self._reduce_min:
+        if abs_corr >= self._reduce_min:
             return CorrelationResult(
                 allowed=True,
                 size_mult=self._reduce_mult,

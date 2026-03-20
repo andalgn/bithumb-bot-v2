@@ -25,6 +25,7 @@ from execution.reconciler import Reconciler
 from market.bithumb_api import BithumbClient
 from market.datafeed import DataFeed
 from market.market_store import MarketStore
+from market.normalizer import normalize_qty
 from risk.dd_limits import DDLimits
 from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
@@ -38,6 +39,15 @@ from strategy.review_engine import ReviewEngine
 from strategy.rule_engine import RuleEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _on_daemon_done(task: asyncio.Task) -> None:
+    """BacktestDaemon 태스크 종료 콜백."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("BacktestDaemon 비정상 종료: %s", exc, exc_info=exc)
 
 
 class TradingBot:
@@ -168,6 +178,7 @@ class TradingBot:
             notifier=self._notifier,
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
+        self._review_engine._risk_gate = self._risk_gate
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
@@ -228,6 +239,24 @@ class TradingBot:
             except (KeyError, ValueError, TypeError):
                 logger.exception("포지션 복원 실패: %s (스킵)", sym)
 
+        # RegimeState 복원
+        regime_data = self._storage.get("regime_states", {})
+        for sym, rd in regime_data.items():
+            try:
+                rs = self._rule_engine._get_regime_state(sym)
+                rs.current = Regime(rd["current"])
+                rs.pending = Regime(rd["pending"]) if rd.get("pending") else None
+                rs.confirm_count = rd.get("confirm_count", 0)
+                rs.cooldown_remaining = rd.get("cooldown_remaining", 0)
+                rs.crisis_release_count = rd.get("crisis_release_count", 0)
+            except (KeyError, ValueError):
+                pass
+
+        # PositionManager 연속 손실 복원
+        self._position_manager._consecutive_losses = self._storage.get(
+            "pm_consecutive_losses", 0,
+        )
+
     def _save_state(self) -> None:
         """현재 상태를 저장한다."""
         self._storage.set("dd_limits", self._dd_limits.dump_state())
@@ -256,6 +285,23 @@ class TradingBot:
                 "signal_price": pos.signal_price,
             }
         self._storage.set("positions", positions_data)
+
+        # RegimeState 영속화
+        regime_data = {}
+        for sym, rs in self._rule_engine._regime_states.items():
+            regime_data[sym] = {
+                "current": rs.current.value,
+                "pending": rs.pending.value if rs.pending else None,
+                "confirm_count": rs.confirm_count,
+                "cooldown_remaining": rs.cooldown_remaining,
+                "crisis_release_count": rs.crisis_release_count,
+            }
+        self._storage.set("regime_states", regime_data)
+
+        # PositionManager 연속 손실 카운터 영속화
+        self._storage.set(
+            "pm_consecutive_losses", self._position_manager._consecutive_losses,
+        )
 
         self._storage.save()
 
@@ -336,8 +382,13 @@ class TradingBot:
         if recon_result["synced"] > 0:
             logger.info("주문 동기화: %d건", recon_result["synced"])
 
-        # 5. 리스크 상태 업데이트
-        equity = self._dd_limits.state.current_equity
+        # 5. 리스크 상태 업데이트 (Pool 합계를 실제 equity로 사용)
+        equity = (
+            self._pool_manager.get_balance(Pool.CORE)
+            + self._pool_manager.get_balance(Pool.ACTIVE)
+            + self._pool_manager.get_balance(Pool.RESERVE)
+        )
+        self._dd_limits.update_equity(equity)
         self._pool_manager.update_equity(equity)
         self._risk_gate.update_state(self._pool_manager.total_exposure, equity)
 
@@ -489,7 +540,7 @@ class TradingBot:
 
             # 주문
             if signal.direction == OrderSide.BUY and signal.entry_price > 0:
-                qty = sizing.size_krw / signal.entry_price
+                qty = normalize_qty(signal.symbol, sizing.size_krw / signal.entry_price)
                 ticket = self._order_manager.create_ticket(
                     symbol=signal.symbol,
                     side=signal.direction,
@@ -509,7 +560,7 @@ class TradingBot:
                     stop_loss=signal.stop_loss,
                     take_profit=signal.take_profit,
                     strategy=signal.strategy,
-                    pool=Pool.ACTIVE,
+                    pool=alloc_pool,
                     tier=signal.tier,
                     regime=signal.regime,
                     entry_score=signal.score,
@@ -589,10 +640,8 @@ class TradingBot:
                 )
                 await self._close_position(symbol, price, decision.reason.value)
             else:
-                logger.info(
-                    "부분 청산: %s %.0f%% [%s] @ %.0f",
-                    symbol, decision.exit_ratio * 100,
-                    decision.detail, price,
+                await self._partial_close_position(
+                    symbol, price, decision.exit_ratio, decision.reason.value,
                 )
 
         # 10. 로그: 활용률
@@ -628,6 +677,47 @@ class TradingBot:
         elapsed = time.time() - cycle_start
         logger.info("사이클 #%d 완료 (%.1f초)", self._cycle_count, elapsed)
 
+    async def _partial_close_position(
+        self, symbol: str, exit_price: float, ratio: float, exit_reason: str,
+    ) -> None:
+        """포지션을 부분 청산한다."""
+        pos = self._positions.get(symbol)
+        if pos is None or ratio <= 0:
+            return
+
+        exit_qty = pos.qty * ratio
+        exit_krw = pos.size_krw * ratio
+
+        # 부분 매도 주문
+        if self._run_mode == RunMode.LIVE:
+            ticket = self._order_manager.create_ticket(
+                symbol=symbol, side=OrderSide.SELL,
+                price=exit_price, qty=exit_qty,
+            )
+            await self._order_manager.execute_order(ticket)
+
+        # PnL 계산 (부분)
+        gross = (exit_price - pos.entry_price) * exit_qty
+        fee = exit_price * exit_qty * 0.0025
+        net = gross - fee
+        self._exit_manager.add_fee(symbol, fee)
+
+        # 포지션 차감
+        pos.qty -= exit_qty
+        pos.size_krw -= exit_krw
+
+        # Pool 부분 반환
+        self._pool_manager.release(pos.pool, exit_krw, pnl=net)
+
+        logger.info(
+            "부분 청산: %s %.0f%% qty=%.6f @ %.0f PnL=%.0f (%s)",
+            symbol, ratio * 100, exit_qty, exit_price, net, exit_reason,
+        )
+
+        # 남은 수량이 최소 주문금액 미만이면 전량 청산
+        if pos.qty * exit_price < 5000:
+            await self._close_position(symbol, exit_price, exit_reason)
+
     async def _close_position(
         self, symbol: str, exit_price: float, exit_reason: str
     ) -> None:
@@ -635,6 +725,16 @@ class TradingBot:
         pos = self._positions.pop(symbol, None)
         if pos is None:
             return
+
+        # LIVE 모드: 실제 매도 주문
+        if self._run_mode == RunMode.LIVE:
+            ticket = self._order_manager.create_ticket(
+                symbol=symbol, side=OrderSide.SELL,
+                price=exit_price, qty=pos.qty,
+            )
+            ticket = await self._order_manager.execute_order(ticket)
+            if ticket.filled_price > 0:
+                exit_price = ticket.filled_price
 
         # PnL 계산
         gross_pnl = (exit_price - pos.entry_price) * pos.qty
@@ -706,7 +806,8 @@ class TradingBot:
         )
 
         # BacktestDaemon 백그라운드 시작
-        asyncio.create_task(self._backtest_daemon.run())
+        self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
+        self._daemon_task.add_done_callback(_on_daemon_done)
 
         while self._running:
             try:

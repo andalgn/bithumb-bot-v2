@@ -113,7 +113,7 @@ class BithumbClient:
         """Rate limiting을 적용한다."""
         await semaphore.acquire()
         # 1초 후 세마포어 릴리즈 (토큰 버킷 방식)
-        asyncio.get_event_loop().call_later(1.0 / rate, semaphore.release)
+        asyncio.get_running_loop().call_later(1.0 / rate, semaphore.release)
 
     async def _public_request(self, path: str) -> dict[str, Any]:
         """Public API GET 요청.
@@ -229,10 +229,13 @@ class BithumbClient:
         Returns:
             캔들 데이터 리스트. 각 항목: [timestamp, open, close, high, low, volume]
         """
-        chart_intervals = interval.replace("m", "m").replace("h", "h")
-        return await self._public_request(
+        chart_intervals = interval
+        data = await self._public_request(
             f"/public/candlestick/{coin}_KRW/{chart_intervals}"
         )
+        if not isinstance(data, list):
+            return []
+        return data
 
     # ─── Private API ───
 

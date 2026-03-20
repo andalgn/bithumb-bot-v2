@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -46,13 +48,22 @@ class StateStorage:
         return self._state
 
     def save(self) -> None:
-        """상태를 파일에 저장한다."""
+        """상태를 파일에 저장한다 (atomic write)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with open(self._path, "w", encoding="utf-8") as f:
+            fd, tmp = tempfile.mkstemp(
+                dir=str(self._path.parent), suffix=".tmp",
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self._state, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, str(self._path))
         except Exception:
             logger.exception("상태 저장 실패")
+            # 임시파일 정리
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
     def get(self, key: str, default: Any = None) -> Any:
         """상태 값을 조회한다."""

@@ -148,6 +148,8 @@ class DarwinEngine:
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
+        # Shadow별 가상 오픈 포지션: {shadow_id: {symbol: entry_price}}
+        self._open_positions: dict[str, dict[str, float]] = {}
         self._last_tournament: float = 0.0
         self._last_champion_change: float = 0.0
         self._champion_cooldown_days = 14
@@ -218,47 +220,45 @@ class DarwinEngine:
         now = int(time.time() * 1000)
 
         for shadow in self._shadows:
+            sid = shadow.shadow_id
+            if sid not in self._open_positions:
+                self._open_positions[sid] = {}
+            open_pos = self._open_positions[sid]
+
+            # 1. 기존 오픈 포지션 평가 (이전 사이클 진입분)
+            for sym in list(open_pos.keys()):
+                snap = snapshots.get(sym)
+                if not snap or snap.current_price <= 0:
+                    continue
+                entry = open_pos[sym]
+                raw_pnl = (snap.current_price - entry) / entry
+                slippage = SLIPPAGE_BY_TIER.get(Tier.TIER1, 0.001)
+                virtual_pnl = raw_pnl - (FEE_PCT + slippage * 2)
+
+                perf = self._performances[sid]
+                perf.trade_count += 1
+                perf.total_pnl += virtual_pnl
+                if virtual_pnl > 0:
+                    perf.win_count += 1
+                del open_pos[sym]
+
+            # 2. 새 시그널 평가 → 가상 진입
             for signal in live_signals:
                 would_enter = signal.score >= shadow.cutoff
-                tier = signal.tier
-                slippage = SLIPPAGE_BY_TIER.get(tier, 0.001)
-
-                virtual_pnl = 0.0
-                if would_enter and signal.entry_price > 0:
-                    # 가상 PnL: 진입했다면의 예상 수익 (체결비용 보정)
-                    # 현재 가격 기준 간단 추정
-                    price = snapshots.get(signal.symbol)
-                    if price and price.current_price > 0:
-                        raw_pnl = (
-                            (price.current_price - signal.entry_price)
-                            / signal.entry_price
-                        )
-                        virtual_pnl = raw_pnl - (FEE_PCT + slippage * 2)
 
                 trade = ShadowTrade(
-                    shadow_id=shadow.shadow_id,
+                    shadow_id=sid,
                     symbol=signal.symbol,
                     strategy=signal.strategy.value,
                     would_enter=would_enter,
                     signal_score=signal.score,
-                    virtual_pnl=virtual_pnl,
+                    virtual_pnl=0.0,
                     timestamp=now,
                 )
                 self._trades.append(trade)
 
-                # 성과 업데이트
-                if would_enter:
-                    perf = self._performances[shadow.shadow_id]
-                    perf.trade_count += 1
-                    perf.total_pnl += virtual_pnl
-                    if virtual_pnl > 0:
-                        perf.win_count += 1
-                    perf.current_equity += virtual_pnl
-                    if perf.current_equity > perf.peak_equity:
-                        perf.peak_equity = perf.current_equity
-                    dd = perf.peak_equity - perf.current_equity
-                    if dd > perf.max_drawdown:
-                        perf.max_drawdown = dd
+                if would_enter and signal.entry_price > 0:
+                    open_pos[signal.symbol] = signal.entry_price
 
                 count += 1
 

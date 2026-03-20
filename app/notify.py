@@ -13,6 +13,8 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+_HTML_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;"})
+
 
 def _make_ssl_context() -> ssl.SSLContext:
     """VPN 환경에서 자체서명 인증서를 허용하는 SSL 컨텍스트를 생성한다."""
@@ -40,6 +42,16 @@ class TelegramNotifier:
         self._timeout = aiohttp.ClientTimeout(total=timeout_sec)
         self._url = self.BASE_URL.format(token=token)
         self._ssl_ctx = _make_ssl_context()
+        self._session: aiohttp.ClientSession | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """세션을 재사용하거나 새로 생성한다."""
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, connector=connector,
+            )
+        return self._session
 
     async def send(self, text: str, parse_mode: str = "HTML") -> bool:
         """메시지를 전송한다.
@@ -62,19 +74,29 @@ class TelegramNotifier:
         }
 
         try:
-            connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
-            async with aiohttp.ClientSession(
-                timeout=self._timeout, connector=connector
-            ) as session:
-                async with session.post(self._url, json=payload) as resp:
-                    if resp.status == 200:
-                        logger.info("텔레그램 메시지 전송 성공")
-                        return True
-                    body = await resp.text()
-                    logger.warning(
-                        "텔레그램 전송 실패: status=%d body=%s", resp.status, body
-                    )
-                    return False
+            session = await self._get_session()
+            async with session.post(self._url, json=payload) as resp:
+                if resp.status == 200:
+                    logger.info("텔레그램 메시지 전송 성공")
+                    return True
+                body = await resp.text()
+                logger.warning(
+                    "텔레그램 전송 실패: status=%d body=%s", resp.status, body
+                )
+                return False
         except Exception:
             logger.exception("텔레그램 전송 중 예외 발생")
+            # 세션 오류 시 다음 호출에서 재생성
+            self._session = None
             return False
+
+    @staticmethod
+    def escape(text: str) -> str:
+        """HTML 특수문자를 이스케이프한다."""
+        return text.translate(_HTML_ESCAPE)
+
+    async def close(self) -> None:
+        """세션을 닫는다."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None

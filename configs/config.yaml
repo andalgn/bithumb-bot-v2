@@ -32,20 +32,20 @@ sizing:
   defense_mult_min: 0.3
   defense_mult_max: 1.0
 
-# 점수 컷오프
+# 점수 컷오프 (v2: 상향 조정 — 진입 품질 향상)
 score_cutoff:
   group1:  # 전략 A, B
-    full: 72
-    probe_min: 55
-    probe_max: 71
+    full: 75
+    probe_min: 60
+    probe_max: 74
   group2:  # 전략 C, D
-    full: 78
-    probe_min: 62
-    probe_max: 77
-  group3:  # 전략 E
-    full: 68
-    probe_min: 53
-    probe_max: 67
+    full: 80
+    probe_min: 65
+    probe_max: 79
+  group3:  # 전략 E (DCA)
+    full: 75
+    probe_min: 68
+    probe_max: 74
   high_bonus:
     plus10_mult: 1.15
     plus20_mult: 1.25
