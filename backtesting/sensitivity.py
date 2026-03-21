@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from backtesting.backtest import Backtester
+
+if TYPE_CHECKING:
+    from backtesting.optimizer import ParameterOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,7 @@ class SensitivityAnalyzer:
             robust_cv: 견고 판정 CV 기준.
             warning_cv: 민감 경고 CV 기준.
         """
+        self._variation_pct = variation_pct
         self._variation = variation_pct
         self._steps = steps
         self._robust_cv = robust_cv
@@ -140,6 +145,96 @@ class SensitivityAnalyzer:
 
         logger.info(
             "민감도 분석: %d 파라미터, 견고=%d, 민감=%d",
-            len(result.params), result.robust_count, result.sensitive_count,
+            len(result.params),
+            result.robust_count,
+            result.sensitive_count,
         )
         return result
+
+    def _cv_verdict(self, cv: float) -> str:
+        """CV 값을 기반으로 판정 문자열을 반환한다.
+
+        Args:
+            cv: 변동계수.
+
+        Returns:
+            "robust", "normal", "sensitive", "danger" 중 하나.
+        """
+        if cv < self._robust_cv:
+            return "robust"
+        elif cv < self._warning_cv:
+            return "normal"
+        elif cv < 0.5:
+            return "sensitive"
+        else:
+            return "danger"
+
+    def run_with_optimizer(
+        self,
+        optimizer: "ParameterOptimizer",
+        base_params: dict[str, float],
+        strategy_name: str,
+        entries: list,
+    ) -> SensitivityResult:
+        """replay_with_params 기반 실제 민감도 분석을 실행한다.
+
+        근사치 방식(run()) 대신 ParameterOptimizer.replay_with_params()를
+        직접 호출하여 각 파라미터 변이마다 실제 전략을 재실행한다.
+
+        Args:
+            optimizer: replay_with_params 메서드를 가진 ParameterOptimizer 인스턴스.
+            base_params: 현재 파라미터 딕셔너리 (name→value).
+            strategy_name: 전략 이름.
+            entries: 백테스트용 진입 신호 리스트.
+
+        Returns:
+            SensitivityResult.
+        """
+        param_results: list[ParamSensitivity] = []
+
+        for param_name, base_value in base_params.items():
+            variations = np.linspace(
+                base_value * (1 - self._variation_pct),
+                base_value * (1 + self._variation_pct),
+                self._steps,
+            )
+            sharpes: list[float] = []
+            for v in variations:
+                test_params = {**base_params, param_name: v}
+                result = optimizer.replay_with_params(
+                    strategy_name=strategy_name,
+                    params=test_params,
+                    entries=entries,
+                )
+                sharpes.append(result.sharpe)
+
+            arr = np.array(sharpes)
+            mean_s = float(np.mean(arr))
+            cv = float(np.std(arr)) / abs(mean_s) if abs(mean_s) > 1e-10 else 0.0
+            verdict = self._cv_verdict(cv)
+
+            param_results.append(
+                ParamSensitivity(
+                    name=param_name,
+                    base_value=base_value,
+                    cv=cv,
+                    verdict=verdict,
+                    values=list(variations),
+                    sharpes=sharpes,
+                )
+            )
+
+        sensitive_count = sum(1 for p in param_results if p.verdict in ("sensitive", "danger"))
+        robust_count = sum(1 for p in param_results if p.verdict == "robust")
+
+        logger.info(
+            "민감도 분석(replay): %d 파라미터, 견고=%d, 민감=%d",
+            len(param_results),
+            robust_count,
+            sensitive_count,
+        )
+        return SensitivityResult(
+            params=param_results,
+            sensitive_count=sensitive_count,
+            robust_count=robust_count,
+        )
