@@ -402,6 +402,56 @@ class PromotionManager:
         """전체 Core 포지션을 반환한다."""
         return self._core_positions.copy()
 
+    def to_state(self) -> dict:
+        """상태를 직렬화한다."""
+        core_data = {}
+        for k, cp in self._core_positions.items():
+            core_data[k] = {
+                "symbol": cp.symbol,
+                "phase": cp.phase.value,
+                "protection_bars": cp.protection_bars,
+                "bars_since_promotion": cp.bars_since_promotion,
+                "original_stop_loss": cp.original_stop_loss,
+                "core_stop_loss": cp.core_stop_loss,
+                "additional_buy_done": cp.additional_buy_done,
+                "demotion_bar_count": cp.demotion_bar_count,
+                "partial_exit_1": cp.partial_exit_1,
+                "partial_exit_2": cp.partial_exit_2,
+            }
+        return {
+            "core_positions": core_data,
+            "demotion_cooldown": dict(self._demotion_cooldown),
+            "profit_hold_count": dict(self._profit_hold_count),
+        }
+
+    def from_state(self, state: dict, positions: dict[str, Position]) -> None:
+        """상태를 복원한다.
+
+        Args:
+            state: to_state()로 직렬화된 상태.
+            positions: 심볼→Position 매핑 (포지션 참조 복원용).
+        """
+        for k, v in state.get("core_positions", {}).items():
+            pos = positions.get(k)
+            if pos is None:
+                logger.warning("Core 포지션 복원 스킵 (포지션 없음): %s", k)
+                continue
+            self._core_positions[k] = CorePosition(
+                symbol=v["symbol"],
+                position=pos,
+                phase=CorePhase(v.get("phase", "protection")),
+                protection_bars=v.get("protection_bars", 0),
+                bars_since_promotion=v.get("bars_since_promotion", 0),
+                original_stop_loss=v.get("original_stop_loss", 0.0),
+                core_stop_loss=v.get("core_stop_loss", 0.0),
+                additional_buy_done=v.get("additional_buy_done", False),
+                demotion_bar_count=v.get("demotion_bar_count", 0),
+                partial_exit_1=v.get("partial_exit_1", False),
+                partial_exit_2=v.get("partial_exit_2", False),
+            )
+        self._demotion_cooldown = state.get("demotion_cooldown", {})
+        self._profit_hold_count = state.get("profit_hold_count", {})
+
     @staticmethod
     def _last_valid(arr: np.ndarray) -> float:
         """배열에서 마지막 유효값을 반환한다."""

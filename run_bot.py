@@ -43,6 +43,7 @@ async def run_bot(once: bool = False, mode_override: str | None = None) -> None:
     """
     config = load_config()
     if mode_override:
+        # AppConfig는 의도적으로 frozen=False — CLI 모드 오버라이드 허용
         config.run_mode = mode_override
     bot = TradingBot(config)
 

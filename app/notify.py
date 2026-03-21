@@ -43,6 +43,7 @@ class TelegramNotifier:
         self._url = self.BASE_URL.format(token=token)
         self._ssl_ctx = _make_ssl_context()
         self._session: aiohttp.ClientSession | None = None
+        self._consecutive_failures: int = 0
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """세션을 재사용하거나 새로 생성한다."""
@@ -78,16 +79,20 @@ class TelegramNotifier:
             async with session.post(self._url, json=payload) as resp:
                 if resp.status == 200:
                     logger.info("텔레그램 메시지 전송 성공")
+                    self._consecutive_failures = 0
                     return True
                 body = await resp.text()
                 logger.warning(
-                    "텔레그램 전송 실패: status=%d body=%s", resp.status, body
+                    "텔레그램 전송 실패: status=%d body=%s", resp.status, body,
                 )
                 return False
         except Exception:
             logger.exception("텔레그램 전송 중 예외 발생")
-            # 세션 오류 시 다음 호출에서 재생성
-            self._session = None
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= 3:
+                # 3회 연속 실패 후에만 세션 재생성 (세션 폭풍 방지)
+                self._session = None
+                self._consecutive_failures = 0
             return False
 
     @staticmethod

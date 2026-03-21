@@ -393,7 +393,7 @@ def calc_bollinger_bands(
     for i in range(period - 1, n):
         window = close[i - period + 1 : i + 1]
         sma = np.mean(window)
-        std = np.std(window, ddof=0)
+        std = np.std(window, ddof=1)
         middle[i] = sma
         upper[i] = sma + std_mult * std
         lower[i] = sma - std_mult * std
@@ -417,7 +417,7 @@ def calc_zscore(close: NDArray, period: int = 20) -> NDArray:
     for i in range(period - 1, n):
         window = close[i - period + 1 : i + 1]
         mean = np.mean(window)
-        std = np.std(window, ddof=0)
+        std = np.std(window, ddof=1)
         if std > 0:
             zscore[i] = (close[i] - mean) / std
         else:

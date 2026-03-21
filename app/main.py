@@ -145,6 +145,8 @@ class TradingBot:
         )
 
         # Phase 3: Pool + Position + Promotion
+        # PAPER/DRY 모드 기본 초기 자본. LIVE 전환 시 실제 잔고로 대체됨.
+        # _restore_state()에서 저장된 값을 로드하므로 첫 실행에만 적용.
         initial_equity = 1_000_000
         self._pool_manager = PoolManager(initial_equity)
 
@@ -270,6 +272,11 @@ class TradingBot:
             except (KeyError, ValueError):
                 pass
 
+        # 승격 상태 복원
+        promo_state = self._storage.get("promotion_state")
+        if promo_state:
+            self._promotion_manager.from_state(promo_state, self._positions)
+
         # PositionManager 연속 손실 복원
         self._position_manager._consecutive_losses = self._storage.get(
             "pm_consecutive_losses", 0,
@@ -327,6 +334,9 @@ class TradingBot:
         self._storage.set(
             "pm_consecutive_losses", self._position_manager._consecutive_losses,
         )
+
+        # 승격 상태 영속화
+        self._storage.set("promotion_state", self._promotion_manager.to_state())
 
         # LIVE risk_pct 축소 + pause 상태 영속화
         self._storage.set("live_risk_reduction", self._live_risk_reduction)
