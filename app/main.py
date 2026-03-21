@@ -788,9 +788,11 @@ class TradingBot:
             )
             await self._order_manager.execute_order(ticket)
 
-        # PnL 계산 (부분)
+        # PnL 계산 (부분) — 진입·청산 양쪽 수수료 차감
         gross = (exit_price - pos.entry_price) * exit_qty
-        fee = exit_price * exit_qty * 0.0025
+        entry_fee = pos.entry_price * exit_qty * 0.0025
+        exit_fee = exit_price * exit_qty * 0.0025
+        fee = entry_fee + exit_fee
         net = gross - fee
         self._exit_manager.add_fee(symbol, fee)
 
@@ -827,7 +829,12 @@ class TradingBot:
     async def _close_position(
         self, symbol: str, exit_price: float, exit_reason: str
     ) -> None:
-        """포지션을 청산한다."""
+        """포지션을 청산한다.
+
+        NOTE: 부분 청산(_partial_close_position)이 선행된 경우 pos.qty와
+        pos.size_krw는 이미 차감된 상태이며, cum_fee에 부분 청산 시 지불한
+        수수료(진입+청산 양쪽)가 누적되어 있다.
+        """
         pos = self._positions.pop(symbol, None)
         if pos is None:
             return

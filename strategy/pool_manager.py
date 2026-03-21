@@ -182,19 +182,21 @@ class PoolManager:
         return True
 
     def update_equity(self, total_equity: float) -> None:
-        """총 자산 변동 시 풀 잔액을 갱신한다.
-
-        현재 allocated는 유지하고, 미할당분을 비율대로 재배분.
-        """
-        total_allocated = sum(s.allocated for s in self._pools.values())
-        free = total_equity - total_allocated
-        if free < 0:
-            free = 0
-
-        for pool, ratio in DEFAULT_RATIOS.items():
-            state = self._pools[pool]
-            state.total_balance = state.allocated + free * ratio
-
+        """전체 에퀴티를 업데이트한다. 각 풀 비율을 유지하며 갱신."""
+        if total_equity <= 0:
+            return
+        # 현재 각 풀의 비율을 유지하며 갱신 (재분배 없음)
+        current_total = sum(p.total_balance for p in self._pools.values())
+        if current_total <= 0:
+            # 초기화 시에만 기본 비율로 분배
+            for pool_type, pool in self._pools.items():
+                pool.total_balance = total_equity * DEFAULT_RATIOS[pool_type]
+            self._total_equity = total_equity
+            return
+        # 기존 비율 유지하며 스케일링
+        scale = total_equity / current_total
+        for pool in self._pools.values():
+            pool.total_balance *= scale
         self._total_equity = total_equity
 
     @property
