@@ -65,7 +65,7 @@ class TestBuildGrids:
 
     def test_mean_reversion_count(self) -> None:
         grids = build_grids()
-        assert len(grids["mean_reversion"].combinations()) == 4 * 5 * 4
+        assert len(grids["mean_reversion"].combinations()) == 6 * 5 * 4
 
     def test_breakout_count(self) -> None:
         grids = build_grids()
@@ -78,7 +78,7 @@ class TestBuildGrids:
     def test_total_combinations(self) -> None:
         grids = build_grids()
         total = sum(len(g.combinations()) for g in grids.values())
-        assert total == 120 + 80 + 100 + 25  # 325
+        assert total == 120 + 120 + 100 + 25  # 365
 
 
 # ─── ParameterOptimizer 테스트 ───

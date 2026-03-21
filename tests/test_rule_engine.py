@@ -584,12 +584,12 @@ class TestGenerateSignals:
 class TestRegimeStrategyMapping:
     """국면별 전략 허용 매핑 테스트."""
 
-    def test_strong_up_allows_a_and_d(self) -> None:
-        """STRONG_UP → A + D 허용."""
+    def test_strong_up_allows_a(self) -> None:
+        """STRONG_UP → A 허용 (D 스캘핑 비활성화)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.STRONG_UP]
         assert Strategy.TREND_FOLLOW in allowed
-        assert Strategy.SCALPING in allowed
+        assert Strategy.SCALPING not in allowed
         assert Strategy.MEAN_REVERSION not in allowed
 
     def test_weak_up_allows_a_only(self) -> None:
@@ -599,19 +599,18 @@ class TestRegimeStrategyMapping:
         assert Strategy.TREND_FOLLOW in allowed
         assert len(allowed) == 1
 
-    def test_range_allows_b_and_c(self) -> None:
-        """RANGE → B + C 허용."""
+    def test_range_empty(self) -> None:
+        """RANGE → B/C 비활성화."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.RANGE]
-        assert Strategy.MEAN_REVERSION in allowed
-        assert Strategy.BREAKOUT in allowed
+        assert len(allowed) == 0
 
-    def test_weak_down_allows_b_and_e(self) -> None:
-        """WEAK_DOWN → B + E 허용."""
+    def test_weak_down_allows_e_only(self) -> None:
+        """WEAK_DOWN → E(DCA)만 허용 (B 비활성화)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.WEAK_DOWN]
-        assert Strategy.MEAN_REVERSION in allowed
         assert Strategy.DCA in allowed
+        assert Strategy.MEAN_REVERSION not in allowed
 
     def test_crisis_allows_e_only(self) -> None:
         """CRISIS → E(DCA)만 허용."""

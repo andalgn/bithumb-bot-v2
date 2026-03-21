@@ -47,13 +47,13 @@ def build_grids() -> dict[str, StrategyParamGrid]:
         ],
     )
 
-    # 전략 B: 반전포착 (4 x 5 x 4 = 80)
+    # 전략 B: 반전포착 (6 x 5 x 4 = 120)
     grids["mean_reversion"] = StrategyParamGrid(
         strategy="mean_reversion",
         params=[
-            ParamRange("sl_mult", [1.0, 1.5, 2.0, 2.5]),
-            ParamRange("tp_rr", [1.2, 1.6, 2.0, 2.4, 3.0]),
-            ParamRange("cutoff_full", [70, 75, 80, 85]),
+            ParamRange("sl_mult", [1.5, 2.0, 2.5, 3.0, 3.5, 4.0]),
+            ParamRange("tp_rr", [1.2, 1.5, 2.0, 2.5, 3.0]),
+            ParamRange("cutoff_full", [65, 70, 75, 80]),
         ],
     )
 

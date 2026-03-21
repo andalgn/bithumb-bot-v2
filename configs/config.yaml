@@ -57,17 +57,18 @@ regime:
   aux_flag_confirm_bars: 2
 strategy_params:
   trend_follow:
-    sl_mult: 1.0
-    tp_rr: 3.5
-  mean_reversion:
-    sl_mult: 1.5
+    sl_mult: 3.0
     tp_rr: 2.0
+  mean_reversion:
+    sl_mult: 2.5
+    tp_rr: 3.0
   breakout:
     sl_mult: 2.0
     tp_rr: 3.0
   scalping:
-    sl_pct: 0.008
-    tp_pct: 0.015
+    sl_pct: 0.012
+    tp_pct: 0.03
+    enabled: false
   dca:
     sl_pct: 0.03
     tp_pct: 0.05

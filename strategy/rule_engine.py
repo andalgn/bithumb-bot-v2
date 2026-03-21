@@ -31,10 +31,10 @@ KST = timezone(timedelta(hours=9))
 
 # ─── 국면별 전략 허용 매핑 ───
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
-    Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.SCALPING],
+    Regime.STRONG_UP: [Strategy.TREND_FOLLOW],
     Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
-    Regime.RANGE: [Strategy.MEAN_REVERSION, Strategy.BREAKOUT],
-    Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],
+    Regime.RANGE: [],  # B/C 비활성화 (OOS 검증 실패)
+    Regime.WEAK_DOWN: [Strategy.DCA],  # B 비활성화
     Regime.CRISIS: [Strategy.DCA],
 }
 
@@ -390,16 +390,16 @@ class RuleEngine:
         detail: dict[str, float] = {}
         score = 0.0
 
-        # RSI 반등 (30점): RSI 30 이하에서 35 이상으로 복귀
+        # RSI 반등 (30점): RSI 35 이하에서 40 이상으로 복귀
         rsi_arr = ind_15m.rsi
         valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
         if len(valid_rsi) >= 3:
             prev_rsi = valid_rsi[-3]
             curr_rsi = valid_rsi[-1]
-            if prev_rsi <= 30 and curr_rsi >= 35:
+            if prev_rsi <= 35 and curr_rsi >= 40:
                 detail["rsi_bounce"] = 30.0
                 score += 30.0
-            elif curr_rsi <= 35:
+            elif curr_rsi <= 40:
                 detail["rsi_bounce"] = 15.0
                 score += 15.0
             else:
@@ -506,6 +506,12 @@ class RuleEngine:
             score += 15.0
         else:
             detail["trend_1h"] = 0.0
+
+        # ADX 필터: ADX < 20이면 추세 부재 → 가짜 돌파 위험 (점수 50% 감소)
+        adx_val = self._last_valid(ind_1h.adx.adx) if ind_1h.adx else 0.0
+        if adx_val < 20:
+            detail["adx_filter"] = -score * 0.5
+            score *= 0.5
 
         return ScoreResult(strategy=Strategy.BREAKOUT, score=score, detail=detail)
 
