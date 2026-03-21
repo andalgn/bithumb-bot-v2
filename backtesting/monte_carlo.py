@@ -21,6 +21,7 @@ class MonteCarloResult:
 
     iterations: int = 0
     pnl_percentile_5: float = 0.0
+    pnl_percentile_10: float = 0.0
     pnl_percentile_50: float = 0.0
     pnl_percentile_95: float = 0.0
     worst_mdd: float = 0.0
@@ -101,19 +102,21 @@ class MonteCarlo:
         sorted_pnls = sorted(final_pnls)
         n = len(sorted_pnls)
         p5_idx = max(0, int(n * 0.05))
+        p10_idx = max(0, int(n * 0.10))
         p50_idx = int(n * 0.5)
         p95_idx = min(n - 1, int(n * 0.95))
 
-        pnl_p5 = sorted_pnls[p5_idx]
-        pnl_p50 = sorted_pnls[p50_idx]
-        pnl_p95 = sorted_pnls[p95_idx]
+        pnl_p5 = float(sorted_pnls[p5_idx])
+        pnl_p10 = float(sorted_pnls[p10_idx])
+        pnl_p50 = float(sorted_pnls[p50_idx])
+        pnl_p95 = float(sorted_pnls[p95_idx])
         worst_mdd = max(mdds) if mdds else 0
         avg_mdd = float(np.mean(mdds)) if mdds else 0
         sharpe_med = float(np.median(sharpes)) if sharpes else 0
 
-        # 판정
+        # 판정: P10 > 0 AND P5 > -2% → safe, P5 > -3% → caution, else danger
         sizing_warning = worst_mdd > self._danger_mdd
-        if pnl_p5 > 0:
+        if pnl_p10 > 0 and pnl_p5 > -initial_equity * 0.02:
             verdict = "safe"
         elif pnl_p5 > -initial_equity * 0.03:
             verdict = "caution"
@@ -123,6 +126,7 @@ class MonteCarlo:
         result = MonteCarloResult(
             iterations=self._iterations,
             pnl_percentile_5=pnl_p5,
+            pnl_percentile_10=pnl_p10,
             pnl_percentile_50=pnl_p50,
             pnl_percentile_95=pnl_p95,
             worst_mdd=worst_mdd,
@@ -133,7 +137,7 @@ class MonteCarlo:
         )
 
         logger.info(
-            "Monte Carlo: P5=%.0f, P50=%.0f, P95=%.0f, MDD=%.1f%% -> %s",
-            pnl_p5, pnl_p50, pnl_p95, worst_mdd * 100, verdict,
+            "Monte Carlo: P5=%.0f, P10=%.0f, P50=%.0f, P95=%.0f, MDD=%.1f%% -> %s",
+            pnl_p5, pnl_p10, pnl_p50, pnl_p95, worst_mdd * 100, verdict,
         )
         return result
