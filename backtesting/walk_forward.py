@@ -1,8 +1,8 @@
 """Walk-Forward 검증.
 
-30일 데이터를 7일 슬라이딩 (4개 구간).
-판정: 4/4=견고, 3/4=양호, 2/4이하=경고.
-훈련 vs 검증 차이 > 50%이면 과적합.
+임의의 데이터 기간과 구간 수를 지원한다.
+판정 (비율 기반): 100%=robust, 75%이상=good, 50%이상=warning, 미만=poor.
+훈련 vs 검증 차이 > 50%이면 과적합 (overfit_detected 필드에 기록).
 """
 
 from __future__ import annotations
@@ -125,15 +125,17 @@ class WalkForward:
             if overfit:
                 result.overfit_detected = True
 
-        # 판정
-        if result.overfit_detected:
-            result.verdict = "overfit"
-        elif result.pass_count >= 4:
+        # 판정 (비율 기반)
+        total = result.total_segments
+        ratio = result.pass_count / total if total > 0 else 0.0
+        if ratio >= 1.0:
             result.verdict = "robust"
-        elif result.pass_count >= 3:
+        elif ratio >= 0.75:
             result.verdict = "good"
-        else:
+        elif ratio >= 0.5:
             result.verdict = "warning"
+        else:
+            result.verdict = "poor"
 
         logger.info(
             "Walk-Forward: %d/%d 통과 -> %s",
