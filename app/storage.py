@@ -50,6 +50,7 @@ class StateStorage:
     def save(self) -> None:
         """상태를 파일에 저장한다 (atomic write)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = None
         try:
             fd, tmp = tempfile.mkstemp(
                 dir=str(self._path.parent), suffix=".tmp",
@@ -60,10 +61,11 @@ class StateStorage:
         except Exception:
             logger.exception("상태 저장 실패")
             # 임시파일 정리
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     def get(self, key: str, default: Any = None) -> Any:
         """상태 값을 조회한다."""

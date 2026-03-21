@@ -75,6 +75,7 @@ class TradingBot:
             base_url=config.secrets.bithumb_api_url or config.bithumb.base_url,
             public_rate_limit=config.bithumb.public_rate_limit,
             private_rate_limit=config.bithumb.private_rate_limit,
+            proxy=config.proxy,
         )
 
         self._notifier = TelegramNotifier(
