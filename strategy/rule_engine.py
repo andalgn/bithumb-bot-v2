@@ -56,6 +56,17 @@ STRATEGY_GROUP: dict[Strategy, int] = {
     Strategy.DCA: 3,
 }
 
+# ─── 전략별 기본 가중치 ───
+DEFAULT_WEIGHTS: dict[str, dict[str, float]] = {
+    "trend_follow": {
+        "trend_align": 30,
+        "macd": 25,
+        "volume": 20,
+        "rsi_pullback": 15,
+        "supertrend": 10,
+    },
+}
+
 
 # ─── 보조 플래그 ───
 @dataclass
@@ -129,6 +140,16 @@ class RuleEngine:
         if symbol not in self._regime_states:
             self._regime_states[symbol] = RegimeState()
         return self._regime_states[symbol]
+
+    def _get_weights(self, strategy: str) -> dict[str, float]:
+        """전략의 점수 가중치를 반환한다. config에 w_ 접두사 항목이 있으면 사용."""
+        defaults = DEFAULT_WEIGHTS.get(strategy, {}).copy()
+        sp = self._strategy_params.get(strategy, {})
+        for key in defaults:
+            config_key = f"w_{key}"
+            if config_key in sp:
+                defaults[key] = float(sp[config_key])
+        return defaults
 
     # ═══════════════════════════════════════════
     # 국면 분류
@@ -320,62 +341,65 @@ class RuleEngine:
         """전략 A 추세추종 점수를 계산한다."""
         detail: dict[str, float] = {}
         score = 0.0
+        w = self._get_weights("trend_follow")
 
-        # 1H 추세 일치 (30점): 15M 방향과 1H EMA 방향 일치
+        # 1H 추세 일치: 15M 방향과 1H EMA 방향 일치
         ema20_1h = self._last_valid(ind_1h.ema20)
         ema50_1h = self._last_valid(ind_1h.ema50)
         ema20_15m = self._last_valid(ind_15m.ema20)
         ema50_15m = self._last_valid(ind_15m.ema50)
         if ema20_1h > ema50_1h and ema20_15m > ema50_15m:
-            detail["trend_align"] = 30.0
-            score += 30.0
+            detail["trend_align"] = w["trend_align"]
+            score += w["trend_align"]
         elif ema20_1h > ema50_1h:
-            detail["trend_align"] = 15.0
-            score += 15.0
+            detail["trend_align"] = w["trend_align"] * 0.5
+            score += w["trend_align"] * 0.5
         else:
             detail["trend_align"] = 0.0
 
-        # MACD 상태 (25점): 골든크로스 + 히스토그램 양수
+        # MACD 상태: 골든크로스 + 히스토그램 양수
         if ind_15m.macd:
             macd_line = self._last_valid(ind_15m.macd.macd_line)
             signal_line = self._last_valid(ind_15m.macd.signal_line)
             histogram = self._last_valid(ind_15m.macd.histogram)
             if macd_line > signal_line and histogram > 0:
-                detail["macd"] = 25.0
-                score += 25.0
+                detail["macd"] = w["macd"]
+                score += w["macd"]
             elif macd_line > signal_line:
-                detail["macd"] = 12.0
-                score += 12.0
+                detail["macd"] = w["macd"] * 0.5
+                score += w["macd"] * 0.5
             else:
                 detail["macd"] = 0.0
         else:
             detail["macd"] = 0.0
 
-        # 거래량 (20점): 20봉 평균의 1.5배 이상 (실제 캔들 volume)
+        # 거래량: 20봉 평균의 1.5배 이상 (실제 캔들 volume)
         if candles_15m:
             detail["volume"] = self._score_volume_direct(
-                candles_15m, threshold=1.5, max_pts=20.0,
+                candles_15m, threshold=1.5, max_pts=w["volume"],
             )
         else:
-            detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
+            detail["volume"] = self._score_volume(
+                ind_15m, threshold=1.5, max_pts=w["volume"],
+            )
         score += detail["volume"]
 
-        # RSI 위치 (15점): 40~60 범위 (풀백 구간)
+        # RSI 위치: 40~60 범위 (풀백 구간)
         rsi = self._last_valid(ind_15m.rsi)
         if 40 <= rsi <= 60:
-            detail["rsi_pullback"] = 15.0
-            score += 15.0
+            detail["rsi_pullback"] = w["rsi_pullback"]
+            score += w["rsi_pullback"]
         elif 35 <= rsi <= 65:
-            detail["rsi_pullback"] = 8.0
-            score += 8.0
+            detail["rsi_pullback"] = w["rsi_pullback"] * 0.5
+            score += w["rsi_pullback"] * 0.5
         else:
             detail["rsi_pullback"] = 0.0
 
-        # SuperTrend (10점): BULLISH 상태
+        # SuperTrend: BULLISH 상태
         if ind_15m.supertrend and len(ind_15m.supertrend.direction) > 0:
             if ind_15m.supertrend.direction[-1] == 1:
-                detail["supertrend"] = 10.0
-                score += 10.0
+                detail["supertrend"] = w["supertrend"]
+                score += w["supertrend"]
             else:
                 detail["supertrend"] = 0.0
         else:

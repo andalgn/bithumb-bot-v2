@@ -59,6 +59,11 @@ strategy_params:
   trend_follow:
     sl_mult: 3.0
     tp_rr: 2.0
+    w_trend_align: 30
+    w_macd: 25
+    w_volume: 20
+    w_rsi_pullback: 15
+    w_supertrend: 10
   mean_reversion:
     sl_mult: 2.5
     tp_rr: 3.0
