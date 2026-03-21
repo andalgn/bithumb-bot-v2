@@ -190,6 +190,7 @@ async def main() -> None:
         api_key=config.secrets.bithumb_api_key,
         api_secret=config.secrets.bithumb_api_secret,
         base_url=config.secrets.bithumb_api_url or config.bithumb.base_url,
+        proxy=config.proxy,
     )
     notifier = TelegramNotifier(
         token=config.secrets.telegram_bot_token,
