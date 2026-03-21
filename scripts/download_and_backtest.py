@@ -440,7 +440,7 @@ async def main() -> None:
         # 3. 결과
         msg = format_results(all_trades, strategy_stats, download_info)
         plain = msg.replace("<b>", "").replace("</b>", "")
-        # Windows cp949 인코딩 문제 회피
+        # 터미널 인코딩 문제 회피 (UTF-8 강제)
         sys.stdout.buffer.write(("\n" + plain + "\n").encode("utf-8"))
 
         # 4. 텔레그램 전송

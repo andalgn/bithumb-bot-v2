@@ -251,7 +251,7 @@ async def main() -> None:
 
         # 5. 리포트
         report = format_report(all_results, baseline)
-        # Windows 인코딩 문제 방지
+        # 터미널 인코딩 문제 방지 (UTF-8 강제)
         sys.stdout.buffer.write(
             ("\n" + report.replace("<b>", "").replace("</b>", "") + "\n").encode(
                 "utf-8"

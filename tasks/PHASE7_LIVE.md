@@ -8,18 +8,18 @@
 
 ## 작업 목록
 
-### 7.1 Windows 24시간 운영 셋업
-- `nssm`으로 봇을 Windows 서비스 등록
-  ```powershell
-  nssm install BithumbBot "C:\dev\bithumb_auto_v2\venv\Scripts\python.exe" "C:\dev\bithumb_auto_v2\run_bot.py"
-  nssm set BithumbBot AppDirectory "C:\dev\bithumb_auto_v2"
-  nssm set BithumbBot AppStdout "C:\dev\bithumb_auto_v2\data\bot_stdout.log"
-  nssm set BithumbBot AppStderr "C:\dev\bithumb_auto_v2\data\bot_stderr.log"
-  nssm start BithumbBot
+### 7.1 Ubuntu 24시간 운영 셋업
+- `systemd`로 봇을 서비스 등록
+  ```bash
+  sudo bash scripts/install_service_ubuntu.sh
+  # 또는 수동:
+  sudo cp scripts/bithumb-bot.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable bithumb-bot
+  sudo systemctl start bithumb-bot
   ```
-- Windows 전원 옵션: 절전 모드 끄기
 - VPN 자동 재연결 설정 확인
-- 봇 crash 시 자동 재시작 (nssm 기본 동작)
+- 봇 crash 시 자동 재시작 (Restart=always, RestartSec=10)
 - 텔레그램으로 시작/정지/재시작 알림
 
 ### 7.2 PAPER 28일 연속 운영
@@ -79,7 +79,7 @@
 | LIVE + 60일 | 전체 안정화 확인 |
 
 ## 완료 기준
-- [ ] Windows 서비스 등록 + 자동 시작/재시작 동작
+- [ ] systemd 서비스 등록 + 자동 시작/재시작 동작
 - [ ] VPN 끊김 복구 테스트 통과
 - [ ] PAPER 28일 연속 무장애 운영
 - [ ] 자동 검증 + 수동 체크리스트 모두 통과

@@ -1,6 +1,6 @@
-"""진입점 — 봇 실행 및 Windows 서비스 준비.
+"""진입점 — 봇 실행 및 systemd 서비스 준비.
 
-nssm 또는 pm2로 Windows 서비스 등록 가능한 구조.
+Ubuntu systemd 서비스로 24시간 운영 가능한 구조.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path as _Path
 from app.config import load_config
 from app.main import TradingBot
 
-# TODO: m2 — nssm CWD 불일치 시 __file__ 기준 절대 경로로 변경
+# systemd WorkingDirectory 설정으로 CWD 보장
 _Path("data").mkdir(exist_ok=True)
 
 logging.basicConfig(
@@ -55,7 +55,7 @@ async def run_bot(once: bool = False, mode_override: str | None = None) -> None:
         try:
             loop.add_signal_handler(sig, _shutdown)
         except NotImplementedError:
-            # Windows에서는 signal handler 미지원
+            # 일부 환경에서 signal handler 미지원 시 fallback
             signal.signal(sig, _shutdown)
 
     if once:

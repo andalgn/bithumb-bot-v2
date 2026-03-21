@@ -35,7 +35,7 @@
 - `app/storage.py` — app_state.json 상태 영속화 + 재시작 복원
 - `strategy/rule_engine.py` — 임시 RSI 스텁 (Phase 2에서 교체)
 - `app/main.py` — 오케스트레이터 15분 루프 (DRY/PAPER/LIVE)
-- `run_bot.py` — CLI 진입점 + Windows 서비스 준비
+- `run_bot.py` — CLI 진입점 + systemd 서비스 준비
 - 테스트 8개 파일, 64개 테스트 전체 통과
 - `ruff check .` 오류 없음
 - DRY 모드 사이클 1회 실행 성공: 10/10 코인 수집, 7건 신호 → 주문 시뮬레이션 체결 (2.3초)

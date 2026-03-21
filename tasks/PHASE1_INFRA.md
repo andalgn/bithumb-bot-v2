@@ -139,8 +139,8 @@ class TradingBot:
 - rule_engine.py 스텁: 단순 RSI BUY/SELL
 - 루프 동작 확인용, Phase 2에서 교체
 
-### 1.15 run_bot.py 진입점 + Windows 서비스 준비
-- `nssm` 또는 `pm2`로 Windows 서비스 등록 가능한 구조
+### 1.15 run_bot.py 진입점 + systemd 서비스 준비
+- Ubuntu `systemd` 서비스로 24시간 운영 (`scripts/bithumb-bot.service`)
 
 ## 완료 기준
 - [ ] 빗썸 API: 10개 코인 현재가 + 캔들 조회 성공

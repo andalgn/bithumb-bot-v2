@@ -12,9 +12,9 @@ echo "프로젝트: $PROJECT_DIR"
 echo "사용자: $USER"
 
 # 서비스 파일에서 경로/사용자 치환
-sed -e "s|/home/byjune/bithumb-bot-v2|$PROJECT_DIR|g" \
-    -e "s|User=byjune|User=$USER|g" \
-    -e "s|Group=byjune|Group=$USER|g" \
+sed -e "s|/home/bythejune/projects/bithumb-bot-v2|$PROJECT_DIR|g" \
+    -e "s|User=bythejune|User=$USER|g" \
+    -e "s|Group=bythejune|Group=$USER|g" \
     "$SERVICE_FILE" > /tmp/bithumb-bot.service
 
 # 서비스 설치

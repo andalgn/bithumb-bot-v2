@@ -23,7 +23,7 @@ Task 4 (월간/테이블) ─ 독립
 Task 5 (텔레그램) ─── 독립
 Task 6 (LIVE gate) ── depends on Task 4 (backtest_results 테이블)
 Task 7 (risk 축소) ── depends on Task 5 (텔레그램 /resume, /restore_params)
-Task 8 (nssm) ────── 독립
+Task 8 (systemd) ─── 독립
 Task 9 (테스트) ───── 독립
 Task 10 (통합검증) ── depends on Task 1-9 전부
 ```
@@ -37,7 +37,7 @@ Task 10 (통합검증) ── depends on Task 1-9 전부
 |------|------|
 | `bot_telegram/handlers.py` | 텔레그램 명령어 핸들러 (/status, /positions, /balance, /pause, /resume, /close, /regime, /pnl, /restore_params) |
 | `app/live_gate.py` | LIVE 승인 자동 검증 (9개 조건 체크) |
-| `scripts/install_service.ps1` | nssm Windows 서비스 등록 PowerShell 스크립트 |
+| `scripts/install_service_ubuntu.sh` | Ubuntu systemd 서비스 등록 스크립트 |
 | `tests/test_telegram_handlers.py` | 텔레그램 핸들러 테스트 |
 | `tests/test_live_gate.py` | LIVE 게이트 검증 테스트 |
 | `tests/test_datafeed.py` | DataFeed 단위 테스트 |
@@ -356,28 +356,23 @@ self._live_start_time = self._storage.get("live_start_time", 0)
 
 ---
 
-## Task 8: nssm 서비스 설치 스크립트
+## Task 8: systemd 서비스 설치 스크립트
 
 **Files:**
-- Create: `scripts/install_service.ps1`
+- Already exists: `scripts/bithumb-bot.service`, `scripts/install_service_ubuntu.sh`
 
-- [ ] **Step 1:** PowerShell 스크립트 작성
+- [x] **Step 1:** systemd 서비스 파일 + 설치 스크립트 작성 (완료)
 
-```powershell
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$PythonExe = "$ProjectRoot\venv\Scripts\python.exe"
-$RunBot = "$ProjectRoot\run_bot.py"
+```bash
+# 설치
+sudo bash scripts/install_service_ubuntu.sh
 
-nssm install BithumbBot $PythonExe $RunBot
-nssm set BithumbBot AppDirectory $ProjectRoot
-nssm set BithumbBot AppStdout "$ProjectRoot\data\bot_stdout.log"
-nssm set BithumbBot AppStderr "$ProjectRoot\data\bot_stderr.log"
-nssm set BithumbBot AppRotateFiles 1
-nssm set BithumbBot AppRotateBytes 10485760
-nssm start BithumbBot
+# 관리
+sudo systemctl {start|stop|restart|status} bithumb-bot
+sudo journalctl -u bithumb-bot -f
 ```
 
-- [ ] **Step 2:** Commit: `feat: add nssm Windows service install script`
+- [x] **Step 2:** Commit: `feat: add Ubuntu systemd service files for 24/7 operation`
 
 ---
 

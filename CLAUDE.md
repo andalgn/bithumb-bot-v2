@@ -5,9 +5,9 @@
 처음부터 새로 만드는 프로젝트. PRD v1.3 기반.
 
 ## 운영 환경
-- **개발/운영 머신**: Windows 10 미니PC (Ryzen 7 4700U 8코어, 8GB RAM)
+- **개발/운영 머신**: Ubuntu Server 미니PC (Ryzen 7 4700U 8코어, 8GB RAM)
 - **네트워크**: VPN 24시간 연결 (한국 서버 경유)
-- **24시간 무중단 운영** (nssm Windows 서비스 등록)
+- **24시간 무중단 운영** (systemd 서비스 등록)
 - **IDE**: VS Code + Claude Code CLI
 - **GCP 대비 이점**: 8코어 CPU 여유로 백테스트/Shadow 병렬 실행, 디스크 여유로 장기 데이터 축적
 
@@ -133,9 +133,10 @@ bithumb_auto_v2/
 BTC/KRW, ETH/KRW, XRP/KRW, SOL/KRW, RENDER/KRW,
 VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 
-## Windows 24시간 운영 참고
-- `nssm`(Non-Sucking Service Manager)으로 Windows 서비스 등록
-- 또는 `pm2` (Node.js 기반 프로세스 매니저, Python 지원)
-- 전원 옵션: 절전 모드 끄기, 자동 재시작 설정
+## Ubuntu 24시간 운영 참고
+- `systemd` 서비스로 등록 (`scripts/bithumb-bot.service`)
+- 설치: `sudo bash scripts/install_service_ubuntu.sh`
+- 관리: `sudo systemctl {start|stop|restart|status} bithumb-bot`
+- 로그: `sudo journalctl -u bithumb-bot -f`
 - VPN 자동 재연결 설정 필수
-- 봇 crash 시 자동 재시작 + 텔레그램 알림
+- 봇 crash 시 자동 재시작 (Restart=always) + 텔레그램 알림

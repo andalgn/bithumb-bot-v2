@@ -4,22 +4,22 @@
 **참조**: `docs/ARCHITECTURE.md`, `docs/PARAMS.md`
 
 ## 목표
-Windows 미니PC에서 개발+운영 환경 구축. 프로젝트 뼈대 생성. 빗썸 API 연결 확인.
+Ubuntu Server 미니PC에서 개발+운영 환경 구축. 프로젝트 뼈대 생성. 빗썸 API 연결 확인.
 
 ## 작업 목록
 
 ### 0.1 환경 구축
-```powershell
+```bash
 # Python 3.11+ 설치 확인
-python --version
+python3 --version
 
 # 프로젝트 디렉토리 생성
-mkdir C:\dev\bithumb_auto_v2
-cd C:\dev\bithumb_auto_v2
+mkdir -p ~/projects/bithumb-bot-v2
+cd ~/projects/bithumb-bot-v2
 
 # 가상환경 생성
-python -m venv venv
-.\venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate
 
 # git 초기화
 git init
@@ -61,7 +61,7 @@ python-multipart>=0.0.6
 ruff>=0.3
 httpx>=0.27
 ```
-```powershell
+```bash
 pip install -r requirements.txt
 ```
 
@@ -116,9 +116,9 @@ __pycache__/
 ```
 
 ### 0.10 VPN 연결 확인
-```powershell
+```bash
 # VPN 연결 상태에서 빗썸 API 응답 시간 확인
-python -c "import aiohttp, asyncio, time; ..."
+python3 -c "import aiohttp, asyncio, time; ..."
 # 목표: 응답 < 500ms
 ```
 
