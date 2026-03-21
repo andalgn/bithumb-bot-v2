@@ -18,9 +18,9 @@
 ## 점수 컷오프 (3그룹)
 | 그룹 | 전략 | Full | Probe | High(+10) | High(+20) |
 |------|------|------|-------|-----------|-----------|
-| 1 | A, B | ≥72 | 55~71 | ×1.15 | ×1.25 |
-| 2 | C, D | ≥78 | 62~77 | ×1.15 | ×1.25 |
-| 3 | E | ≥68 | 53~67 | ×1.15 | ×1.25 |
+| 1 | A, B | ≥75 | 60~74 | ×1.15 | ×1.25 |
+| 2 | C, D | ≥78 | 65~79 | ×1.15 | ×1.25 |
+| 3 | E | ≥75 | 68~74 | ×1.15 | ×1.25 |
 
 ## 국면 분류
 | 항목 | 값 |
@@ -136,3 +136,18 @@
 | 일일 DD 한도 | < 3.5% |
 | 가동률 | > 99% |
 | 슬리피지 오차 | ±25% |
+
+## 자동화 설정 (backtest 섹션)
+
+| 항목 | 기본값 | 설명 |
+|------|--------|------|
+| auto_optimize.enabled | true | 자동 파라미터 최적화 활성 |
+| auto_optimize.day | sunday | 실행 요일 |
+| auto_optimize.time | 02:00 | 실행 시간 (KST) |
+| auto_optimize.min_pf | 1.0 | 자동 적용 최소 PF |
+| auto_optimize.min_trades | 30 | 자동 적용 최소 거래 수 |
+| auto_research.enabled | true | 자율 연구 (DeepSeek) 활성 |
+| auto_research.day | sunday | 실행 요일 |
+| auto_research.time | 03:00 | 실행 시간 (KST) |
+| auto_research.max_experiments | 10 | 세션당 최대 실험 수 |
+| data_collect_time | 00:00 | 일일 캔들 수집 시간 (KST) |

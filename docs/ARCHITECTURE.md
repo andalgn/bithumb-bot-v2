@@ -32,7 +32,7 @@ main.py (오케스트레이터, ~200줄)
    → classify_regime(): 5단계 국면 판정 (1H 캔들 기준)
    → 보조 플래그: RANGE_VOLATILE, DOWN_ACCEL
    → 히스테리시스 적용 (3봉 확인, 6봉 재전환 금지)
-   → 전략별 점수 계산 (A/B/C/D/E 독립 점수표)
+   → 전략별 점수 계산 (A/B/C/D/E 독립 점수표, A/E 활성, B/C/D 비활성)
 
 3. RiskGate (Layer 3)
    → P0~P10 우선순위 체크
@@ -143,7 +143,7 @@ NEW → PLACED → PARTIAL → FILLED
 | `app/notify.py` | 0 | 텔레그램 알림 |
 | `app/storage.py` | 1 | JSON 영속화 |
 | `strategy/indicators.py` | 1 | 기술적 지표 전체 |
-| `strategy/rule_engine.py` | 2 | 5국면 + 5전략 + 점수제 |
+| `strategy/rule_engine.py` | 2 | 5국면 + 5전략 + 점수제 (A/E 활성, B/C/D 비활성) |
 | `strategy/coin_profiler.py` | 2 | 자동 Tier 분류 |
 | `strategy/pool_manager.py` | 3 | 3풀 자금 관리 |
 | `strategy/position_manager.py` | 3 | Pool 기반 사이징 |
@@ -156,6 +156,11 @@ NEW → PLACED → PARTIAL → FILLED
 | `backtesting/walk_forward.py` | 5 | Walk-Forward 검증 (매일 자동) |
 | `backtesting/monte_carlo.py` | 5 | Monte Carlo 1,000회 시뮬 (주간) |
 | `backtesting/sensitivity.py` | 5 | 파라미터 민감도 분석 (주간) |
+| `backtesting/daemon.py` | 5 | 백테스트 검증 데몬 |
+| `backtesting/optimizer.py` | 5 | 파라미터 최적화 엔진 |
+| `backtesting/param_grid.py` | 5 | 파라미터 그리드 정의 |
+| `strategy/auto_researcher.py` | 6 | 자율 연구 엔진 (DeepSeek 기반) |
+| `app/live_gate.py` | 7 | LIVE 승인 자동 검증 |
 
 ## 대상 코인 (10개)
 BTC/KRW, ETH/KRW, XRP/KRW, SOL/KRW, RENDER/KRW,

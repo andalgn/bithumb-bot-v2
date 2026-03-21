@@ -19,7 +19,7 @@
 5. **24시간 무중단 자동매매**
 
 ## 기술 스택
-- Python 3.11+ / aiohttp / FastAPI / SQLite (WAL)
+- Python 3.12+ / aiohttp / FastAPI / SQLite (WAL)
 - 빗썸 API (KRW 마켓, REST + 비동기)
 - DeepSeek API (주간 리뷰만)
 - React + TypeScript (대시보드, 선택)
@@ -111,7 +111,7 @@ bithumb_auto_v2/
 | `docs/RISK_SPEC.md` | RiskGate 상태전이 + 체결비용 | 리스크/주문 작업 시 |
 | `docs/PROMOTION_SPEC.md` | 승격 시스템 전체 규칙 | 승격/Core 작업 시 |
 | `docs/DARWINIAN_SPEC.md` | Darwinian + Composite Score + 검증 강화 | Darwinian 작업 시 |
-| `docs/BACKTEST_SPEC.md` | Walk-Forward + Monte Carlo + 민감도 분석 | 백테스트 작업 시 |
+| `docs/BACKTEST_SPEC.md` | Walk-Forward + Monte Carlo + 민감도 분석 + Auto-Optimize + Auto-Research | 백테스트 작업 시 |
 | `docs/TRADE_SCHEMA.md` | Trade Schema + 성과측정 | journal/성과 작업 시 |
 | `docs/LIVE_GATE.md` | LIVE 승인 체크리스트 | LIVE 전환 전 |
 | `docs/PARAMS.md` | 즉시 반영 파라미터 전체 | config 작업 시 |
