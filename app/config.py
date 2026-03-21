@@ -89,6 +89,32 @@ class PromotionConfig:
 
 
 @dataclass(frozen=True)
+class BacktestConfig:
+    """백테스트 데몬 설정."""
+
+    wf_time: str = "00:30"
+    wf_data_days: int = 30
+    wf_slide_days: int = 7
+    wf_segments: int = 4
+    wf_overfit_diff_pct: float = 0.5
+    mc_time: str = "01:00"
+    mc_day: str = "sunday"
+    mc_iterations: int = 1000
+    mc_danger_mdd_pct: float = 0.2
+    sens_time: str = "01:30"
+    sens_variation_pct: float = 0.1
+    sens_steps: int = 5
+    sens_robust_cv: float = 0.1
+    sens_warning_cv: float = 0.3
+    auto_optimize_enabled: bool = True
+    auto_optimize_day: str = "sunday"
+    auto_optimize_time: str = "02:00"
+    auto_apply_min_pf: float = 1.0
+    auto_apply_min_trades: int = 30
+    data_collect_time: str = "00:00"
+
+
+@dataclass(frozen=True)
 class RiskGateConfig:
     """리스크 게이트 설정."""
 
@@ -177,6 +203,7 @@ class AppConfig:
     bithumb: BithumbConfig = field(default_factory=BithumbConfig)
     secrets: EnvSecrets = field(default_factory=EnvSecrets)
     strategy_params: dict = field(default_factory=dict)
+    backtest: BacktestConfig = field(default_factory=BacktestConfig)
     proxy: str = ""
 
 
@@ -305,5 +332,36 @@ def load_config(
         ),
         secrets=secrets,
         strategy_params=raw.get("strategy_params", {}),
+        backtest=_build_backtest(raw.get("backtest", {})),
         proxy=raw.get("proxy", "") or os.environ.get("HTTPS_PROXY", ""),
+    )
+
+
+def _build_backtest(raw: dict) -> BacktestConfig:
+    """backtest 섹션을 파싱한다."""
+    wf = raw.get("walk_forward", {})
+    mc = raw.get("monte_carlo", {})
+    sens = raw.get("sensitivity", {})
+    opt = raw.get("auto_optimize", {})
+    return BacktestConfig(
+        wf_time=str(wf.get("time", "00:30")),
+        wf_data_days=wf.get("data_days", 30),
+        wf_slide_days=wf.get("slide_days", 7),
+        wf_segments=wf.get("segments", 4),
+        wf_overfit_diff_pct=wf.get("overfit_diff_pct", 0.5),
+        mc_time=str(mc.get("time", "01:00")),
+        mc_day=mc.get("day", "sunday"),
+        mc_iterations=mc.get("iterations", 1000),
+        mc_danger_mdd_pct=mc.get("danger_mdd_pct", 0.2),
+        sens_time=str(sens.get("time", "01:30")),
+        sens_variation_pct=sens.get("variation_pct", 0.1),
+        sens_steps=sens.get("steps", 5),
+        sens_robust_cv=sens.get("robust_cv", 0.1),
+        sens_warning_cv=sens.get("warning_cv", 0.3),
+        auto_optimize_enabled=opt.get("enabled", True),
+        auto_optimize_day=opt.get("day", "sunday"),
+        auto_optimize_time=str(opt.get("time", "02:00")),
+        auto_apply_min_pf=opt.get("min_pf", 1.0),
+        auto_apply_min_trades=opt.get("min_trades", 30),
+        data_collect_time=str(raw.get("data_collect_time", "00:00")),
     )

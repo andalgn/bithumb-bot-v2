@@ -171,7 +171,12 @@ class TradingBot:
         # Phase 5: Darwin + BacktestDaemon
         self._darwin = DarwinEngine(population_size=20, journal=self._journal)
         self._backtest_daemon = BacktestDaemon(
-            journal=self._journal, notifier=self._notifier,
+            journal=self._journal,
+            notifier=self._notifier,
+            config=config.backtest,
+            store=self._market_store,
+            client=self._client,
+            coins=config.coins,
         )
 
         # Phase 6: ReviewEngine
