@@ -85,13 +85,17 @@ class DDLimits:
         return tomorrow.timestamp()
 
     def _next_weekly_reset(self, now: datetime) -> float:
-        """다음 월요일 00:00 KST를 반환한다."""
-        days_ahead = 7 - now.weekday()
-        if days_ahead == 7:
-            days_ahead = 7
+        """다음 월요일 00:00 KST를 반환한다.
+
+        월요일이면 오늘 00:00이 아직 안 지났으면 오늘, 지났으면 다음 주 월요일.
+        """
+        days_ahead = (7 - now.weekday()) % 7
         monday = (now + timedelta(days=days_ahead)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
+        # 이미 지난 시각이면 다음 주 월요일로
+        if monday <= now:
+            monday += timedelta(days=7)
         return monday.timestamp()
 
     def _next_monthly_reset(self, now: datetime) -> float:

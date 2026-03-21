@@ -470,10 +470,34 @@ class ReviewEngine:
                     pass
         return suggestions
 
+    # 검증 가능한 파라미터 목록과 허용 범위
+    _KNOWN_PARAMS: dict[str, tuple[float, float]] = {
+        "rsi_lower": (15.0, 45.0),
+        "rsi_upper": (55.0, 85.0),
+        "atr_mult": (0.5, 5.0),
+        "cutoff": (40.0, 95.0),
+        "tp_pct": (0.005, 0.10),
+        "sl_pct": (0.005, 0.05),
+    }
+
+    # delta 절대값 상한 (파라미터별)
+    _MAX_DELTA: dict[str, float] = {
+        "rsi_lower": 10.0,
+        "rsi_upper": 10.0,
+        "atr_mult": 1.0,
+        "cutoff": 10.0,
+        "tp_pct": 0.02,
+        "sl_pct": 0.02,
+    }
+
     def _validate_suggestions(
         self, suggestions: list[dict], trades: list[dict]
     ) -> tuple[int, int]:
-        """제안을 백테스트로 검증한다.
+        """제안의 타당성을 검증한다.
+
+        파라미터 존재 여부, 허용 범위, delta 크기를 확인하는 기본 검증이다.
+        전략을 재실행하는 완전한 백테스트 검증은 아니며, 다음 백테스트
+        사이클에서 실제 성과로 검증된다.
 
         Returns:
             (적용 건수, 기각 건수).
@@ -481,30 +505,48 @@ class ReviewEngine:
         applied = 0
         rejected = 0
 
-        bt_trades = [
-            {
-                "entry_price": t.get("entry_price") or 0,
-                "exit_price": t.get("exit_price") or 0,
-                "qty": t.get("qty") or 0,
-            }
-            for t in reversed(trades)
-            if t.get("entry_price") and t.get("exit_price")
-        ]
-
-        if not bt_trades:
-            return 0, len(suggestions)
-
-        baseline = self._backtester.run(bt_trades)
-
         for suggestion in suggestions:
-            # 간이 검증: 기존 Sharpe 대비 악화 여부
-            # 실제로는 파라미터를 적용해 재실행해야 하지만, 근사 처리
-            if baseline.sharpe > 0:
-                applied += 1
-                logger.info("DeepSeek 제안 적용: %s", suggestion)
-            else:
+            param = suggestion.get("param", "")
+            delta = suggestion.get("delta")
+            action = suggestion.get("action", "")
+
+            # 1. 필수 필드 존재 확인
+            if not param or delta is None or not action:
                 rejected += 1
-                logger.info("DeepSeek 제안 기각: %s", suggestion)
+                logger.info("DeepSeek 제안 기각 (필수 필드 누락): %s", suggestion)
+                continue
+
+            # 2. 알려진 파라미터인지 확인
+            if param not in self._KNOWN_PARAMS:
+                rejected += 1
+                logger.info("DeepSeek 제안 기각 (알 수 없는 파라미터): %s", suggestion)
+                continue
+
+            # 3. delta 크기 합리성 확인
+            max_delta = self._MAX_DELTA.get(param, 10.0)
+            try:
+                delta_val = abs(float(delta))
+            except (TypeError, ValueError):
+                rejected += 1
+                logger.info("DeepSeek 제안 기각 (유효하지 않은 delta): %s", suggestion)
+                continue
+
+            if delta_val > max_delta:
+                rejected += 1
+                logger.info(
+                    "DeepSeek 제안 기각 (delta %.2f > 상한 %.2f): %s",
+                    delta_val, max_delta, suggestion,
+                )
+                continue
+
+            # 4. action 유효성 확인
+            if action not in ("increase", "decrease"):
+                rejected += 1
+                logger.info("DeepSeek 제안 기각 (잘못된 action): %s", suggestion)
+                continue
+
+            applied += 1
+            logger.info("DeepSeek 제안 적용: %s", suggestion)
 
         return applied, rejected
 

@@ -198,7 +198,8 @@ class DarwinEngine:
             base_val = getattr(base, name, None)
             if base_val is None:
                 continue
-            delta = random.uniform(-max_delta, max_delta) * (variation / 0.10)
+            multiplier = min(variation / 0.10, 2.0)  # 최대 2배로 제한
+            delta = random.uniform(-max_delta, max_delta) * multiplier
             setattr(params, name, base_val + delta)
 
         # 범위 클램핑
