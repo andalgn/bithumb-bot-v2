@@ -76,6 +76,7 @@ class TradingBot:
             public_rate_limit=config.bithumb.public_rate_limit,
             private_rate_limit=config.bithumb.private_rate_limit,
             proxy=config.proxy,
+            verify_ssl=not bool(config.proxy),
         )
 
         self._notifier = TelegramNotifier(
@@ -723,6 +724,10 @@ class TradingBot:
                 utilization_pct=util,
             )
 
+            # DB 정리 (일 1회)
+            self._journal.cleanup()
+            self._market_store.cleanup()
+
             # LIVE 게이트 자동 검증 (PAPER 모드에서만)
             if self._run_mode == RunMode.PAPER:
                 from app.live_gate import LiveGate
@@ -959,6 +964,12 @@ class TradingBot:
                 await self._telegram_task
             except asyncio.CancelledError:
                 pass
+        if hasattr(self, "_daemon_task"):
+            self._daemon_task.cancel()
+            try:
+                await self._daemon_task
+            except asyncio.CancelledError:
+                pass
         await self._backtest_daemon.stop()
         self._save_state()
         await self._client.close()
@@ -966,6 +977,7 @@ class TradingBot:
         self._journal.close()
         logger.info("봇 종료")
         await self._notifier.send("<b>봇 종료</b>")
+        await self._notifier.close()
 
     async def run_once(self) -> None:
         """사이클을 1회 실행하고 종료한다 (테스트용)."""

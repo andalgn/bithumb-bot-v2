@@ -10,6 +10,7 @@ import asyncio
 import logging
 import signal
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path as _Path
 
 from app.config import load_config
@@ -23,7 +24,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("data/bot.log", encoding="utf-8"),
+        RotatingFileHandler(
+            "data/bot.log", maxBytes=10_000_000, backupCount=5, encoding="utf-8",
+        ),
     ],
 )
 # 전략 엔진 디버그 로그 활성화 (국면/점수 상세)

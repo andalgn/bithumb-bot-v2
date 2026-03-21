@@ -41,6 +41,7 @@ class BithumbClient:
         public_rate_limit: int = 15,
         private_rate_limit: int = 10,
         proxy: str = "",
+        verify_ssl: bool = True,
     ) -> None:
         """초기화.
 
@@ -51,6 +52,7 @@ class BithumbClient:
             public_rate_limit: Public API 초당 호출 제한.
             private_rate_limit: Private API 초당 호출 제한.
             proxy: HTTP 프록시 URL (예: http://127.0.0.1:1081). 미지정 시 빈 문자열.
+            verify_ssl: SSL 인증서 검증 여부. False이면 검증 비활성화 (VPN 환경용).
         """
         self._api_key = api_key
         self._api_secret = api_secret
@@ -58,6 +60,14 @@ class BithumbClient:
         self._proxy = proxy
         self._timeout = aiohttp.ClientTimeout(total=10)
         self._session: aiohttp.ClientSession | None = None
+
+        # SSL 설정: verify_ssl=True이면 기본 검증, False이면 비활성화
+        if verify_ssl:
+            self._ssl_ctx: ssl.SSLContext | None = None
+        else:
+            self._ssl_ctx = ssl.create_default_context()
+            self._ssl_ctx.check_hostname = False
+            self._ssl_ctx.verify_mode = ssl.CERT_NONE
 
         # Rate limiting (token bucket)
         self._public_semaphore = asyncio.Semaphore(public_rate_limit)
@@ -68,11 +78,7 @@ class BithumbClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """세션을 가져오거나 생성한다."""
         if self._session is None or self._session.closed:
-            # VPN 환경 SSL 인증서 문제 대응
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
             self._session = aiohttp.ClientSession(
                 timeout=self._timeout, connector=connector
             )
