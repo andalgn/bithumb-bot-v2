@@ -40,6 +40,7 @@ class BithumbClient:
         base_url: str = "https://api.bithumb.com",
         public_rate_limit: int = 15,
         private_rate_limit: int = 10,
+        proxy: str = "",
     ) -> None:
         """초기화.
 
@@ -49,10 +50,12 @@ class BithumbClient:
             base_url: API 베이스 URL.
             public_rate_limit: Public API 초당 호출 제한.
             private_rate_limit: Private API 초당 호출 제한.
+            proxy: HTTP 프록시 URL (예: http://127.0.0.1:1081). 미지정 시 빈 문자열.
         """
         self._api_key = api_key
         self._api_secret = api_secret
         self._base_url = base_url.rstrip("/")
+        self._proxy = proxy
         self._timeout = aiohttp.ClientTimeout(total=10)
         self._session: aiohttp.ClientSession | None = None
 
@@ -132,7 +135,7 @@ class BithumbClient:
         session = await self._get_session()
 
         try:
-            async with session.get(url) as resp:
+            async with session.get(url, proxy=self._proxy or None) as resp:
                 if resp.status != 200:
                     raise BithumbAPIError(str(resp.status), f"HTTP {resp.status}")
                 data = await resp.json(content_type=None)
@@ -174,7 +177,10 @@ class BithumbClient:
 
         try:
             async with session.post(
-                url, data=urllib.parse.urlencode(params), headers=headers
+                url,
+                data=urllib.parse.urlencode(params),
+                headers=headers,
+                proxy=self._proxy or None,
             ) as resp:
                 if resp.status == 401 or resp.status == 403:
                     raise BithumbAPIError(str(resp.status), "Authentication error")
