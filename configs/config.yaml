@@ -181,6 +181,12 @@ backtest:
     min_pf: 1.0
     min_trades: 30
   data_collect_time: "00:00"
+  auto_research:
+    enabled: true
+    day: sunday
+    time: "03:00"
+    max_experiments: 10
+    max_consecutive_failures: 5
 market_store:
   candle_5m_retention_days: 180
   candle_15m_retention_days: -1

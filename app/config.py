@@ -112,6 +112,11 @@ class BacktestConfig:
     auto_apply_min_pf: float = 1.0
     auto_apply_min_trades: int = 30
     data_collect_time: str = "00:00"
+    auto_research_enabled: bool = True
+    auto_research_day: str = "sunday"
+    auto_research_time: str = "03:00"
+    auto_research_max_experiments: int = 10
+    auto_research_max_failures: int = 5
 
 
 @dataclass(frozen=True)
@@ -343,6 +348,7 @@ def _build_backtest(raw: dict) -> BacktestConfig:
     mc = raw.get("monte_carlo", {})
     sens = raw.get("sensitivity", {})
     opt = raw.get("auto_optimize", {})
+    research = raw.get("auto_research", {})
     return BacktestConfig(
         wf_time=str(wf.get("time", "00:30")),
         wf_data_days=wf.get("data_days", 30),
@@ -364,4 +370,9 @@ def _build_backtest(raw: dict) -> BacktestConfig:
         auto_apply_min_pf=opt.get("min_pf", 1.0),
         auto_apply_min_trades=opt.get("min_trades", 30),
         data_collect_time=str(raw.get("data_collect_time", "00:00")),
+        auto_research_enabled=research.get("enabled", True),
+        auto_research_day=research.get("day", "sunday"),
+        auto_research_time=str(research.get("time", "03:00")),
+        auto_research_max_experiments=research.get("max_experiments", 10),
+        auto_research_max_failures=research.get("max_consecutive_failures", 5),
     )

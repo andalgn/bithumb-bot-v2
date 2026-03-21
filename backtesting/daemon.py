@@ -48,6 +48,7 @@ class BacktestDaemon:
         store: MarketStore | None = None,
         client: BithumbClient | None = None,
         coins: list[str] | None = None,
+        deepseek_api_key: str = "",
     ) -> None:
         """초기화.
 
@@ -58,6 +59,7 @@ class BacktestDaemon:
             store: 시장 데이터 저장소 (선택, 데이터 수집/최적화용).
             client: 빗썸 API 클라이언트 (선택, 데이터 수집용).
             coins: 대상 코인 목록 (선택).
+            deepseek_api_key: DeepSeek API 키 (자율 연구용).
         """
         self._journal = journal
         self._notifier = notifier
@@ -65,6 +67,7 @@ class BacktestDaemon:
         self._store = store
         self._client = client
         self._coins = coins or []
+        self._deepseek_key = deepseek_api_key
         self._running = False
 
         c = self._config
@@ -89,6 +92,7 @@ class BacktestDaemon:
         self._last_mc: str = ""
         self._last_sens: str = ""
         self._last_optimize: str = ""
+        self._last_research: str = ""
 
         # 최근 결과
         self.wf_result: WalkForwardResult | None = None
@@ -149,6 +153,17 @@ class BacktestDaemon:
                         and self._last_optimize != week_key):
                     self._last_optimize = week_key
                     await self._run_auto_optimize()
+
+                # 자율 연구: 매주
+                if c.auto_research_enabled:
+                    research_h, research_m = self._parse_time(c.auto_research_time)
+                    research_weekday = self._parse_weekday(c.auto_research_day)
+                    if (now.weekday() == research_weekday
+                            and now.hour == research_h
+                            and now.minute >= research_m
+                            and self._last_research != week_key):
+                        self._last_research = week_key
+                        await self._run_auto_research()
 
             except Exception:
                 logger.exception("BacktestDaemon 오류")
@@ -350,6 +365,47 @@ class BacktestDaemon:
 
         self.optimize_result = results
         return results
+
+    async def _run_auto_research(self) -> None:
+        """자율 연구 세션을 실행한다."""
+        if not self._store:
+            return
+        logger.info("자율 연구 세션 시작")
+
+        from strategy.auto_researcher import AutoResearcher
+
+        researcher = AutoResearcher(
+            store=self._store,
+            coins=self._coins,
+            deepseek_api_key=self._deepseek_key,
+            max_experiments=self._config.auto_research_max_experiments,
+            max_consecutive_failures=self._config.auto_research_max_failures,
+        )
+        results = await researcher.run_session()
+
+        # KEEP된 최종 파라미터를 config에 적용
+        kept = [r for r in results if r.verdict == "KEEP"]
+        if kept:
+            final_params: dict[str, float] = {}
+            for r in kept:
+                final_params.update(r.params_changed)
+            config_path = Path("configs/config.yaml")
+            self._apply_optimized_params(
+                kept[-1].strategy, final_params, config_path,
+            )
+
+        # 텔레그램 리포트
+        if self._notifier and results:
+            total = len(results)
+            keep_count = len(kept)
+            lines = [f"<b>자율 연구 완료</b> ({keep_count}/{total} 개선)"]
+            for r in results:
+                icon = "+" if r.verdict == "KEEP" else "-"
+                lines.append(
+                    f"  {icon} {r.params_changed}"
+                    f" PF {r.baseline_pf:.2f}->{r.result_pf:.2f}"
+                )
+            await self._notifier.send("\n".join(lines))
 
     def _apply_optimized_params(
         self,

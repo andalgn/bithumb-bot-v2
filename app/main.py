@@ -177,6 +177,7 @@ class TradingBot:
             store=self._market_store,
             client=self._client,
             coins=config.coins,
+            deepseek_api_key=config.secrets.deepseek_api_key,
         )
 
         # Phase 6: ReviewEngine
