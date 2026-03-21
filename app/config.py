@@ -177,6 +177,7 @@ class AppConfig:
     bithumb: BithumbConfig = field(default_factory=BithumbConfig)
     secrets: EnvSecrets = field(default_factory=EnvSecrets)
     strategy_params: dict = field(default_factory=dict)
+    proxy: str = ""
 
 
 def _load_env() -> EnvSecrets:
@@ -304,4 +305,5 @@ def load_config(
         ),
         secrets=secrets,
         strategy_params=raw.get("strategy_params", {}),
+        proxy=raw.get("proxy", "") or os.environ.get("HTTPS_PROXY", ""),
     )

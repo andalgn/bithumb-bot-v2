@@ -1,3 +1,4 @@
+proxy: "http://127.0.0.1:1081"
 run_mode: DRY
 cycle_interval_sec: 900
 paper_test: false
