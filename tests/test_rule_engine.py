@@ -371,65 +371,65 @@ class TestCutoff:
     """컷오프 판정 테스트."""
 
     def test_group1_full(self, engine: RuleEngine) -> None:
-        """그룹1 Full: >=72."""
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 72) == SizeDecision.FULL
+        """그룹1 Full: >=75."""
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 75) == SizeDecision.FULL
         assert engine._decide_size(Strategy.TREND_FOLLOW, 90) == SizeDecision.FULL
 
     def test_group1_probe(self, engine: RuleEngine) -> None:
-        """그룹1 Probe: 55~71."""
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 55) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 71) == SizeDecision.PROBE
+        """그룹1 Probe: 60~74."""
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 60) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 74) == SizeDecision.PROBE
 
     def test_group1_hold(self, engine: RuleEngine) -> None:
-        """그룹1 HOLD: <55."""
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 54) == SizeDecision.HOLD
+        """그룹1 HOLD: <60."""
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 59) == SizeDecision.HOLD
         assert engine._decide_size(Strategy.TREND_FOLLOW, 0) == SizeDecision.HOLD
 
     def test_group1_mean_reversion(self, engine: RuleEngine) -> None:
         """그룹1에 Mean Reversion도 포함."""
-        assert engine._decide_size(Strategy.MEAN_REVERSION, 72) == SizeDecision.FULL
-        assert engine._decide_size(Strategy.MEAN_REVERSION, 55) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.MEAN_REVERSION, 54) == SizeDecision.HOLD
+        assert engine._decide_size(Strategy.MEAN_REVERSION, 75) == SizeDecision.FULL
+        assert engine._decide_size(Strategy.MEAN_REVERSION, 60) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.MEAN_REVERSION, 59) == SizeDecision.HOLD
 
     def test_group2_full(self, engine: RuleEngine) -> None:
-        """그룹2 Full: >=78."""
-        assert engine._decide_size(Strategy.BREAKOUT, 78) == SizeDecision.FULL
+        """그룹2 Full: >=80."""
+        assert engine._decide_size(Strategy.BREAKOUT, 80) == SizeDecision.FULL
 
     def test_group2_probe(self, engine: RuleEngine) -> None:
-        """그룹2 Probe: 62~77."""
-        assert engine._decide_size(Strategy.SCALPING, 62) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.SCALPING, 77) == SizeDecision.PROBE
+        """그룹2 Probe: 65~79."""
+        assert engine._decide_size(Strategy.SCALPING, 65) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.SCALPING, 79) == SizeDecision.PROBE
 
     def test_group2_hold(self, engine: RuleEngine) -> None:
-        """그룹2 HOLD: <62."""
-        assert engine._decide_size(Strategy.BREAKOUT, 61) == SizeDecision.HOLD
+        """그룹2 HOLD: <65."""
+        assert engine._decide_size(Strategy.BREAKOUT, 64) == SizeDecision.HOLD
 
     def test_group3_full(self, engine: RuleEngine) -> None:
-        """그룹3 Full: >=68."""
-        assert engine._decide_size(Strategy.DCA, 68) == SizeDecision.FULL
+        """그룹3 Full: >=75."""
+        assert engine._decide_size(Strategy.DCA, 75) == SizeDecision.FULL
 
     def test_group3_probe(self, engine: RuleEngine) -> None:
-        """그룹3 Probe: 53~67."""
-        assert engine._decide_size(Strategy.DCA, 53) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.DCA, 67) == SizeDecision.PROBE
+        """그룹3 Probe: 68~74."""
+        assert engine._decide_size(Strategy.DCA, 68) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.DCA, 74) == SizeDecision.PROBE
 
     def test_group3_hold(self, engine: RuleEngine) -> None:
-        """그룹3 HOLD: <53."""
-        assert engine._decide_size(Strategy.DCA, 52) == SizeDecision.HOLD
+        """그룹3 HOLD: <68."""
+        assert engine._decide_size(Strategy.DCA, 67) == SizeDecision.HOLD
 
     def test_boundary_values(self, engine: RuleEngine) -> None:
         """경계값 테스트."""
         # Group1 경계
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 72) == SizeDecision.FULL
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 71) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 55) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.TREND_FOLLOW, 54) == SizeDecision.HOLD
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 75) == SizeDecision.FULL
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 74) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 60) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.TREND_FOLLOW, 59) == SizeDecision.HOLD
 
         # Group2 경계
-        assert engine._decide_size(Strategy.BREAKOUT, 78) == SizeDecision.FULL
-        assert engine._decide_size(Strategy.BREAKOUT, 77) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.BREAKOUT, 62) == SizeDecision.PROBE
-        assert engine._decide_size(Strategy.BREAKOUT, 61) == SizeDecision.HOLD
+        assert engine._decide_size(Strategy.BREAKOUT, 80) == SizeDecision.FULL
+        assert engine._decide_size(Strategy.BREAKOUT, 79) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.BREAKOUT, 65) == SizeDecision.PROBE
+        assert engine._decide_size(Strategy.BREAKOUT, 64) == SizeDecision.HOLD
 
 
 # ═══════════════════════════════════════════
@@ -599,11 +599,12 @@ class TestRegimeStrategyMapping:
         assert Strategy.TREND_FOLLOW in allowed
         assert len(allowed) == 1
 
-    def test_range_empty(self) -> None:
-        """RANGE → B/C 비활성화."""
+    def test_range_allows_trend_follow(self) -> None:
+        """RANGE → A(TREND_FOLLOW)만 허용, B/C 비활성화."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.RANGE]
-        assert len(allowed) == 0
+        assert Strategy.TREND_FOLLOW in allowed
+        assert len(allowed) == 1
 
     def test_weak_down_allows_e_only(self) -> None:
         """WEAK_DOWN → E(DCA)만 허용 (B 비활성화)."""

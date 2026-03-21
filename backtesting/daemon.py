@@ -13,6 +13,7 @@ config.yaml의 backtest 섹션에서 스케줄 읽음.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import shutil
 from datetime import datetime, timedelta, timezone
@@ -272,6 +273,9 @@ class BacktestDaemon:
             "sl_pct": 0.02,
         }
 
+        # 근사치 방식 사용: daemon은 journal 거래 데이터 기반이므로
+        # replay_with_optimizer는 적용 불가 (entry 캐시 필요).
+        # 정밀 분석은 scripts/optimize.py에서 수동 실행.
         self.sens_result = self._sensitivity.run(base_params, bt_trades)
 
     # ═══════════════════════════════════════════
@@ -422,10 +426,12 @@ class BacktestDaemon:
             sp[strategy][k] = round(v, 4)
 
         with open(config_path, "w", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
             yaml.dump(
                 raw, f, default_flow_style=False,
                 allow_unicode=True, sort_keys=False,
             )
+            fcntl.flock(f, fcntl.LOCK_UN)
 
         logger.info("config 업데이트: %s → %s", strategy, params)
 

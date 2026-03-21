@@ -33,7 +33,7 @@ KST = timezone(timedelta(hours=9))
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
     Regime.STRONG_UP: [Strategy.TREND_FOLLOW],
     Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
-    Regime.RANGE: [],  # B/C 비활성화 (OOS 검증 실패)
+    Regime.RANGE: [Strategy.TREND_FOLLOW],  # A만 허용 (B/C OOS 검증 실패로 비활성)
     Regime.WEAK_DOWN: [Strategy.DCA],  # B 비활성화
     Regime.CRISIS: [Strategy.DCA],
 }
@@ -700,13 +700,13 @@ class RuleEngine:
             full = g.full
             probe_min = g.probe_min
         else:
-            # 기본값
+            # 기본값 (config.yaml과 동일)
             if group == 1:
-                full, probe_min = 72, 55
+                full, probe_min = 75, 60
             elif group == 2:
-                full, probe_min = 78, 62
+                full, probe_min = 80, 65
             else:
-                full, probe_min = 68, 53
+                full, probe_min = 75, 68
 
         if score >= full:
             return SizeDecision.FULL
