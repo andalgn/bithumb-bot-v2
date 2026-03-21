@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class RunMode(str, Enum):
@@ -93,6 +94,33 @@ class Candle:
     low: float
     close: float
     volume: float
+
+
+def parse_raw_candles(raw: list[Any]) -> list[Candle]:
+    """빗썸 API 캔들 응답을 Candle 리스트로 변환한다.
+
+    Args:
+        raw: 빗썸 API 캔들 응답 리스트.
+
+    Returns:
+        Candle 리스트.
+    """
+    candles: list[Candle] = []
+    for item in raw:
+        try:
+            candles.append(
+                Candle(
+                    timestamp=int(item[0]),
+                    open=float(item[1]),
+                    close=float(item[2]),
+                    high=float(item[3]),
+                    low=float(item[4]),
+                    volume=float(item[5]),
+                )
+            )
+        except (IndexError, ValueError, TypeError):
+            continue
+    return candles
 
 
 @dataclass

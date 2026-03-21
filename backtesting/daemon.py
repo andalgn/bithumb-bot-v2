@@ -183,26 +183,14 @@ class BacktestDaemon:
         if not self._store or not self._client:
             return 0
 
-        from app.data_types import Candle
+        from app.data_types import parse_raw_candles
 
         total = 0
         for coin in self._coins:
             for interval in ["15m", "1h"]:
                 try:
                     raw = await self._client.get_candlestick(coin, interval)
-                    candles = []
-                    for item in raw:
-                        try:
-                            candles.append(Candle(
-                                timestamp=int(item[0]),
-                                open=float(item[1]),
-                                close=float(item[2]),
-                                high=float(item[3]),
-                                low=float(item[4]),
-                                volume=float(item[5]),
-                            ))
-                        except (IndexError, ValueError, TypeError):
-                            continue
+                    candles = parse_raw_candles(raw)
                     stored = self._store.store_candles(coin, interval, candles)
                     total += stored
                 except Exception:

@@ -44,7 +44,7 @@ async def ensure_data(
         store: 시장 데이터 저장소.
         coins: 대상 코인 목록.
     """
-    from app.data_types import Candle
+    from app.data_types import parse_raw_candles
 
     for coin in coins:
         existing = store.get_candles(coin, "15m", limit=1)
@@ -54,21 +54,7 @@ async def ensure_data(
         for interval in ["15m", "1h"]:
             try:
                 raw = await client.get_candlestick(coin, interval)
-                candles = []
-                for item in raw:
-                    try:
-                        candles.append(
-                            Candle(
-                                timestamp=int(item[0]),
-                                open=float(item[1]),
-                                close=float(item[2]),
-                                high=float(item[3]),
-                                low=float(item[4]),
-                                volume=float(item[5]),
-                            )
-                        )
-                    except (IndexError, ValueError, TypeError):
-                        continue
+                candles = parse_raw_candles(raw)
                 store.store_candles(coin, interval, candles)
             except Exception:
                 logger.exception("%s %s 다운로드 실패", coin, interval)

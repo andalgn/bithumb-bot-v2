@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.config import load_config
-from app.data_types import Candle, MarketSnapshot, Regime, Strategy
+from app.data_types import Candle, MarketSnapshot, Regime, Strategy, parse_raw_candles
 from app.notify import TelegramNotifier
 from market.bithumb_api import BithumbClient
 from market.market_store import MarketStore
@@ -56,19 +56,7 @@ async def download_candles(
         for interval in ["15m", "1h"]:
             try:
                 raw = await client.get_candlestick(coin, interval)
-                candles = []
-                for item in raw:
-                    try:
-                        candles.append(Candle(
-                            timestamp=int(item[0]),
-                            open=float(item[1]),
-                            close=float(item[2]),
-                            high=float(item[3]),
-                            low=float(item[4]),
-                            volume=float(item[5]),
-                        ))
-                    except (IndexError, ValueError, TypeError):
-                        continue
+                candles = parse_raw_candles(raw)
 
                 stored = store.store_candles(coin, interval, candles)
                 result[coin][interval] = len(candles)

@@ -9,7 +9,14 @@ import logging
 import time
 from dataclasses import dataclass
 
-from app.data_types import Candle, MarketSnapshot, Orderbook, OrderbookEntry, Ticker
+from app.data_types import (
+    Candle,
+    MarketSnapshot,
+    Orderbook,
+    OrderbookEntry,
+    Ticker,
+    parse_raw_candles,
+)
 from market.bithumb_api import BithumbClient
 
 logger = logging.getLogger(__name__)
@@ -65,20 +72,7 @@ class DataFeed:
         Returns:
             Candle 리스트 (최신 MAX_CANDLES개).
         """
-        candles = []
-        for item in raw:
-            try:
-                candles.append(Candle(
-                    timestamp=int(item[0]),
-                    open=float(item[1]),
-                    close=float(item[2]),
-                    high=float(item[3]),
-                    low=float(item[4]),
-                    volume=float(item[5]),
-                ))
-            except (IndexError, ValueError, TypeError):
-                continue
-
+        candles = parse_raw_candles(raw)
         # 시간순 정렬, 최근 MAX_CANDLES개만
         candles.sort(key=lambda c: c.timestamp)
         return candles[-MAX_CANDLES:]

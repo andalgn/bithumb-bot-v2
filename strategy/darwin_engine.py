@@ -88,8 +88,8 @@ class ShadowPerformance:
     total_pnl: float = 0.0
     win_count: int = 0
     max_drawdown: float = 0.0
-    peak_equity: float = 0.0
-    current_equity: float = 0.0
+    peak_equity: float = 1_000_000.0
+    current_equity: float = 1_000_000.0
 
     @property
     def expectancy(self) -> float:
@@ -258,6 +258,16 @@ class DarwinEngine:
                 perf.total_pnl += virtual_pnl
                 if virtual_pnl > 0:
                     perf.win_count += 1
+
+                # MDD 추적
+                perf.current_equity += virtual_pnl * perf.peak_equity
+                if perf.current_equity > perf.peak_equity:
+                    perf.peak_equity = perf.current_equity
+                if perf.peak_equity > 0:
+                    dd = (perf.peak_equity - perf.current_equity) / perf.peak_equity
+                    if dd > perf.max_drawdown:
+                        perf.max_drawdown = dd
+
                 del open_pos[sym]
 
             # 2. 새 시그널 평가 → 가상 진입
