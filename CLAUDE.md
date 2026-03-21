@@ -35,68 +35,69 @@
 
 ## 프로젝트 구조
 
+<!-- AUTO-GENERATED-TREE: START -->
 ```
 bithumb_auto_v2/
 ├── CLAUDE.md                    ← 이 파일
+├── research_program.md          ← 자율 연구 방향 설정
 ├── docs/                        ← PRD 기반 설계 문서
 ├── tasks/                       ← 단계별 작업 명세
 ├── app/
-│   ├── main.py                  ← 오케스트레이터 (~200줄)
-│   ├── config.py                ← dataclass 기반 설정 로딩
-│   ├── data_types.py            ← 공통 데이터 타입 (Candle, Position 등)
-│   ├── journal.py               ← SQLite 거래 기록 (Trade Schema)
-│   ├── notify.py                ← 텔레그램 알림
-│   ├── storage.py               ← JSON 상태 영속화
-│   └── api_server.py            ← FastAPI 대시보드 백엔드
+│   ├── config.py                   ← 설정 로딩 모듈.
+│   ├── data_types.py               ← 공통 데이터 타입 정의.
+│   ├── journal.py                  ← 거래 기록 모듈.
+│   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
+│   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
+│   ├── notify.py                   ← 텔레그램 알림 모듈.
+│   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
-│   ├── rule_engine.py           ← 국면 5단계 + 5전략 + 점수제
-│   ├── indicators.py            ← 기술적 지표 (RSI, MACD, ATR, ADX, EMA, BB, OBV, SuperTrend)
-│   ├── pool_manager.py          ← 3풀 자금 관리
-│   ├── position_manager.py      ← Pool 기반 2단계 사이징
-│   ├── coin_profiler.py         ← 자동 Tier 분류
-│   ├── promotion_manager.py     ← 승격/강등 관리
-│   ├── darwin_engine.py         ← Shadow 20~30개 + 토너먼트
-│   ├── review_engine.py         ← 일일/주간 리뷰
-│   └── correlation_monitor.py   ← 코인 간 상관관계 모니터링 (NEW)
+│   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
+│   ├── coin_profiler.py            ← 코인 프로파일러 — 자동 Tier 분류.
+│   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
+│   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
+│   ├── indicators.py               ← 기술적 지표 계산 모듈.
+│   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
+│   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
+│   ├── promotion_manager.py        ← 승격/강등 시스템.
+│   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
+│   └── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 ├── market/
-│   ├── bithumb_api.py           ← 빗썸 REST API 클라이언트 (비동기)
-│   ├── datafeed.py              ← 데이터 수집 (5M/15M/1H) + TTL 캐시
-│   ├── normalizer.py            ← 가격/수량 정규화 + 최소주문금액
-│   └── market_store.py          ← 장기 데이터 축적 (market_data.db) (NEW)
+│   ├── bithumb_api.py              ← 빗썸 REST API 클라이언트.
+│   ├── datafeed.py                 ← 데이터 수집 모듈.
+│   ├── market_store.py             ← 장기 시장 데이터 축적 모듈.
+│   └── normalizer.py               ← 가격/수량 정규화 모듈.
 ├── risk/
-│   ├── risk_gate.py             ← 통합 리스크 게이트웨이
-│   └── dd_limits.py             ← Drawdown Kill Switch
+│   ├── dd_limits.py                ← Drawdown Kill Switch 모듈.
+│   └── risk_gate.py                ← 통합 리스크 게이트웨이 모듈.
 ├── execution/
-│   ├── order_manager.py         ← 주문 상태 머신 (FSM)
-│   ├── reconciler.py            ← 거래소-로컬 동기화
-│   ├── quarantine.py            ← 격리 시스템
-│   └── partial_exit.py          ← 부분 청산
+│   ├── order_manager.py            ← 주문 상태 머신 (FSM) 모듈.
+│   ├── partial_exit.py             ← 부분청산 + 트레일링 스톱 모듈.
+│   ├── quarantine.py               ← 격리 시스템 모듈.
+│   └── reconciler.py               ← 거래소-로컬 상태 동기화 모듈.
 ├── backtesting/
-│   ├── backtest.py              ← 기본 백테스터
-│   ├── walk_forward.py          ← Walk-Forward 검증 (NEW)
-│   ├── monte_carlo.py           ← Monte Carlo 시뮬레이션 (NEW)
-│   └── sensitivity.py           ← 파라미터 민감도 분석 (NEW)
+│   ├── backtest.py                 ← 기본 백테스터.
+│   ├── daemon.py                   ← 백테스트 검증 데몬.
+│   ├── monte_carlo.py              ← Monte Carlo 시뮬레이션.
+│   ├── optimizer.py                ← 파라미터 최적화 엔진.
+│   ├── param_grid.py               ← 파라미터 그리드 정의.
+│   ├── sensitivity.py              ← 파라미터 민감도 분석.
+│   └── walk_forward.py             ← Walk-Forward 검증.
 ├── bot_telegram/
-│   └── handlers.py              ← 텔레그램 명령어 핸들러
+│   └── handlers.py                 ← 텔레그램 명령어 핸들러.
+└── scripts/
+    ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
+    ├── optimize.py                 ← 전략 파라미터 최적화 실행.
+    └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
 ├── configs/
 │   └── config.yaml              ← 통합 설정
-├── tests/
-│   ├── test_rule_engine.py
-│   ├── test_risk_gate.py
-│   ├── test_pool_manager.py
-│   ├── test_sizing.py
-│   ├── test_promotion.py
-│   └── ...
+├── tests/                       ← pytest 테스트
 ├── data/                        ← 런타임 데이터 (git 무시)
-│   ├── app_state.json
-│   ├── journal.db
-│   ├── market_data.db           ← 장기 시장 데이터 축적 (5M/15M/1H + 호가창)
-│   └── ...
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
 └── run_bot.py                   ← 진입점
 ```
+<!-- AUTO-GENERATED-TREE: END -->
 
 ## 문서 구조
 작업 전 반드시 해당 spec 파일을 읽을 것:
