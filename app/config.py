@@ -157,11 +157,12 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True)
-class TelegramConfig:
-    """텔레그램 설정."""
+class DiscordConfig:
+    """디스코드 설정."""
 
+    bot_guild_id: str = ""
+    admin_role: str = "admin"
     timeout_sec: int = 5
-    parse_mode: str = "HTML"
 
 
 @dataclass(frozen=True)
@@ -182,8 +183,9 @@ class EnvSecrets:
     bithumb_api_key: str = ""
     bithumb_api_secret: str = ""
     bithumb_api_url: str = "https://api.bithumb.com"
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    discord_bot_token: str = ""
+    discord_webhooks: dict[str, str] = field(default_factory=dict)
+    discord_guild_id: str = ""
     dashboard_api_key: str = ""
     dashboard_secret_key: str = ""
     deepseek_api_key: str = ""
@@ -204,7 +206,7 @@ class AppConfig:
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
     risk_gate: RiskGateConfig = field(default_factory=RiskGateConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    discord: DiscordConfig = field(default_factory=DiscordConfig)
     bithumb: BithumbConfig = field(default_factory=BithumbConfig)
     secrets: EnvSecrets = field(default_factory=EnvSecrets)
     strategy_params: dict = field(default_factory=dict)
@@ -220,8 +222,16 @@ def _load_env() -> EnvSecrets:
         bithumb_api_key=os.getenv("BITHUMB_API_KEY", ""),
         bithumb_api_secret=os.getenv("BITHUMB_API_SECRET", ""),
         bithumb_api_url=os.getenv("BITHUMB_API_URL", "https://api.bithumb.com"),
-        telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
-        telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+        discord_bot_token=os.getenv("DISCORD_BOT_TOKEN", ""),
+        discord_webhooks={
+            "trade": os.getenv("DISCORD_WEBHOOK_TRADE", ""),
+            "report": os.getenv("DISCORD_WEBHOOK_REPORT", ""),
+            "backtest": os.getenv("DISCORD_WEBHOOK_BACKTEST", ""),
+            "system": os.getenv("DISCORD_WEBHOOK_SYSTEM", ""),
+            "command": os.getenv("DISCORD_WEBHOOK_COMMAND", ""),
+            "livegate": os.getenv("DISCORD_WEBHOOK_LIVEGATE", ""),
+        },
+        discord_guild_id=os.getenv("DISCORD_GUILD_ID", ""),
         dashboard_api_key=os.getenv("DASHBOARD_API_KEY", ""),
         dashboard_secret_key=os.getenv("DASHBOARD_SECRET_KEY", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
@@ -329,12 +339,12 @@ def load_config(
             **{k: v for k, v in raw.get("risk_gate", {}).items() if v is not None}
         ),
         execution=_build_execution(raw.get("execution", {})),
-        telegram=TelegramConfig(
-            **{k: v for k, v in raw.get("telegram", {}).items() if v is not None}
+        discord=DiscordConfig(
+            bot_guild_id=secrets.discord_guild_id,
+            admin_role=raw.get("discord", {}).get("admin_role", "admin"),
+            timeout_sec=raw.get("discord", {}).get("timeout_sec", 5),
         ),
-        bithumb=BithumbConfig(
-            **{k: v for k, v in raw.get("bithumb", {}).items() if v is not None}
-        ),
+        bithumb=BithumbConfig(**{k: v for k, v in raw.get("bithumb", {}).items() if v is not None}),
         secrets=secrets,
         strategy_params=raw.get("strategy_params", {}),
         backtest=_build_backtest(raw.get("backtest", {})),

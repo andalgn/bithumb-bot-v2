@@ -238,6 +238,6 @@ bithumb:
   private_rate_limit: 10
   min_order_krw: 5000
   max_candle_count: 1000
-telegram:
+discord:
+  admin_role: "admin"
   timeout_sec: 5
-  parse_mode: HTML
