@@ -160,6 +160,18 @@ class DiscordNotifier:
                 all_ok = False
         return all_ok
 
+    async def _handle_failure(self) -> None:
+        """연속 실패 카운터를 증가시키고, 3회 이상이면 세션을 재생성한다."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= 3:
+            if self._session:
+                try:
+                    await self._session.close()
+                except Exception:
+                    pass
+            self._session = None
+            self._consecutive_failures = 0
+
     async def _post_webhook(self, url: str, content: str) -> bool:
         """Webhook URL로 메시지를 POST한다."""
         payload = {"content": content}
@@ -175,8 +187,12 @@ class DiscordNotifier:
                     self._consecutive_failures = 0
                     return True
                 if resp.status == 429:
-                    data = await resp.json()
-                    retry_after = data.get("retry_after", 1.0)
+                    retry_after = float(resp.headers.get("Retry-After", "1"))
+                    try:
+                        data = await resp.json()
+                        retry_after = data.get("retry_after", retry_after)
+                    except Exception:
+                        pass
                     logger.warning(
                         "디스코드 rate limit, %.1f초 대기",
                         retry_after,
@@ -196,7 +212,7 @@ class DiscordNotifier:
                             retry_resp.status,
                             retry_body,
                         )
-                    self._consecutive_failures += 1
+                    await self._handle_failure()
                     return False
                 body = await resp.text()
                 logger.warning(
@@ -204,19 +220,11 @@ class DiscordNotifier:
                     resp.status,
                     body,
                 )
-                self._consecutive_failures += 1
+                await self._handle_failure()
                 return False
         except Exception:
             logger.exception("디스코드 전송 중 예외 발생")
-            self._consecutive_failures += 1
-        if self._consecutive_failures >= 3:
-            if self._session:
-                try:
-                    await self._session.close()
-                except Exception:
-                    pass
-            self._session = None
-            self._consecutive_failures = 0
+            await self._handle_failure()
         return False
 
     async def close(self) -> None:

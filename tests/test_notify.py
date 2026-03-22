@@ -120,3 +120,59 @@ class TestSendChannel:
             "https://fake-url",
             "**테스트**",
         )
+
+
+@pytest.mark.asyncio
+class TestPostWebhook:
+    """_post_webhook 동작 테스트."""
+
+    async def test_session_reset_after_3_http_failures(self) -> None:
+        """HTTP 에러 3회 연속 시 세션이 재생성되는지 확인."""
+        notifier = DiscordNotifier(webhooks={"system": "https://fake"})
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 500
+        mock_resp.text = AsyncMock(return_value="error")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(return_value=mock_resp)
+        mock_session.closed = False
+        mock_session.close = AsyncMock()
+        notifier._session = mock_session
+
+        # 3 consecutive failures
+        for _ in range(3):
+            result = await notifier._post_webhook("https://fake", "test")
+            assert result is False
+
+        # Session should have been reset
+        mock_session.close.assert_called_once()
+        assert notifier._session is None
+        assert notifier._consecutive_failures == 0
+
+    async def test_close_cleans_up_session(self) -> None:
+        """close()가 세션을 정리하는지 확인."""
+        notifier = DiscordNotifier(webhooks={})
+        from unittest.mock import AsyncMock
+
+        mock_session = AsyncMock()
+        mock_session.closed = False
+        notifier._session = mock_session
+
+        await notifier.close()
+        mock_session.close.assert_called_once()
+        assert notifier._session is None
+
+    async def test_multi_chunk_partial_failure(self) -> None:
+        """여러 청크 중 일부 실패 시 False 반환."""
+        notifier = DiscordNotifier(webhooks={"system": "https://fake"})
+        from unittest.mock import AsyncMock
+
+        # First chunk succeeds, second fails
+        notifier._post_webhook = AsyncMock(side_effect=[True, False])
+        result = await notifier.send("a" * 3000, channel="system")
+        assert result is False
+        assert notifier._post_webhook.call_count == 2
