@@ -592,20 +592,20 @@ class TestRegimeStrategyMapping:
         assert Strategy.SCALPING not in allowed
         assert Strategy.MEAN_REVERSION not in allowed
 
-    def test_weak_up_allows_a_only(self) -> None:
-        """WEAK_UP → A만 허용."""
+    def test_weak_up_allows_a_and_b(self) -> None:
+        """WEAK_UP → A + B 허용."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.WEAK_UP]
         assert Strategy.TREND_FOLLOW in allowed
-        assert len(allowed) == 1
+        assert Strategy.MEAN_REVERSION in allowed
 
-    def test_range_allows_trend_follow_and_mean_reversion(self) -> None:
-        """RANGE → A(TREND_FOLLOW) + B(MEAN_REVERSION) 허용."""
+    def test_range_allows_mean_reversion_only(self) -> None:
+        """RANGE → B만 허용 (추세 없는 시장에서 A 제거)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.RANGE]
-        assert Strategy.TREND_FOLLOW in allowed
         assert Strategy.MEAN_REVERSION in allowed
-        assert len(allowed) == 2
+        assert Strategy.TREND_FOLLOW not in allowed
+        assert len(allowed) == 1
 
     def test_weak_down_allows_b_and_e(self) -> None:
         """WEAK_DOWN → B(MEAN_REVERSION) + E(DCA) 허용."""

@@ -31,9 +31,9 @@ KST = timezone(timedelta(hours=9))
 
 # ─── 국면별 전략 허용 매핑 ───
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
-    Regime.STRONG_UP: [Strategy.TREND_FOLLOW],
-    Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
-    Regime.RANGE: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A + B (반전포착)
+    Regime.STRONG_UP: [Strategy.TREND_FOLLOW],  # 확실한 상승추세에서만 A
+    Regime.WEAK_UP: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A + B
+    Regime.RANGE: [Strategy.MEAN_REVERSION],  # B만 (추세 없는 시장에서 A 제거)
     Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],  # B + E
     Regime.CRISIS: [Strategy.DCA],
 }
