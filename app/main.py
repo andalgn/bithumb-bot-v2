@@ -1,6 +1,6 @@
 """오케스트레이터 -15분 주기 메인 루프.
 
-DRY/PAPER/LIVE 모드. 전체 사이클 try-except + 텔레그램 알림.
+DRY/PAPER/LIVE 모드. 전체 사이클 try-except + 디스코드 알림.
 Phase 3: Pool 기반 사이징 + 승격/강등.
 """
 
@@ -15,10 +15,9 @@ import numpy as np
 from app.config import AppConfig
 from app.data_types import OrderSide, Pool, Position, Regime, RunMode, Strategy, Tier
 from app.journal import Journal
-from app.notify import TelegramNotifier
+from app.notify import DiscordNotifier
 from app.storage import StateStorage
 from backtesting.daemon import BacktestDaemon
-from bot_telegram.handlers import TelegramHandler
 from execution.order_manager import OrderManager
 from execution.partial_exit import ExitAction, PartialExitManager
 from execution.quarantine import QuarantineManager
@@ -79,11 +78,10 @@ class TradingBot:
             verify_ssl=not bool(config.proxy),
         )
 
-        self._notifier = TelegramNotifier(
-            token=config.secrets.telegram_bot_token,
-            chat_id=config.secrets.telegram_chat_id,
-            timeout_sec=config.telegram.timeout_sec,
+        self._notifier = DiscordNotifier(
+            webhooks=config.secrets.discord_webhooks,
             proxy=config.proxy,
+            timeout_sec=config.discord.timeout_sec,
         )
 
         self._datafeed = DataFeed(self._client, self._coins)
@@ -196,7 +194,7 @@ class TradingBot:
         # 포지션 관리
         self._positions: dict[str, Position] = {}
 
-        # 텔레그램 핸들러 / 일시 중지 / 시작 시간
+        # 일시 중지 / 시작 시간
         self._paused = False
         self._bot_start_time = time.time()
         self._paper_start_time: float = 0.0
@@ -390,7 +388,8 @@ class TradingBot:
                     f"수집 성공: {valid_count}/{total_count}\n"
                     f"실패 코인: {', '.join(failed_coins[:5])}"
                     f"{'...' if len(failed_coins) > 5 else ''}\n"
-                    f"VPN 연결 상태를 확인하세요."
+                    f"VPN 연결 상태를 확인하세요.",
+                    channel="system",
                 )
         else:
             if self._data_failure_alerted:
@@ -398,7 +397,8 @@ class TradingBot:
                     f"<b>✅ 네트워크 복구</b>\n"
                     f"데이터 수집 정상화: {valid_count}/{total_count}\n"
                     f"장애 지속: {self._consecutive_data_failures}사이클 "
-                    f"(약 {self._consecutive_data_failures * self._cycle_interval // 60}분)"
+                    f"(약 {self._consecutive_data_failures * self._cycle_interval // 60}분)",
+                    channel="system",
                 )
             self._consecutive_data_failures = 0
             self._data_failure_alerted = False
@@ -673,14 +673,15 @@ class TradingBot:
                     ticket.status.value,
                 )
 
-                # 텔레그램 체결 알림
+                # 체결 알림
                 await self._notifier.send(
                     f"<b>📈 {signal.symbol} 매수 체결</b>\n"
                     f"전략: {signal.strategy.value} | {signal.score:.0f}점\n"
                     f"가격: {signal.entry_price:,.0f}원\n"
                     f"수량: {qty:.6f} | {sizing.size_krw:,.0f}원\n"
                     f"SL: {signal.stop_loss:,.0f} | TP: {signal.take_profit:,.0f}\n"
-                    f"상태: {ticket.status.value}"
+                    f"상태: {ticket.status.value}",
+                    channel="trade",
                 )
 
         # 9. 포지션 관리: 부분청산/트레일링/시간 제한
@@ -804,7 +805,7 @@ class TradingBot:
                         else 0
                     ),
                 )
-                await self._notifier.send(gate.format_report(gate_result))
+                await self._notifier.send(gate.format_report(gate_result), channel="livegate")
             if now_kst.weekday() == 6:  # 일요일
                 shadow_top3 = self._darwin.get_top_shadows(3)
                 bd = self._backtest_daemon
@@ -967,7 +968,7 @@ class TradingBot:
             exit_reason,
         )
 
-        # 텔레그램 청산 알림 (실패해도 청산 로직에 영향 없음)
+        # 청산 알림 (실패해도 청산 로직에 영향 없음)
         try:
             pnl_pct = net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0
             pnl_emoji = "+" if net_pnl >= 0 else "-"
@@ -976,7 +977,8 @@ class TradingBot:
                 f"사유: {exit_reason}\n"
                 f"진입: {pos.entry_price:,.0f} → 청산: {exit_price:,.0f}\n"
                 f"PnL: {net_pnl:,.0f}원 ({pnl_pct:+.2f}%)\n"
-                f"보유: {hold_sec // 60}분"
+                f"보유: {hold_sec // 60}분",
+                channel="trade",
             )
         except Exception:
             logger.exception("청산 알림 전송 실패: %s", symbol)
@@ -995,20 +997,11 @@ class TradingBot:
             f"<b>봇 시작</b>\n"
             f"모드: {self._run_mode.value}\n"
             f"코인: {len(self._coins)}개\n"
-            f"사이클: {self._cycle_interval}초"
+            f"사이클: {self._cycle_interval}초",
+            channel="system",
         )
 
-        # 텔레그램 명령어 핸들러 시작
-        self._telegram_handler = TelegramHandler(
-            token=self._config.secrets.telegram_bot_token,
-            chat_id=self._config.secrets.telegram_chat_id,
-            bot=self,
-            proxy=self._config.proxy,
-            verify_ssl=not bool(self._config.proxy),
-        )
-        self._telegram_task = asyncio.create_task(
-            self._telegram_handler.start_polling(),
-        )
+        # DiscordBot은 Task 7에서 추가
 
         # BacktestDaemon 백그라운드 시작
         self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
@@ -1020,7 +1013,8 @@ class TradingBot:
             except Exception:
                 logger.exception("사이클 실행 중 오류")
                 await self._notifier.send(
-                    f"<b>사이클 #{self._cycle_count} 오류</b>\n상세 내용은 로그 확인"
+                    f"<b>사이클 #{self._cycle_count} 오류</b>\n상세 내용은 로그 확인",
+                    channel="system",
                 )
 
             if self._running:
@@ -1029,14 +1023,7 @@ class TradingBot:
     async def stop(self) -> None:
         """봇을 중지한다."""
         self._running = False
-        if hasattr(self, "_telegram_handler"):
-            await self._telegram_handler.stop()
-        if hasattr(self, "_telegram_task"):
-            self._telegram_task.cancel()
-            try:
-                await self._telegram_task
-            except asyncio.CancelledError:
-                pass
+        # DiscordBot 정리는 Task 7에서 추가
         if hasattr(self, "_daemon_task"):
             self._daemon_task.cancel()
             try:
@@ -1049,7 +1036,7 @@ class TradingBot:
         self._market_store.close()
         self._journal.close()
         logger.info("봇 종료")
-        await self._notifier.send("<b>봇 종료</b>")
+        await self._notifier.send("<b>봇 종료</b>", channel="system")
         await self._notifier.close()
 
     async def run_once(self) -> None:
