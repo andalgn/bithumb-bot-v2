@@ -584,20 +584,19 @@ class TestGenerateSignals:
 class TestRegimeStrategyMapping:
     """국면별 전략 허용 매핑 테스트."""
 
-    def test_strong_up_allows_a(self) -> None:
-        """STRONG_UP → A 허용 (D 스캘핑 비활성화)."""
+    def test_strong_up_allows_b(self) -> None:
+        """STRONG_UP → B(반전포착) 허용 (v15 설정)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.STRONG_UP]
-        assert Strategy.TREND_FOLLOW in allowed
-        assert Strategy.SCALPING not in allowed
-        assert Strategy.MEAN_REVERSION not in allowed
+        assert Strategy.MEAN_REVERSION in allowed
+        assert Strategy.TREND_FOLLOW not in allowed
 
-    def test_weak_up_allows_a_and_b(self) -> None:
-        """WEAK_UP → A + B 허용."""
+    def test_weak_up_allows_b(self) -> None:
+        """WEAK_UP → B 허용."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.WEAK_UP]
-        assert Strategy.TREND_FOLLOW in allowed
         assert Strategy.MEAN_REVERSION in allowed
+        assert Strategy.TREND_FOLLOW not in allowed
 
     def test_range_allows_mean_reversion_only(self) -> None:
         """RANGE → B만 허용 (추세 없는 시장에서 A 제거)."""

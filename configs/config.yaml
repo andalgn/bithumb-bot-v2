@@ -14,7 +14,7 @@ coins:
 - TAO
 - LDO
 sizing:
-  active_risk_pct: 0.05
+  active_risk_pct: 0.07
   core_risk_pct: 0.1
   reserve_risk_pct: 0.05
   dca_core_pct: 0.04
@@ -76,12 +76,9 @@ strategy_params:
     w_rsi_pullback: 15
     w_supertrend: 10
   mean_reversion:
-    # T3에서 PF 1.26 달성
-    tier3:
-      sl_mult: 5.0
-      tp_rr: 1.5
-    sl_mult: 4.0
-    tp_rr: 2.5
+    # v15: 전 Tier SL=5.0 TP=1.5 (PF 0.86 최적)
+    sl_mult: 5.0
+    tp_rr: 1.5
   breakout:
     sl_mult: 2.0
     tp_rr: 3.0
