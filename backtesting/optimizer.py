@@ -58,7 +58,7 @@ class ParameterOptimizer:
         """초기화."""
         self._coins = coins
         self._config = config
-        self._profiler = CoinProfiler(tier1_atr_max=0.03, tier3_atr_min=0.07)
+        self._profiler = CoinProfiler(tier1_atr_max=0.009, tier3_atr_min=0.014)
         self._profiled = False
         self._entry_cache: dict[str, list[EntryPoint]] = {}
 

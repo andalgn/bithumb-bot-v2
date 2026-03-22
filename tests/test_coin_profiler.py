@@ -27,7 +27,7 @@ def _make_candles(
 @pytest.fixture
 def profiler() -> CoinProfiler:
     """테스트용 CoinProfiler."""
-    return CoinProfiler(tier1_atr_max=0.03, tier3_atr_min=0.07)
+    return CoinProfiler(tier1_atr_max=0.009, tier3_atr_min=0.014)
 
 
 class TestCoinProfiler:
@@ -35,24 +35,24 @@ class TestCoinProfiler:
 
     def test_low_volatility_tier1(self, profiler: CoinProfiler) -> None:
         """낮은 변동성 → Tier 1."""
-        # 변동성 0.5% → ATR% < 3%
-        candles = _make_candles(50000000, 400, volatility=0.005)
+        # 변동성 0.3% → ATR% < 0.9%
+        candles = _make_candles(50000000, 400, volatility=0.003)
         params = profiler.classify("BTC", candles)
         assert params.tier == Tier.TIER1
         assert params.position_mult == 1.5
 
     def test_high_volatility_tier3(self, profiler: CoinProfiler) -> None:
         """높은 변동성 → Tier 3."""
-        # 변동성 10% → ATR% > 7%
-        candles = _make_candles(1000, 400, volatility=0.10)
+        # 변동성 1.0% → ATR% > 1.4%
+        candles = _make_candles(1000, 400, volatility=0.01)
         params = profiler.classify("SMALL", candles)
         assert params.tier == Tier.TIER3
         assert params.position_mult == 0.6
 
     def test_medium_volatility_tier2(self, profiler: CoinProfiler) -> None:
         """중간 변동성 → Tier 2."""
-        # volatility=0.03 → ATR% ~3~7% 범위
-        candles = _make_candles(3000000, 400, volatility=0.03)
+        # volatility=0.005 → ATR% ~0.9~1.4% 범위
+        candles = _make_candles(3000000, 400, volatility=0.005)
         params = profiler.classify("ETH", candles)
         assert params.tier == Tier.TIER2
         assert params.position_mult == 1.0
@@ -64,8 +64,8 @@ class TestCoinProfiler:
 
     def test_classify_all(self, profiler: CoinProfiler) -> None:
         """전체 분류."""
-        btc = _make_candles(50000000, 400, volatility=0.005)
-        small = _make_candles(1000, 400, volatility=0.10)
+        btc = _make_candles(50000000, 400, volatility=0.003)
+        small = _make_candles(1000, 400, volatility=0.01)
         result = profiler.classify_all({"BTC": btc, "SMALL": small})
         assert "BTC" in result
         assert "SMALL" in result
@@ -76,7 +76,7 @@ class TestCoinProfiler:
 
     def test_tier_params_fields(self, profiler: CoinProfiler) -> None:
         """TierParams 필드 확인."""
-        candles = _make_candles(50000000, 400, volatility=0.005)
+        candles = _make_candles(50000000, 400, volatility=0.003)
         params = profiler.classify("BTC", candles)
         assert params.rsi_min > 0
         assert params.rsi_max > params.rsi_min

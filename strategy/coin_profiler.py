@@ -66,8 +66,8 @@ class CoinProfiler:
 
     def __init__(
         self,
-        tier1_atr_max: float = 0.03,
-        tier3_atr_min: float = 0.07,
+        tier1_atr_max: float = 0.009,
+        tier3_atr_min: float = 0.014,
     ) -> None:
         """초기화.
 

@@ -127,7 +127,7 @@ class TradingBot:
             run_mode=self._run_mode,
         )
 
-        self._profiler = CoinProfiler(tier1_atr_max=0.03, tier3_atr_min=0.07)
+        self._profiler = CoinProfiler(tier1_atr_max=0.009, tier3_atr_min=0.014)
 
         self._correlation = CorrelationMonitor(
             skip_threshold=0.85,

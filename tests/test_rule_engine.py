@@ -291,9 +291,9 @@ class TestScoring:
     def test_strategy_e_detail_keys(self) -> None:
         """전략 E 점수 상세 키 존재."""
         from strategy.coin_profiler import CoinProfiler
-        profiler = CoinProfiler(tier1_atr_max=0.03, tier3_atr_min=0.07)
+        profiler = CoinProfiler(tier1_atr_max=0.009, tier3_atr_min=0.014)
         # BTC를 Tier 1로 분류
-        btc_candles = _make_candles(50000000, 400, volatility=0.005)
+        btc_candles = _make_candles(50000000, 400, volatility=0.003)
         profiler.classify("BTC", btc_candles)
         eng = RuleEngine(profiler=profiler)
 

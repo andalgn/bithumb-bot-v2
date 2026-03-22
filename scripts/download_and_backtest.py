@@ -403,8 +403,8 @@ async def main() -> None:
         logger.info("2단계: 전략 파이프라인 백테스트")
 
         profiler = CoinProfiler(
-            tier1_atr_max=0.03,
-            tier3_atr_min=0.07,
+            tier1_atr_max=0.009,
+            tier3_atr_min=0.014,
         )
         engine = RuleEngine(
             profiler=profiler,
