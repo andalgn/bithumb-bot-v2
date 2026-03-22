@@ -21,6 +21,7 @@
 ## 기술 스택
 - Python 3.12+ / aiohttp / FastAPI / SQLite (WAL)
 - 빗썸 API (KRW 마켓, REST + 비동기)
+- discord.py (알림 Webhook + 슬래시 커맨드)
 - DeepSeek API (주간 리뷰만)
 - React + TypeScript (대시보드, 선택)
 
