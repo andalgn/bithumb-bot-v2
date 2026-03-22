@@ -40,8 +40,12 @@ class TelegramHandler:
     }
 
     def __init__(
-        self, token: str, chat_id: str, bot: TradingBot,
-        *, verify_ssl: bool = True,
+        self,
+        token: str,
+        chat_id: str,
+        bot: TradingBot,
+        *,
+        verify_ssl: bool = True,
     ) -> None:
         """초기화.
 
@@ -68,7 +72,8 @@ class TelegramHandler:
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
             self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=35), connector=connector,
+                timeout=aiohttp.ClientTimeout(total=35),
+                connector=connector,
             )
         return self._session
 
@@ -304,7 +309,9 @@ class TelegramHandler:
         gate = LiveGate()
         try:
             paper_days = (
-                self._bot._cycle_count * self._bot._cycle_interval // 86400
+                int((time.time() - self._bot._paper_start_time) / 86400)
+                if self._bot._paper_start_time > 0
+                else 0
             )
             bd = self._bot._backtest_daemon
             gate_result = gate.evaluate(
@@ -314,19 +321,13 @@ class TelegramHandler:
                 mdd_pct=self._bot._dd_limits._calc_dd(
                     self._bot._dd_limits.state.total_base,
                 ),
-                max_daily_dd_pct=self._bot._dd_limits._calc_dd(
-                    self._bot._dd_limits.state.daily_base,
-                ),
+                max_daily_dd_pct=self._bot._dd_limits.get_max_daily_dd(),
                 uptime_pct=0.99,
                 unresolved_auth_errors=0,
                 slippage_model_error_pct=0.0,
-                wf_pass_count=(
-                    bd.wf_result.pass_count if bd.wf_result else 0
-                ),
+                wf_pass_count=(bd.wf_result.pass_count if bd.wf_result else 0),
                 wf_total=4,
-                mc_p5_pnl=(
-                    bd.mc_result.pnl_percentile_5 if bd.mc_result else 0
-                ),
+                mc_p5_pnl=(bd.mc_result.pnl_percentile_5 if bd.mc_result else 0),
             )
         except Exception:
             await self._reply("LiveGate 검증 중 오류 발생. LIVE 전환 취소.")

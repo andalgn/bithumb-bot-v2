@@ -87,6 +87,8 @@ class ShadowPerformance:
     trade_count: int = 0
     total_pnl: float = 0.0
     win_count: int = 0
+    total_wins_pnl: float = 0.0
+    total_losses_pnl: float = 0.0
     max_drawdown: float = 0.0
     peak_equity: float = 1_000_000.0
     current_equity: float = 1_000_000.0
@@ -107,19 +109,12 @@ class ShadowPerformance:
 
     @property
     def profit_factor(self) -> float:
-        """Profit Factor를 반환한다 (근사)."""
+        """Profit Factor를 반환한다."""
         if self.trade_count == 0:
             return 0.0
-        if self.win_rate <= 0:
-            return 0.0
-        avg_win = self.total_pnl / max(self.win_count, 1) if self.total_pnl > 0 else 0
-        avg_loss = abs(self.total_pnl) / max(self.trade_count - self.win_count, 1)
-        if avg_loss <= 0:
-            return 10.0
-        loss_count = self.trade_count - self.win_count
-        if loss_count <= 0:
-            return 10.0
-        return abs(avg_win * self.win_count) / abs(avg_loss * loss_count)
+        if self.total_losses_pnl == 0:
+            return 10.0 if self.total_wins_pnl > 0 else 0.0
+        return self.total_wins_pnl / abs(self.total_losses_pnl)
 
 
 @dataclass
@@ -187,9 +182,7 @@ class DarwinEngine:
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("Darwin 인구 초기화: %d shadows", len(self._shadows))
 
-    def _mutate(
-        self, base: ShadowParams, variation: float, group: str
-    ) -> ShadowParams:
+    def _mutate(self, base: ShadowParams, variation: float, group: str) -> ShadowParams:
         """파라미터를 돌연변이시킨다."""
         params = copy.copy(base)
         params.group = group
@@ -259,6 +252,9 @@ class DarwinEngine:
                 perf.total_pnl += virtual_pnl
                 if virtual_pnl > 0:
                     perf.win_count += 1
+                    perf.total_wins_pnl += virtual_pnl
+                else:
+                    perf.total_losses_pnl += abs(virtual_pnl)
 
                 # MDD 추적
                 perf.current_equity += virtual_pnl * perf.peak_equity
@@ -288,17 +284,21 @@ class DarwinEngine:
 
                 if would_enter and signal.entry_price > 0:
                     open_pos[signal.symbol] = (
-                        signal.entry_price, signal.stop_loss, signal.take_profit,
+                        signal.entry_price,
+                        signal.stop_loss,
+                        signal.take_profit,
                     )
                     if self._journal:
-                        self._journal.record_shadow_trade({
-                            "shadow_id": trade.shadow_id,
-                            "symbol": trade.symbol,
-                            "strategy": trade.strategy,
-                            "params_json": json.dumps(dataclasses.asdict(shadow)),
-                            "would_enter": 1,
-                            "signal_score": trade.signal_score,
-                        })
+                        self._journal.record_shadow_trade(
+                            {
+                                "shadow_id": trade.shadow_id,
+                                "symbol": trade.symbol,
+                                "strategy": trade.strategy,
+                                "params_json": json.dumps(dataclasses.asdict(shadow)),
+                                "would_enter": 1,
+                                "signal_score": trade.signal_score,
+                            }
+                        )
 
                 count += 1
 
@@ -344,16 +344,15 @@ class DarwinEngine:
             child = self._mutate(parent, variation=0.15, group="moderate")
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
-            self._performances[child.shadow_id] = ShadowPerformance(
-                shadow_id=child.shadow_id
-            )
+            self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)
 
         self._shadows = new_shadows
         self._last_tournament = time.time()
 
         logger.info(
             "토너먼트 완료: 생존=%d, 새생성=%d",
-            len(survivor_ids), self._pop_size - len(survivor_ids),
+            len(survivor_ids),
+            self._pop_size - len(survivor_ids),
         )
         return scores
 
@@ -396,7 +395,9 @@ class DarwinEngine:
         if best_shadow:
             logger.info(
                 "챔피언 교체 후보: %s (score=%.3f > %.3f)",
-                best_shadow.shadow_id, best_score, champ_score.score,
+                best_shadow.shadow_id,
+                best_score,
+                champ_score.score,
             )
         return best_shadow
 
@@ -409,9 +410,7 @@ class DarwinEngine:
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("챔피언 교체 완료: %s -> %s", old_id, new_params.shadow_id)
 
-    def _calc_composite_score(
-        self, shadow_id: str, perf: ShadowPerformance
-    ) -> CompositeScore:
+    def _calc_composite_score(self, shadow_id: str, perf: ShadowPerformance) -> CompositeScore:
         """Composite Score를 계산한다."""
         # 정규화 (0~1 범위로)
         exp_norm = min(1.0, max(0.0, perf.expectancy / 0.02 + 0.5))

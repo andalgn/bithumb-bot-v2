@@ -11,16 +11,16 @@ from dataclasses import dataclass
 # 빗썸 코인별 가격 tick_size 및 수량 소수점 규칙
 # 가격대별 tick_size (KRW)
 PRICE_TICK_RULES: list[tuple[float, float]] = [
-    (2_000_000, 1000),   # 200만 이상: 1,000원 단위
-    (1_000_000, 500),    # 100만~200만: 500원 단위
-    (500_000, 100),      # 50만~100만: 100원 단위
-    (100_000, 50),       # 10만~50만: 50원 단위
-    (10_000, 10),        # 1만~10만: 10원 단위
-    (1_000, 5),          # 1,000~1만: 5원 단위
-    (100, 1),            # 100~1,000: 1원 단위
-    (10, 0.1),           # 10~100: 0.1원 단위
-    (1, 0.01),           # 1~10: 0.01원 단위
-    (0, 0.001),          # 1원 미만: 0.001원 단위
+    (2_000_000, 1000),  # 200만 이상: 1,000원 단위
+    (1_000_000, 500),  # 100만~200만: 500원 단위
+    (500_000, 100),  # 50만~100만: 100원 단위
+    (100_000, 50),  # 10만~50만: 50원 단위
+    (10_000, 10),  # 1만~10만: 10원 단위
+    (1_000, 5),  # 1,000~1만: 5원 단위
+    (100, 1),  # 100~1,000: 1원 단위
+    (10, 0.1),  # 10~100: 0.1원 단위
+    (1, 0.01),  # 1~10: 0.01원 단위
+    (0, 0.001),  # 1원 미만: 0.001원 단위
 ]
 
 # 코인별 수량 소수점 자리수
@@ -72,7 +72,7 @@ def normalize_price(price: float, side: str = "bid") -> float:
 
     Args:
         price: 원래 가격.
-        side: bid(매수) → 올림, ask(매도) → 내림.
+        side: bid(매수) → 내림(유리한 가격), ask(매도) → 올림(유리한 가격).
 
     Returns:
         정규화된 가격.
@@ -80,13 +80,13 @@ def normalize_price(price: float, side: str = "bid") -> float:
     tick = get_tick_size(price)
     if tick >= 1:
         if side == "bid":
-            return math.ceil(price / tick) * tick
-        return math.floor(price / tick) * tick
+            return math.floor(price / tick) * tick
+        return math.ceil(price / tick) * tick
     # 소수점 tick
     decimals = len(str(tick).rstrip("0").split(".")[-1])
     if side == "bid":
-        return math.ceil(price / tick) * tick
-    return round(math.floor(price / tick) * tick, decimals)
+        return round(math.floor(price / tick) * tick, decimals)
+    return round(math.ceil(price / tick) * tick, decimals)
 
 
 def normalize_qty(coin: str, qty: float) -> float:
@@ -100,13 +100,11 @@ def normalize_qty(coin: str, qty: float) -> float:
         정규화된 수량.
     """
     decimals = QTY_DECIMALS.get(coin, 4)
-    factor = 10 ** decimals
+    factor = 10**decimals
     return math.floor(qty * factor) / factor
 
 
-def validate_order(
-    coin: str, price: float, qty: float
-) -> NormalizedOrder:
+def validate_order(coin: str, price: float, qty: float) -> NormalizedOrder:
     """주문을 정규화하고 유효성을 검증한다.
 
     Args:
@@ -123,19 +121,28 @@ def validate_order(
 
     if norm_qty <= 0:
         return NormalizedOrder(
-            coin=coin, price=norm_price, qty=0,
-            total_krw=0, valid=False,
+            coin=coin,
+            price=norm_price,
+            qty=0,
+            total_krw=0,
+            valid=False,
             reject_reason="수량이 0 이하",
         )
 
     if total_krw < MIN_ORDER_KRW:
         return NormalizedOrder(
-            coin=coin, price=norm_price, qty=norm_qty,
-            total_krw=total_krw, valid=False,
+            coin=coin,
+            price=norm_price,
+            qty=norm_qty,
+            total_krw=total_krw,
+            valid=False,
             reject_reason=f"최소 주문금액 {MIN_ORDER_KRW}원 미달 ({total_krw:.0f}원)",
         )
 
     return NormalizedOrder(
-        coin=coin, price=norm_price, qty=norm_qty,
-        total_krw=total_krw, valid=True,
+        coin=coin,
+        price=norm_price,
+        qty=norm_qty,
+        total_krw=total_krw,
+        valid=True,
     )

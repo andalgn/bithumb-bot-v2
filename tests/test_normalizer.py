@@ -1,6 +1,5 @@
 """정규화 모듈 테스트."""
 
-
 from market.normalizer import (
     MIN_ORDER_KRW,
     get_tick_size,
@@ -29,13 +28,13 @@ class TestTickSize:
 class TestNormalizePrice:
     """가격 정규화 테스트."""
 
-    def test_bid_round_up(self) -> None:
-        """매수(bid) → 올림."""
-        assert normalize_price(50_000_500, "bid") == 50_001_000
+    def test_bid_round_down(self) -> None:
+        """매수(bid) → 내림(유리한 가격)."""
+        assert normalize_price(50_000_500, "bid") == 50_000_000
 
-    def test_ask_round_down(self) -> None:
-        """매도(ask) → 내림."""
-        assert normalize_price(50_000_999, "ask") == 50_000_000
+    def test_ask_round_up(self) -> None:
+        """매도(ask) → 올림(유리한 가격)."""
+        assert normalize_price(50_000_999, "ask") == 50_001_000
 
 
 class TestNormalizeQty:

@@ -30,6 +30,9 @@ class DDState:
     weekly_reset_at: float = 0.0
     monthly_reset_at: float = 0.0
 
+    # 최대 관측 일일 DD
+    max_daily_dd_observed: float = 0.0
+
     # 현재 자산
     current_equity: float = 0.0
 
@@ -79,9 +82,7 @@ class DDLimits:
 
     def _next_daily_reset(self, now: datetime) -> float:
         """다음 00:00 KST를 epoch seconds로 반환한다."""
-        tomorrow = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         return tomorrow.timestamp()
 
     def _next_weekly_reset(self, now: datetime) -> float:
@@ -101,11 +102,13 @@ class DDLimits:
     def _next_monthly_reset(self, now: datetime) -> float:
         """다음 달 1일 00:00 KST를 반환한다."""
         if now.month == 12:
-            first = now.replace(year=now.year + 1, month=1, day=1,
-                                hour=0, minute=0, second=0, microsecond=0)
+            first = now.replace(
+                year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
         else:
-            first = now.replace(month=now.month + 1, day=1,
-                                hour=0, minute=0, second=0, microsecond=0)
+            first = now.replace(
+                month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
         return first.timestamp()
 
     def _check_resets(self) -> None:
@@ -139,6 +142,15 @@ class DDLimits:
         # daily/weekly/monthly base는 _check_resets()에서 기간 경계 시점에만 설정
         if equity > self._state.total_base:
             self._state.total_base = equity
+
+        # 일일 DD 최대값 추적
+        daily_dd = self._calc_dd(self._state.daily_base)
+        if daily_dd > self._state.max_daily_dd_observed:
+            self._state.max_daily_dd_observed = daily_dd
+
+    def get_max_daily_dd(self) -> float:
+        """관측된 최대 일일 DD를 반환한다."""
+        return self._state.max_daily_dd_observed
 
     def _calc_dd(self, base: float) -> float:
         """DD 비율을 계산한다."""
@@ -212,6 +224,7 @@ class DDLimits:
             daily_reset_at=data.get("daily_reset_at", 0),
             weekly_reset_at=data.get("weekly_reset_at", 0),
             monthly_reset_at=data.get("monthly_reset_at", 0),
+            max_daily_dd_observed=data.get("max_daily_dd_observed", 0),
             current_equity=data.get("current_equity", 0),
         )
 
@@ -226,5 +239,6 @@ class DDLimits:
             "daily_reset_at": s.daily_reset_at,
             "weekly_reset_at": s.weekly_reset_at,
             "monthly_reset_at": s.monthly_reset_at,
+            "max_daily_dd_observed": s.max_daily_dd_observed,
             "current_equity": s.current_equity,
         }
