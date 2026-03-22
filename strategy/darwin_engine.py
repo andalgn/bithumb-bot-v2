@@ -416,7 +416,8 @@ class DarwinEngine:
         exp_norm = min(1.0, max(0.0, perf.expectancy / 0.02 + 0.5))
         pf_norm = min(1.0, max(0.0, (perf.profit_factor - 0.5) / 3.0))
         mdd_norm = min(1.0, max(0.0, 1.0 - perf.max_drawdown / 0.20))
-        # Sharpe 근사
+        # 간이 Sharpe (표준편차 대신 고정값 사용). Composite Score에서 expectancy와 중복되나,
+        # 정밀 Sharpe 계산은 개별 거래 PnL 이력이 필요하므로 현재 구조에서는 근사치 사용.
         sharpe = perf.expectancy / 0.02 if perf.trade_count > 5 else 0
         sharpe_norm = min(1.0, max(0.0, (sharpe + 1) / 4))
         exec_norm = 0.5  # 기본값 (실제 체결 품질은 LIVE에서)

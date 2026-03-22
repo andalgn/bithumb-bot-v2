@@ -144,7 +144,7 @@ class OrderManager:
         """
         now = int(time.time() * 1000)
         ticket = OrderTicket(
-            ticket_id=str(uuid.uuid4())[:8],
+            ticket_id=str(uuid.uuid4())[:12],
             symbol=symbol,
             side=side,
             price=price,

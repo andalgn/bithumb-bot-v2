@@ -213,6 +213,7 @@ class ParameterOptimizer:
             hit_sl = candle.low <= sl
             hit_tp = candle.high >= tp
             if hit_sl or hit_tp:
+                # SL/TP 동시 피격 시 보수적으로 SL 우선 (worst-case assumption)
                 exit_p = sl if hit_sl else tp
                 entry_adj = entry * (1 + SLIPPAGE_RATE)
                 exit_adj = exit_p * (1 - SLIPPAGE_RATE)

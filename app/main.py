@@ -941,6 +941,7 @@ class TradingBot:
                 "exit_fee_krw": total_fee / 2,
                 "gross_pnl_krw": gross_pnl,
                 "net_pnl_krw": net_pnl,
+                # net_pnl_pct: 퍼센트 값 (예: 2.5% → 2.5). live_gate에서는 비율(0.025)로 비교.
                 "net_pnl_pct": net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0,
                 "hold_seconds": hold_sec,
                 "promoted": pos.promoted,

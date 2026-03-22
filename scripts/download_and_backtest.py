@@ -382,6 +382,8 @@ async def main() -> None:
         base_url=config.secrets.bithumb_api_url or config.bithumb.base_url,
         proxy=config.proxy,
         verify_ssl=not bool(config.proxy),
+        public_rate_limit=config.bithumb.public_rate_limit,
+        private_rate_limit=config.bithumb.private_rate_limit,
     )
     store = MarketStore(db_path="data/market_data.db")
     notifier = TelegramNotifier(
@@ -413,6 +415,7 @@ async def main() -> None:
             score_cutoff=config.score_cutoff,
             regime_config=config.regime,
             execution_config=config.execution,
+            strategy_params=config.strategy_params,
         )
 
         # rule_engine DEBUG 로그 끄기 (백테스트 중 너무 많음)

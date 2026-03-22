@@ -178,6 +178,8 @@ async def main() -> None:
         base_url=config.secrets.bithumb_api_url or config.bithumb.base_url,
         proxy=config.proxy,
         verify_ssl=not bool(config.proxy),
+        public_rate_limit=config.bithumb.public_rate_limit,
+        private_rate_limit=config.bithumb.private_rate_limit,
     )
     notifier = TelegramNotifier(
         token=config.secrets.telegram_bot_token,

@@ -91,6 +91,11 @@ class TelegramNotifier:
             self._consecutive_failures += 1
             if self._consecutive_failures >= 3:
                 # 3회 연속 실패 후에만 세션 재생성 (세션 폭풍 방지)
+                if self._session:
+                    try:
+                        await self._session.close()
+                    except Exception:
+                        pass
                 self._session = None
                 self._consecutive_failures = 0
             return False
