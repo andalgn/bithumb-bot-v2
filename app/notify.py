@@ -29,19 +29,27 @@ class TelegramNotifier:
 
     BASE_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
-    def __init__(self, token: str, chat_id: str, timeout_sec: int = 5) -> None:
+    def __init__(
+        self,
+        token: str,
+        chat_id: str,
+        timeout_sec: int = 5,
+        proxy: str = "",
+    ) -> None:
         """초기화.
 
         Args:
             token: 텔레그램 봇 토큰.
             chat_id: 메시지를 보낼 채팅 ID.
             timeout_sec: 요청 타임아웃(초).
+            proxy: HTTP 프록시 URL (예: ``http://127.0.0.1:1081``).
         """
         self._token = token
         self._chat_id = chat_id
         self._timeout = aiohttp.ClientTimeout(total=timeout_sec)
         self._url = self.BASE_URL.format(token=token)
         self._ssl_ctx = _make_ssl_context()
+        self._proxy = proxy
         self._session: aiohttp.ClientSession | None = None
         self._consecutive_failures: int = 0
 
@@ -76,7 +84,9 @@ class TelegramNotifier:
 
         try:
             session = await self._get_session()
-            async with session.post(self._url, json=payload) as resp:
+            async with session.post(
+                self._url, json=payload, proxy=self._proxy or None,
+            ) as resp:
                 if resp.status == 200:
                     logger.info("텔레그램 메시지 전송 성공")
                     self._consecutive_failures = 0

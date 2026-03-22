@@ -45,6 +45,7 @@ class TelegramHandler:
         chat_id: str,
         bot: TradingBot,
         *,
+        proxy: str = "",
         verify_ssl: bool = True,
     ) -> None:
         """초기화.
@@ -53,11 +54,13 @@ class TelegramHandler:
             token: 텔레그램 봇 토큰.
             chat_id: 허가된 채팅 ID.
             bot: TradingBot 인스턴스 참조.
+            proxy: HTTP 프록시 URL (예: ``http://127.0.0.1:1081``).
             verify_ssl: SSL 인증서 검증 여부. 프록시 환경에서는 False.
         """
         self._token = token
         self._chat_id = chat_id
         self._bot = bot
+        self._proxy = proxy
         self._running = False
         self._offset = 0
         self._base_url = f"https://api.telegram.org/bot{token}"
@@ -109,7 +112,7 @@ class TelegramHandler:
         url = f"{self._base_url}/getUpdates"
         params = {"offset": self._offset, "timeout": 30}
 
-        async with session.get(url, params=params) as resp:
+        async with session.get(url, params=params, proxy=self._proxy or None) as resp:
             if resp.status != 200:
                 await asyncio.sleep(1)
                 return

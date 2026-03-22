@@ -83,6 +83,7 @@ class TradingBot:
             token=config.secrets.telegram_bot_token,
             chat_id=config.secrets.telegram_chat_id,
             timeout_sec=config.telegram.timeout_sec,
+            proxy=config.proxy,
         )
 
         self._datafeed = DataFeed(self._client, self._coins)
@@ -1002,6 +1003,7 @@ class TradingBot:
             token=self._config.secrets.telegram_bot_token,
             chat_id=self._config.secrets.telegram_chat_id,
             bot=self,
+            proxy=self._config.proxy,
             verify_ssl=not bool(self._config.proxy),
         )
         self._telegram_task = asyncio.create_task(
