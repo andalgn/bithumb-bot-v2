@@ -21,7 +21,7 @@ sizing:
   pool_cap_pct: 0.25
   active_min_krw: 5000
   core_min_krw: 10000
-  vol_target_mult_min: 0.5
+  vol_target_mult_min: 0.8
   vol_target_mult_max: 1.5
   defense_mult_min: 0.3
   defense_mult_max: 1.0
