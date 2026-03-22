@@ -776,14 +776,18 @@ class TradingBot:
                 from app.live_gate import LiveGate
 
                 gate = LiveGate()
-                paper_days = self._cycle_count * self._cycle_interval // 86400
+                paper_days = (
+                    int((time.time() - self._paper_start_time) / 86400)
+                    if self._paper_start_time
+                    else 0
+                )
                 total_trades = self._journal.get_trade_count()
                 gate_result = gate.evaluate(
                     paper_days=paper_days,
                     total_trades=total_trades,
                     strategy_expectancy={},  # 일일 리뷰에서 계산
                     mdd_pct=self._dd_limits._calc_dd(self._dd_limits.state.total_base),
-                    max_daily_dd_pct=self._dd_limits._calc_dd(self._dd_limits.state.daily_base),
+                    max_daily_dd_pct=self._dd_limits.get_max_daily_dd(),
                     uptime_pct=0.99,
                     unresolved_auth_errors=0,
                     slippage_model_error_pct=0.0,
@@ -1054,3 +1058,4 @@ class TradingBot:
             await self._client.close()
             self._market_store.close()
             self._journal.close()
+            await self._notifier.close()

@@ -104,18 +104,19 @@ def normalize_qty(coin: str, qty: float) -> float:
     return math.floor(qty * factor) / factor
 
 
-def validate_order(coin: str, price: float, qty: float) -> NormalizedOrder:
+def validate_order(coin: str, price: float, qty: float, side: str = "bid") -> NormalizedOrder:
     """주문을 정규화하고 유효성을 검증한다.
 
     Args:
         coin: 코인 심볼.
         price: 주문 가격.
         qty: 주문 수량.
+        side: 주문 방향 (bid=매수, ask=매도).
 
     Returns:
         정규화된 주문 정보.
     """
-    norm_price = normalize_price(price, side="bid")
+    norm_price = normalize_price(price, side=side)
     norm_qty = normalize_qty(coin, qty)
     total_krw = norm_price * norm_qty
 

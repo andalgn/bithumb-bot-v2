@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -100,8 +102,19 @@ class QuarantineManager:
             "global_last_failure": self._state.global_last_failure,
             "auth_until": self._state.auth_until,
         }
-        with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=str(self._state_path.parent), suffix=".tmp"
+        )
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, self._state_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def _check_inactive_reset(self, now: float) -> None:
         """300초 비활성 후 카운트를 리셋한다."""

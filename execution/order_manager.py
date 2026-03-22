@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -109,8 +111,19 @@ class OrderManager:
                 "retry_count": t.retry_count,
                 "error_msg": t.error_msg,
             })
-        with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=2)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=str(self._state_path.parent), suffix=".tmp"
+        )
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(items, f, indent=2)
+            os.replace(tmp_path, self._state_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def _cleanup_tickets(self) -> None:
         """티켓 메모리를 관리한다. 터미널 상태 100개, 전체 1000개."""
@@ -223,7 +236,7 @@ class OrderManager:
     async def _execute_live(self, ticket: OrderTicket) -> OrderTicket:
         """LIVE 모드에서 주문을 실행한다."""
         # 유효성 검증
-        order = validate_order(ticket.symbol, ticket.price, ticket.qty)
+        order = validate_order(ticket.symbol, ticket.price, ticket.qty, side=ticket.side.value)
         if not order.valid:
             ticket.status = OrderStatus.FAILED
             ticket.error_msg = order.reject_reason
