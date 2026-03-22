@@ -206,7 +206,7 @@ market_store:
 tier:
   tier1:
     atr_pct_max: 0.009
-    position_mult: 1.5
+    position_mult: 1.0
     rsi_min: 35
     rsi_max: 65
     atr_stop_mult: 2.5
@@ -219,7 +219,7 @@ tier:
     atr_stop_mult: 2.0
   tier3:
     atr_pct_min: 0.014
-    position_mult: 0.6
+    position_mult: 1.0
     rsi_min: 25
     rsi_max: 75
     atr_stop_mult: 1.5

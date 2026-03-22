@@ -38,7 +38,7 @@ class TierParams:
 # 기본 Tier 파라미터 (config에서 오버라이드 가능)
 DEFAULT_TIER_PARAMS: dict[Tier, dict] = {
     Tier.TIER1: {
-        "position_mult": 1.5,
+        "position_mult": 1.0,
         "rsi_min": 35,
         "rsi_max": 65,
         "atr_stop_mult": 2.5,
@@ -52,7 +52,7 @@ DEFAULT_TIER_PARAMS: dict[Tier, dict] = {
         "spread_limit": 0.0025,
     },
     Tier.TIER3: {
-        "position_mult": 0.6,
+        "position_mult": 1.0,
         "rsi_min": 25,
         "rsi_max": 75,
         "atr_stop_mult": 1.5,

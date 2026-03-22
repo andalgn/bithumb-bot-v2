@@ -39,7 +39,7 @@ class TestCoinProfiler:
         candles = _make_candles(50000000, 400, volatility=0.003)
         params = profiler.classify("BTC", candles)
         assert params.tier == Tier.TIER1
-        assert params.position_mult == 1.5
+        assert params.position_mult == 1.0
 
     def test_high_volatility_tier3(self, profiler: CoinProfiler) -> None:
         """높은 변동성 → Tier 3."""
@@ -47,7 +47,7 @@ class TestCoinProfiler:
         candles = _make_candles(1000, 400, volatility=0.01)
         params = profiler.classify("SMALL", candles)
         assert params.tier == Tier.TIER3
-        assert params.position_mult == 0.6
+        assert params.position_mult == 1.0
 
     def test_medium_volatility_tier2(self, profiler: CoinProfiler) -> None:
         """중간 변동성 → Tier 2."""
