@@ -1,19 +1,52 @@
-"""텔레그램 알림 모듈.
+"""디스코드 Webhook 알림 모듈.
 
 aiohttp 기반 비동기 전송. 실패 시 로그만 남기고 봇을 중단하지 않는다.
-VPN 환경의 SSL 인증서 문제 대응 포함.
+Notifier Protocol로 소비자와 디커플링.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import ssl
+from typing import Protocol, runtime_checkable
 
 import aiohttp
 
 logger = logging.getLogger(__name__)
 
-_HTML_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;"})
+_DISCORD_ESCAPE = str.maketrans({"*": "\\*", "_": "\\_", "~": "\\~", "`": "\\`", "|": "\\|"})
+
+_HTML_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"<b>(.*?)</b>", re.DOTALL), r"**\1**"),
+    (re.compile(r"<strong>(.*?)</strong>", re.DOTALL), r"**\1**"),
+    (re.compile(r"<i>(.*?)</i>", re.DOTALL), r"*\1*"),
+    (re.compile(r"<em>(.*?)</em>", re.DOTALL), r"*\1*"),
+    (re.compile(r"<code>(.*?)</code>", re.DOTALL), r"`\1`"),
+]
+
+_HTML_ENTITIES: dict[str, str] = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+}
+
+_STRIP_TAGS = re.compile(r"<[^>]+>")
+
+MAX_MESSAGE_LEN = 2000
+
+
+def _html_to_discord(text: str) -> str:
+    """HTML 포맷을 Discord Markdown으로 변환한다."""
+    for pattern, replacement in _HTML_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    text = _STRIP_TAGS.sub("", text)
+    for entity, char in _HTML_ENTITIES.items():
+        text = text.replace(entity, char)
+    return text
 
 
 def _make_ssl_context() -> ssl.SSLContext:
@@ -24,32 +57,46 @@ def _make_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
-class TelegramNotifier:
-    """텔레그램 메시지 전송기."""
+@runtime_checkable
+class Notifier(Protocol):
+    """알림 전송 프로토콜."""
 
-    BASE_URL = "https://api.telegram.org/bot{token}/sendMessage"
+    async def send(self, text: str, channel: str = "system") -> bool:
+        """메시지를 전송한다."""
+        ...
+
+    async def close(self) -> None:
+        """리소스를 정리한다."""
+        ...
+
+
+class DiscordNotifier:
+    """디스코드 Webhook 기반 알림."""
+
+    CHANNEL_TRADE = "trade"
+    CHANNEL_REPORT = "report"
+    CHANNEL_BACKTEST = "backtest"
+    CHANNEL_SYSTEM = "system"
+    CHANNEL_COMMAND = "command"
+    CHANNEL_LIVEGATE = "livegate"
 
     def __init__(
         self,
-        token: str,
-        chat_id: str,
-        timeout_sec: int = 5,
+        webhooks: dict[str, str],
         proxy: str = "",
+        timeout_sec: int = 5,
     ) -> None:
         """초기화.
 
         Args:
-            token: 텔레그램 봇 토큰.
-            chat_id: 메시지를 보낼 채팅 ID.
+            webhooks: 채널명 -> Webhook URL 매핑.
+            proxy: HTTP 프록시 URL.
             timeout_sec: 요청 타임아웃(초).
-            proxy: HTTP 프록시 URL (예: ``http://127.0.0.1:1081``).
         """
-        self._token = token
-        self._chat_id = chat_id
-        self._timeout = aiohttp.ClientTimeout(total=timeout_sec)
-        self._url = self.BASE_URL.format(token=token)
-        self._ssl_ctx = _make_ssl_context()
+        self._webhooks = webhooks
         self._proxy = proxy
+        self._timeout = aiohttp.ClientTimeout(total=timeout_sec)
+        self._ssl_ctx = _make_ssl_context()
         self._session: aiohttp.ClientSession | None = None
         self._consecutive_failures: int = 0
 
@@ -58,62 +105,119 @@ class TelegramNotifier:
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
             self._session = aiohttp.ClientSession(
-                timeout=self._timeout, connector=connector,
+                timeout=self._timeout,
+                connector=connector,
             )
         return self._session
 
-    async def send(self, text: str, parse_mode: str = "HTML") -> bool:
-        """메시지를 전송한다.
+    @staticmethod
+    def _split_message(text: str) -> list[str]:
+        """2000자 초과 메시지를 분할한다."""
+        if len(text) <= MAX_MESSAGE_LEN:
+            return [text]
+
+        chunks: list[str] = []
+        while text:
+            if len(text) <= MAX_MESSAGE_LEN:
+                chunks.append(text)
+                break
+            cut = text.rfind("\n", 0, MAX_MESSAGE_LEN)
+            if cut <= 0:
+                cut = MAX_MESSAGE_LEN
+            chunks.append(text[:cut])
+            text = text[cut:].lstrip("\n")
+        return chunks
+
+    @staticmethod
+    def escape(text: str) -> str:
+        """Discord Markdown 특수문자를 이스케이프한다."""
+        return text.translate(_DISCORD_ESCAPE)
+
+    async def send(self, text: str, channel: str = "system") -> bool:
+        """메시지를 지정 채널의 Webhook으로 전송한다.
+
+        HTML 포맷은 자동으로 Discord Markdown으로 변환된다.
 
         Args:
-            text: 전송할 메시지 텍스트.
-            parse_mode: 파싱 모드 (HTML 또는 Markdown).
+            text: 전송할 메시지 (HTML 또는 plain text).
+            channel: 대상 채널 키.
 
         Returns:
             전송 성공 여부.
         """
-        if not self._token or not self._chat_id:
-            logger.warning("텔레그램 토큰 또는 chat_id가 설정되지 않음")
+        url = self._webhooks.get(channel, "")
+        if not url:
+            logger.warning("디스코드 webhook URL 미설정: channel=%s", channel)
             return False
 
-        payload = {
-            "chat_id": self._chat_id,
-            "text": text,
-            "parse_mode": parse_mode,
-        }
+        text = _html_to_discord(text)
 
+        chunks = self._split_message(text)
+        all_ok = True
+        for chunk in chunks:
+            ok = await self._post_webhook(url, chunk)
+            if not ok:
+                all_ok = False
+        return all_ok
+
+    async def _post_webhook(self, url: str, content: str) -> bool:
+        """Webhook URL로 메시지를 POST한다."""
+        payload = {"content": content}
         try:
             session = await self._get_session()
             async with session.post(
-                self._url, json=payload, proxy=self._proxy or None,
+                url,
+                json=payload,
+                proxy=self._proxy or None,
             ) as resp:
-                if resp.status == 200:
-                    logger.info("텔레그램 메시지 전송 성공")
+                if resp.status in (200, 204):
+                    logger.debug("디스코드 메시지 전송 성공")
                     self._consecutive_failures = 0
                     return True
+                if resp.status == 429:
+                    data = await resp.json()
+                    retry_after = data.get("retry_after", 1.0)
+                    logger.warning(
+                        "디스코드 rate limit, %.1f초 대기",
+                        retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                    async with session.post(
+                        url,
+                        json=payload,
+                        proxy=self._proxy or None,
+                    ) as retry_resp:
+                        if retry_resp.status in (200, 204):
+                            self._consecutive_failures = 0
+                            return True
+                        retry_body = await retry_resp.text()
+                        logger.warning(
+                            "디스코드 rate limit 재시도 실패: status=%d body=%s",
+                            retry_resp.status,
+                            retry_body,
+                        )
+                    self._consecutive_failures += 1
+                    return False
                 body = await resp.text()
                 logger.warning(
-                    "텔레그램 전송 실패: status=%d body=%s", resp.status, body,
+                    "디스코드 전송 실패: status=%d body=%s",
+                    resp.status,
+                    body,
                 )
+                self._consecutive_failures += 1
                 return False
         except Exception:
-            logger.exception("텔레그램 전송 중 예외 발생")
+            logger.exception("디스코드 전송 중 예외 발생")
             self._consecutive_failures += 1
-            if self._consecutive_failures >= 3:
-                # 3회 연속 실패 후에만 세션 재생성 (세션 폭풍 방지)
-                if self._session:
-                    try:
-                        await self._session.close()
-                    except Exception:
-                        pass
-                self._session = None
-                self._consecutive_failures = 0
-            return False
-
-    @staticmethod
-    def escape(text: str) -> str:
-        """HTML 특수문자를 이스케이프한다."""
-        return text.translate(_HTML_ESCAPE)
+        if self._consecutive_failures >= 3:
+            if self._session:
+                try:
+                    await self._session.close()
+                except Exception:
+                    pass
+            self._session = None
+            self._consecutive_failures = 0
+        return False
 
     async def close(self) -> None:
         """세션을 닫는다."""
