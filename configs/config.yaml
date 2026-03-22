@@ -57,6 +57,17 @@ regime:
   aux_flag_confirm_bars: 2
 strategy_params:
   trend_follow:
+    # Tier별 최적화 파라미터
+    tier1:
+      sl_mult: 2.5
+      tp_rr: 2.5
+    tier2:
+      sl_mult: 2.5
+      tp_rr: 3.5
+    tier3:
+      sl_mult: 3.0
+      tp_rr: 2.0
+    # 공통 (tier 미지정 시 기본값)
     sl_mult: 3.0
     tp_rr: 2.5
     w_trend_align: 30
@@ -194,20 +205,20 @@ market_store:
   orderbook_retention_days: 90
 tier:
   tier1:
-    atr_pct_max: 0.03
+    atr_pct_max: 0.009
     position_mult: 1.5
     rsi_min: 35
     rsi_max: 65
     atr_stop_mult: 2.5
   tier2:
-    atr_pct_min: 0.03
-    atr_pct_max: 0.07
+    atr_pct_min: 0.009
+    atr_pct_max: 0.014
     position_mult: 1.0
     rsi_min: 30
     rsi_max: 70
     atr_stop_mult: 2.0
   tier3:
-    atr_pct_min: 0.07
+    atr_pct_min: 0.014
     position_mult: 0.6
     rsi_min: 25
     rsi_max: 75

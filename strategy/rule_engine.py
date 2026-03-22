@@ -218,9 +218,7 @@ class RuleEngine:
 
         return state.current, aux
 
-    def _raw_classify(
-        self, ind: IndicatorPack, close: np.ndarray
-    ) -> Regime:
+    def _raw_classify(self, ind: IndicatorPack, close: np.ndarray) -> Regime:
         """히스테리시스 없이 순수 국면을 판정한다."""
         n = len(close)
         if n < 25:
@@ -264,9 +262,7 @@ class RuleEngine:
         # 5. RANGE
         return Regime.RANGE
 
-    def _detect_aux_flags(
-        self, ind: IndicatorPack, close: np.ndarray
-    ) -> AuxFlags:
+    def _detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> AuxFlags:
         """보조 플래그를 감지한다."""
         adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
         plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
@@ -279,12 +275,8 @@ class RuleEngine:
         valid_atr = ind.atr[~np.isnan(ind.atr)]
         atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
 
-        range_volatile = (
-            adx_val < 20 and atr_20d_avg > 0 and atr_now > atr_20d_avg * 1.2
-        )
-        down_accel = (
-            ema20 < ema50 < ema200 and adx_val > 22 and minus_di > plus_di
-        )
+        range_volatile = adx_val < 20 and atr_20d_avg > 0 and atr_now > atr_20d_avg * 1.2
+        down_accel = ema20 < ema50 < ema200 and adx_val > 22 and minus_di > plus_di
 
         return AuxFlags(range_volatile=range_volatile, down_accel=down_accel)
 
@@ -335,7 +327,9 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def _score_strategy_a(
-        self, ind_15m: IndicatorPack, ind_1h: IndicatorPack,
+        self,
+        ind_15m: IndicatorPack,
+        ind_1h: IndicatorPack,
         candles_15m: list | None = None,
     ) -> ScoreResult:
         """전략 A 추세추종 점수를 계산한다."""
@@ -376,11 +370,15 @@ class RuleEngine:
         # 거래량: 20봉 평균의 1.5배 이상 (실제 캔들 volume)
         if candles_15m:
             detail["volume"] = self._score_volume_direct(
-                candles_15m, threshold=1.5, max_pts=w["volume"],
+                candles_15m,
+                threshold=1.5,
+                max_pts=w["volume"],
             )
         else:
             detail["volume"] = self._score_volume(
-                ind_15m, threshold=1.5, max_pts=w["volume"],
+                ind_15m,
+                threshold=1.5,
+                max_pts=w["volume"],
             )
         score += detail["volume"]
 
@@ -408,7 +406,9 @@ class RuleEngine:
         return ScoreResult(strategy=Strategy.TREND_FOLLOW, score=score, detail=detail)
 
     def _score_strategy_b(
-        self, ind_15m: IndicatorPack, candles_15m: list | None = None,
+        self,
+        ind_15m: IndicatorPack,
+        candles_15m: list | None = None,
     ) -> ScoreResult:
         """전략 B 반전포착 점수를 계산한다."""
         detail: dict[str, float] = {}
@@ -441,10 +441,15 @@ class RuleEngine:
                 # 최근 5봉 내 close < BB lower 이탈 확인
                 valid_mask = ~np.isnan(bb_lower[-5:])
                 if np.any(valid_mask):
-                    was_below = bool(np.any(
-                        closes[-5:-1][valid_mask[:-1]]
-                        < bb_lower[-5:-1][valid_mask[:-1]]
-                    )) if np.any(valid_mask[:-1]) else False
+                    was_below = (
+                        bool(
+                            np.any(
+                                closes[-5:-1][valid_mask[:-1]] < bb_lower[-5:-1][valid_mask[:-1]]
+                            )
+                        )
+                        if np.any(valid_mask[:-1])
+                        else False
+                    )
                     curr_above = not np.isnan(bb_lower[-1]) and closes[-1] >= bb_lower[-1]
                     if was_below and curr_above:
                         detail["bb_position"] = 25.0
@@ -505,7 +510,9 @@ class RuleEngine:
 
         # 거래량 (30점): 돌파봉 거래량 > 평균 2배 (실제 캔들 volume)
         detail["volume"] = self._score_volume_direct(
-            candles_15m, threshold=2.0, max_pts=30.0,
+            candles_15m,
+            threshold=2.0,
+            max_pts=30.0,
         )
         score += detail["volume"]
 
@@ -588,9 +595,7 @@ class RuleEngine:
 
         return ScoreResult(strategy=Strategy.SCALPING, score=score, detail=detail)
 
-    def _score_volume(
-        self, ind: IndicatorPack, threshold: float, max_pts: float
-    ) -> float:
+    def _score_volume(self, ind: IndicatorPack, threshold: float, max_pts: float) -> float:
         """거래량 점수를 계산한다 (OBV 증분 기반 간접)."""
         obv = ind.obv
         if len(obv) < 20:
@@ -605,7 +610,9 @@ class RuleEngine:
         return 0.0
 
     def _score_strategy_e(
-        self, ind_1h: IndicatorPack, symbol: str,
+        self,
+        ind_1h: IndicatorPack,
+        symbol: str,
         current_price: float = 0.0,
     ) -> ScoreResult:
         """전략 E DCA 매집 점수를 계산한다.
@@ -664,9 +671,7 @@ class RuleEngine:
         return ScoreResult(strategy=Strategy.DCA, score=score, detail=detail)
 
     @staticmethod
-    def _score_volume_direct(
-        candles: list, threshold: float, max_pts: float
-    ) -> float:
+    def _score_volume_direct(candles: list, threshold: float, max_pts: float) -> float:
         """실제 캔들 거래량을 직접 비교하여 점수를 계산한다.
 
         마지막 완성봉(-2)을 기준으로 평가한다.
@@ -719,7 +724,8 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def generate_signals(
-        self, snapshots: dict[str, MarketSnapshot],
+        self,
+        snapshots: dict[str, MarketSnapshot],
         paper_test: bool = False,
     ) -> list[Signal]:
         """스냅샷에서 매매 신호를 생성한다.
@@ -757,7 +763,10 @@ class RuleEngine:
             rsi_15m = self._last_valid(ind_15m.rsi)
             logger.debug(
                 "%s 국면=%s Tier=%d RSI=%.1f 가격=%.0f%s%s",
-                symbol, regime.value, tier_params.tier.value, rsi_15m,
+                symbol,
+                regime.value,
+                tier_params.tier.value,
+                rsi_15m,
                 snap.current_price,
                 " [RV]" if aux.range_volatile else "",
                 " [DA]" if aux.down_accel else "",
@@ -775,8 +784,14 @@ class RuleEngine:
                     logger.debug("%s L1 거부: %s", symbol, l1_reason)
                     continue
             best_signal = self._evaluate_strategies(
-                symbol, snap, regime, aux, tier_params,
-                allowed, ind_15m, ind_1h,
+                symbol,
+                snap,
+                regime,
+                aux,
+                tier_params,
+                allowed,
+                ind_15m,
+                ind_1h,
             )
             if best_signal:
                 signals.append(best_signal)
@@ -869,7 +884,10 @@ class RuleEngine:
         for sr in results:
             logger.debug(
                 "%s 전략=%s 점수=%.0f %s",
-                symbol, sr.strategy.value, sr.score, sr.detail,
+                symbol,
+                sr.strategy.value,
+                sr.score,
+                sr.detail,
             )
 
         # 최고 점수 선택
@@ -878,7 +896,9 @@ class RuleEngine:
         if decision == SizeDecision.HOLD:
             logger.debug(
                 "%s HOLD: %s %.0f점 (컷오프 미달)",
-                symbol, best.strategy.value, best.score,
+                symbol,
+                best.strategy.value,
+                best.score,
             )
             return None
 
@@ -896,17 +916,23 @@ class RuleEngine:
         # Tier별 SL 최대 비율 상한
         max_sl_pct = {Tier.TIER1: 0.015, Tier.TIER2: 0.025, Tier.TIER3: 0.035}
         sp = self._strategy_params.get(best.strategy.value, {})
+        # Tier별 파라미터 우선 적용
+        tier_key = f"tier{tier_params.tier.value}"
+        tier_sp = sp.get(tier_key, {})
+        merged_sp: dict[str, object] = {**sp, **tier_sp}
+        # tier1/tier2/tier3 키 자체는 제거 (dict가 아닌 값만 사용)
+        merged_sp = {k: v for k, v in merged_sp.items() if not isinstance(v, dict)}
         sl_cap = price * max_sl_pct.get(tier_params.tier, 0.025)
 
         if best.strategy == Strategy.SCALPING:
-            stop_loss = price * (1 - sp.get("sl_pct", 0.008))
-            take_profit = price * (1 + sp.get("tp_pct", 0.015))
+            stop_loss = price * (1 - merged_sp.get("sl_pct", 0.008))
+            take_profit = price * (1 + merged_sp.get("tp_pct", 0.015))
         elif best.strategy == Strategy.DCA:
-            stop_loss = price * (1 - sp.get("sl_pct", 0.03))
-            take_profit = price * (1 + sp.get("tp_pct", 0.05))
+            stop_loss = price * (1 - merged_sp.get("sl_pct", 0.03))
+            take_profit = price * (1 + merged_sp.get("tp_pct", 0.05))
         else:
-            sl_m = sp.get("sl_mult", sl_mult)
-            tp_r = sp.get("tp_rr", 2.5)
+            sl_m = merged_sp.get("sl_mult", sl_mult)
+            tp_r = merged_sp.get("tp_rr", 2.5)
             sl_dist = min(atr_val * sl_m, sl_cap)
             stop_loss = price - sl_dist
             take_profit = price + sl_dist * tp_r
@@ -946,7 +972,8 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def _generate_test_signals(
-        self, snapshots: dict[str, MarketSnapshot],
+        self,
+        snapshots: dict[str, MarketSnapshot],
     ) -> list[Signal]:
         """PAPER 테스트용 RSI 기반 간단 시그널을 생성한다.
 
@@ -981,14 +1008,16 @@ class RuleEngine:
                     regime=Regime.RANGE,
                     tier=tier,
                     entry_price=price,
-                    stop_loss=price * 0.997,   # -0.3%
+                    stop_loss=price * 0.997,  # -0.3%
                     take_profit=price * 1.005,  # +0.5%
                     timestamp=int(time.time() * 1000),
                 )
                 candidates.append((rsi, signal))
                 logger.info(
                     "[TEST] %s RSI=%.1f 가격=%.0f → 시그널 후보",
-                    symbol, rsi, price,
+                    symbol,
+                    rsi,
+                    price,
                 )
 
         # RSI 낮은 순으로 최대 3개
