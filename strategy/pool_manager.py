@@ -1,6 +1,6 @@
 """3풀 자금 관리 모듈.
 
-Core(60%) / Active(30%) / Reserve(10%) 관리.
+Core(40%) / Active(50%) / Reserve(10%) 관리.
 Pool 잔액 실시간 추적, 자금 이동 인터페이스.
 """
 
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 # 기본 배분 비율
 DEFAULT_RATIOS: dict[Pool, float] = {
-    Pool.CORE: 0.60,
-    Pool.ACTIVE: 0.30,
+    Pool.CORE: 0.40,
+    Pool.ACTIVE: 0.50,
     Pool.RESERVE: 0.10,
 }
 

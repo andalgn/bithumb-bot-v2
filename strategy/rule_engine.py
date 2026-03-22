@@ -33,8 +33,8 @@ KST = timezone(timedelta(hours=9))
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
     Regime.STRONG_UP: [Strategy.TREND_FOLLOW],
     Regime.WEAK_UP: [Strategy.TREND_FOLLOW],
-    Regime.RANGE: [Strategy.TREND_FOLLOW],  # A만 허용 (B/C OOS 검증 실패로 비활성)
-    Regime.WEAK_DOWN: [Strategy.DCA],  # B 비활성화
+    Regime.RANGE: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A + B (반전포착)
+    Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],  # B + E
     Regime.CRISIS: [Strategy.DCA],
 }
 
@@ -914,7 +914,7 @@ class RuleEngine:
         sl_mult = tier_params.atr_stop_mult
 
         # Tier별 SL 최대 비율 상한
-        max_sl_pct = {Tier.TIER1: 0.015, Tier.TIER2: 0.025, Tier.TIER3: 0.035}
+        max_sl_pct = {Tier.TIER1: 0.020, Tier.TIER2: 0.030, Tier.TIER3: 0.050}
         sp = self._strategy_params.get(best.strategy.value, {})
         # Tier별 파라미터 우선 적용
         tier_key = f"tier{tier_params.tier.value}"

@@ -16,20 +16,20 @@ class TestPoolManager:
     """3풀 자금 관리 테스트."""
 
     def test_initial_allocation(self, pm: PoolManager) -> None:
-        """초기 배분: Core 60%, Active 30%, Reserve 10%."""
-        assert pm.get_balance(Pool.CORE) == pytest.approx(600_000)
-        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(300_000)
+        """초기 배분: Core 40%, Active 50%, Reserve 10%."""
+        assert pm.get_balance(Pool.CORE) == pytest.approx(400_000)
+        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(500_000)
         assert pm.get_balance(Pool.RESERVE) == pytest.approx(100_000)
 
     def test_allocate_success(self, pm: PoolManager) -> None:
         """할당 성공."""
         assert pm.allocate(Pool.ACTIVE, 10_000) is True
-        assert pm.get_available(Pool.ACTIVE) == pytest.approx(290_000)
+        assert pm.get_available(Pool.ACTIVE) == pytest.approx(490_000)
         assert pm.get_position_count(Pool.ACTIVE) == 1
 
     def test_allocate_exceeds_balance(self, pm: PoolManager) -> None:
         """잔액 초과 할당 실패."""
-        assert pm.allocate(Pool.ACTIVE, 400_000) is False
+        assert pm.allocate(Pool.ACTIVE, 600_000) is False
 
     def test_allocate_max_positions(self, pm: PoolManager) -> None:
         """최대 포지션 초과 할당 실패 (Active 최대 5건)."""
@@ -41,14 +41,14 @@ class TestPoolManager:
         """청산 + 수익 반영."""
         pm.allocate(Pool.ACTIVE, 10_000)
         pm.release(Pool.ACTIVE, 10_000, pnl=5_000)
-        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(305_000)
+        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(505_000)
         assert pm.get_position_count(Pool.ACTIVE) == 0
 
     def test_release_with_loss(self, pm: PoolManager) -> None:
         """청산 + 손실 반영."""
         pm.allocate(Pool.ACTIVE, 10_000)
         pm.release(Pool.ACTIVE, 10_000, pnl=-3_000)
-        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(297_000)
+        assert pm.get_balance(Pool.ACTIVE) == pytest.approx(497_000)
 
     def test_transfer_active_to_core(self, pm: PoolManager) -> None:
         """승격: Active → Core 이관."""

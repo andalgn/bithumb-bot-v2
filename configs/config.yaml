@@ -14,7 +14,7 @@ coins:
 - TAO
 - LDO
 sizing:
-  active_risk_pct: 0.03
+  active_risk_pct: 0.05
   core_risk_pct: 0.1
   reserve_risk_pct: 0.05
   dca_core_pct: 0.04

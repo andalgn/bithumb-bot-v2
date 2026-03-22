@@ -113,8 +113,8 @@ class TestActiveSizing:
             size_decision=SizeDecision.FULL,
             active_positions=[],
         )
-        # Active 300,000 × 25% = 75,000
-        assert result.size_krw <= 75_000
+        # Active 500,000 × 25% = 125,000
+        assert result.size_krw <= 125_000
 
     def test_crisis_zero(self, pm: PositionManager) -> None:
         """CRISIS 국면 → defense 0 → clamp 0.3 → 작은 값."""
@@ -139,24 +139,24 @@ class TestCoreSizing:
             tier_params=_make_tier_params(Tier.TIER1),
             regime=Regime.STRONG_UP,
         )
-        # base=600000*0.10=60000, opp=60000*1.5*1.0=90000
+        # base=400000*0.10=40000, opp=40000*1.5*1.0=60000
         assert result.size_krw > 0
         assert result.pool == Pool.CORE
 
     def test_dca_size(self, pm: PositionManager) -> None:
         """DCA = Core × 4%."""
         size = pm.calculate_dca_size()
-        assert size == pytest.approx(600_000 * 0.04)
+        assert size == pytest.approx(400_000 * 0.04)
 
     def test_additional_buy_tier1(self, pm: PositionManager) -> None:
         """추가매수 Tier 1 = Core × 15%."""
         size = pm.calculate_addtional_buy_size(Tier.TIER1)
-        assert size == pytest.approx(600_000 * 0.15)
+        assert size == pytest.approx(400_000 * 0.15)
 
     def test_additional_buy_tier2(self, pm: PositionManager) -> None:
         """추가매수 Tier 2 = Core × 8%."""
         size = pm.calculate_addtional_buy_size(Tier.TIER2)
-        assert size == pytest.approx(600_000 * 0.08)
+        assert size == pytest.approx(400_000 * 0.08)
 
 
 class TestWeeklyDD:

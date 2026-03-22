@@ -58,8 +58,8 @@ def _make_bot(
     # PoolManager
     bot._pool_manager = MagicMock()
     bot._pool_manager._pools = {
-        Pool.CORE: _FakePoolState(600_000, 100_000, 1),
-        Pool.ACTIVE: _FakePoolState(300_000, 50_000, 2),
+        Pool.CORE: _FakePoolState(400_000, 100_000, 1),
+        Pool.ACTIVE: _FakePoolState(500_000, 50_000, 2),
         Pool.RESERVE: _FakePoolState(100_000, 0, 0),
     }
     bot._pool_manager.utilization_pct = 0.15
@@ -200,7 +200,7 @@ class TestTelegramCommands:
         assert "CORE" in msg
         assert "ACTIVE" in msg
         assert "RESERVE" in msg
-        assert "600,000" in msg
+        assert "400,000" in msg
         assert "활용률" in msg
 
     @pytest.mark.asyncio
