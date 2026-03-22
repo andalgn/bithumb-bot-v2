@@ -58,7 +58,7 @@ regime:
 strategy_params:
   trend_follow:
     sl_mult: 3.0
-    tp_rr: 2.0
+    tp_rr: 2.5
     w_trend_align: 30
     w_macd: 25
     w_volume: 20
