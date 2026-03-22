@@ -13,7 +13,7 @@ import time
 import numpy as np
 
 from app.config import AppConfig
-from app.data_types import OrderSide, Pool, Position, Regime, RunMode, Strategy, Tier
+from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
 from app.journal import Journal
 from app.notify import DiscordNotifier
 from app.storage import StateStorage
@@ -641,25 +641,6 @@ class TradingBot:
                     qty=qty,
                 )
                 ticket = await self._order_manager.execute_order(ticket)
-                self._risk_gate.record_entry(signal.symbol)
-
-                # 포지션 기록
-                self._positions[signal.symbol] = Position(
-                    symbol=signal.symbol,
-                    entry_price=signal.entry_price,
-                    entry_time=int(time.time() * 1000),
-                    size_krw=sizing.size_krw,
-                    qty=qty,
-                    stop_loss=signal.stop_loss,
-                    take_profit=signal.take_profit,
-                    strategy=signal.strategy,
-                    pool=alloc_pool,
-                    tier=signal.tier,
-                    regime=signal.regime,
-                    entry_score=signal.score,
-                    signal_price=signal.entry_price,
-                )
-                self._exit_manager.init_position(signal.symbol)
 
                 logger.info(
                     "주문 %s: %s %s %.4f @ %.0f [%s %.0f점] 사이즈=%.0f원 → %s",
@@ -674,16 +655,51 @@ class TradingBot:
                     ticket.status.value,
                 )
 
-                # 체결 알림
-                await self._notifier.send(
-                    f"<b>📈 {signal.symbol} 매수 체결</b>\n"
-                    f"전략: {signal.strategy.value} | {signal.score:.0f}점\n"
-                    f"가격: {signal.entry_price:,.0f}원\n"
-                    f"수량: {qty:.6f} | {sizing.size_krw:,.0f}원\n"
-                    f"SL: {signal.stop_loss:,.0f} | TP: {signal.take_profit:,.0f}\n"
-                    f"상태: {ticket.status.value}",
-                    channel="trade",
-                )
+                if ticket.status == OrderStatus.FILLED:
+                    self._risk_gate.record_entry(signal.symbol)
+
+                    # 포지션 기록
+                    self._positions[signal.symbol] = Position(
+                        symbol=signal.symbol,
+                        entry_price=signal.entry_price,
+                        entry_time=int(time.time() * 1000),
+                        size_krw=sizing.size_krw,
+                        qty=qty,
+                        stop_loss=signal.stop_loss,
+                        take_profit=signal.take_profit,
+                        strategy=signal.strategy,
+                        pool=alloc_pool,
+                        tier=signal.tier,
+                        regime=signal.regime,
+                        entry_score=signal.score,
+                        signal_price=signal.entry_price,
+                    )
+                    self._exit_manager.init_position(signal.symbol)
+
+                    # 체결 알림
+                    await self._notifier.send(
+                        f"<b>📈 {signal.symbol} 매수 체결</b>\n"
+                        f"전략: {signal.strategy.value} | {signal.score:.0f}점\n"
+                        f"가격: {signal.entry_price:,.0f}원\n"
+                        f"수량: {qty:.6f} | {sizing.size_krw:,.0f}원\n"
+                        f"SL: {signal.stop_loss:,.0f} | TP: {signal.take_profit:,.0f}",
+                        channel="trade",
+                    )
+                else:
+                    # 주문 실패 — Pool 할당 롤백
+                    self._pool_manager.release(alloc_pool, sizing.size_krw)
+                    logger.warning(
+                        "주문 실패 → Pool 롤백: %s %.0f원",
+                        signal.symbol,
+                        sizing.size_krw,
+                    )
+                    await self._notifier.send(
+                        f"<b>⚠ {signal.symbol} 주문 실패</b>\n"
+                        f"전략: {signal.strategy.value} | {signal.score:.0f}점\n"
+                        f"상태: {ticket.status.value}\n"
+                        f"Pool 할당 롤백: {sizing.size_krw:,.0f}원",
+                        channel="system",
+                    )
 
         # 9. 포지션 관리: 부분청산/트레일링/시간 제한
         now_ms = int(time.time() * 1000)
