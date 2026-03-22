@@ -76,8 +76,8 @@ strategy_params:
     w_rsi_pullback: 15
     w_supertrend: 10
   mean_reversion:
-    # v15: 전 Tier SL=5.0 TP=1.5 (PF 0.86 최적)
-    sl_mult: 5.0
+    # 자율연구 결과: RSI<=35 + sl=7.0 + tp=1.5 → PF 1.11
+    sl_mult: 7.0
     tp_rr: 1.5
   breakout:
     sl_mult: 2.0
