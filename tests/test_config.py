@@ -108,7 +108,8 @@ execution:
   orderbook_depth_mult:
     tier1: 6
 
-telegram:
+discord:
+  admin_role: "admin"
   timeout_sec: 10
 
 bithumb:
@@ -292,13 +293,14 @@ class TestLoadConfigFull:
         cfg = load_config(full_config_yaml)
         assert cfg.bithumb.public_rate_limit == 20
 
-    def test_telegram_config(
+    def test_discord_config(
         self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """telegram 설정이 올바르게 로딩된다."""
+        """discord 설정이 올바르게 로딩된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config(full_config_yaml)
-        assert cfg.telegram.timeout_sec == 10
+        assert cfg.discord.timeout_sec == 10
+        assert cfg.discord.admin_role == "admin"
 
 
 # ---------------------------------------------------------------------------
