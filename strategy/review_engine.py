@@ -133,10 +133,7 @@ class ReviewEngine:
         # 최근 24시간 거래 집계
         trades = self._journal.get_recent_trades(limit=100)
         cutoff = int(time.time() * 1000) - DAY_MS
-        today_trades = [
-            t for t in trades
-            if (t.get("created_at") or 0) >= cutoff
-        ]
+        today_trades = [t for t in trades if (t.get("created_at") or 0) >= cutoff]
 
         total = len(today_trades)
         wins = sum(1 for t in today_trades if (t.get("net_pnl_krw") or 0) > 0)
@@ -167,20 +164,24 @@ class ReviewEngine:
 
         logger.info(
             "일일 리뷰 완료: %d건 (승%d/패%d), PnL=%.0f원, 조정=%d건",
-            total, wins, losses, net_pnl, len(adjustments),
+            total,
+            wins,
+            losses,
+            net_pnl,
+            len(adjustments),
         )
         return result
 
-    def _calc_strategy_stats(
-        self, trades: list[dict]
-    ) -> dict[str, dict]:
+    def _calc_strategy_stats(self, trades: list[dict]) -> dict[str, dict]:
         """전략별 통계를 계산한다."""
         stats: dict[str, dict] = {}
         for t in trades:
             strat = t.get("strategy", "unknown")
             if strat not in stats:
                 stats[strat] = {
-                    "count": 0, "wins": 0, "total_pnl": 0.0,
+                    "count": 0,
+                    "wins": 0,
+                    "total_pnl": 0.0,
                 }
             stats[strat]["count"] += 1
             pnl = t.get("net_pnl_krw") or 0
@@ -212,12 +213,15 @@ class ReviewEngine:
                     "delta": CUTOFF_ADJUSTMENT,
                 }
                 adjustments.append(adj)
-                self._adjustments.append(Adjustment(
-                    param=f"{strat}_cutoff",
-                    old_value=0, new_value=CUTOFF_ADJUSTMENT,
-                    reason=adj["reason"],
-                    timestamp=time.time(),
-                ))
+                self._adjustments.append(
+                    Adjustment(
+                        param=f"{strat}_cutoff",
+                        old_value=0,
+                        new_value=CUTOFF_ADJUSTMENT,
+                        reason=adj["reason"],
+                        timestamp=time.time(),
+                    )
+                )
                 logger.info("조정: %s 임계값 +%.0f%% (%s)", strat, CUTOFF_ADJUSTMENT, adj["reason"])
 
         # 규칙 2: 종목 3회 연속 손절 → 24시간 쿨다운
@@ -270,13 +274,11 @@ class ReviewEngine:
             for adj in result.adjustments:
                 if adj["type"] == "cutoff_increase":
                     lines.append(
-                        f"조정: {adj['strategy']} 임계값 +{adj['delta']:.0f}%"
-                        f" ({adj['reason']})"
+                        f"조정: {adj['strategy']} 임계값 +{adj['delta']:.0f}% ({adj['reason']})"
                     )
                 elif adj["type"] == "coin_cooldown":
                     lines.append(
-                        f"조정: {adj['symbol']} {adj['cooldown_hours']}h 쿨다운"
-                        f" ({adj['reason']})"
+                        f"조정: {adj['symbol']} {adj['cooldown_hours']}h 쿨다운 ({adj['reason']})"
                     )
 
         lines.append("=" * 20)
@@ -322,9 +324,7 @@ class ReviewEngine:
         # 최근 7일 거래
         trades = self._journal.get_recent_trades(limit=500)
         cutoff = int(time.time() * 1000) - 7 * DAY_MS
-        week_trades = [
-            t for t in trades if (t.get("created_at") or 0) >= cutoff
-        ]
+        week_trades = [t for t in trades if (t.get("created_at") or 0) >= cutoff]
 
         total = len(week_trades)
         wins = sum(1 for t in week_trades if (t.get("net_pnl_krw") or 0) > 0)
@@ -334,11 +334,13 @@ class ReviewEngine:
         default_stat = ("", {"expectancy": 0})
         best = (
             max(strategy_stats.items(), key=lambda x: x[1]["expectancy"])
-            if strategy_stats else default_stat
+            if strategy_stats
+            else default_stat
         )
         worst = (
             min(strategy_stats.items(), key=lambda x: x[1]["expectancy"])
-            if strategy_stats else default_stat
+            if strategy_stats
+            else default_stat
         )
 
         result = WeeklyReviewResult(
@@ -375,7 +377,9 @@ class ReviewEngine:
 
         logger.info(
             "주간 리뷰 완료: %d건, 승률 %.0f%%, PnL=%.0f원",
-            total, result.win_rate * 100, net_pnl,
+            total,
+            result.win_rate * 100,
+            net_pnl,
         )
         return result
 
@@ -407,20 +411,20 @@ class ReviewEngine:
             "monte_carlo": {"p5_pnl": mc_p5, "worst_mdd": mc_mdd},
             "sensitive_params": sensitive_params or [],
             "correlation_pairs": [
-                {"coin1": c[0], "coin2": c[1], "corr": c[2]}
-                for c in (corr_pairs or [])
+                {"coin1": c[0], "coin2": c[1], "corr": c[2]} for c in (corr_pairs or [])
             ],
         }
 
         prompt = (
             "아래는 암호화폐 자동매매 봇의 주간 성과 데이터입니다.\n"
             "JSON으로 파라미터 조정 제안을 3개 이내로 해주세요.\n"
-            "각 제안: {\"param\": \"파라미터명\", \"action\": \"increase/decrease\","
-            " \"delta\": 숫자, \"reason\": \"이유\"}\n\n"
+            '각 제안: {"param": "파라미터명", "action": "increase/decrease",'
+            ' "delta": 숫자, "reason": "이유"}\n\n'
             f"데이터:\n{json.dumps(data_package, ensure_ascii=False, indent=2)}"
         )
 
         try:
+            # DeepSeek API는 직접 접속 (프록시 불필요 — 프록시는 한국 서버용)
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     f"{self._deepseek_url}/chat/completions",
@@ -490,9 +494,7 @@ class ReviewEngine:
         "sl_pct": 0.02,
     }
 
-    def _validate_suggestions(
-        self, suggestions: list[dict], trades: list[dict]
-    ) -> tuple[int, int]:
+    def _validate_suggestions(self, suggestions: list[dict], trades: list[dict]) -> tuple[int, int]:
         """제안의 타당성을 검증한다.
 
         파라미터 존재 여부, 허용 범위, delta 크기를 확인하는 기본 검증이다.
@@ -535,7 +537,9 @@ class ReviewEngine:
                 rejected += 1
                 logger.info(
                     "DeepSeek 제안 기각 (delta %.2f > 상한 %.2f): %s",
-                    delta_val, max_delta, suggestion,
+                    delta_val,
+                    max_delta,
+                    suggestion,
                 )
                 continue
 
@@ -567,10 +571,7 @@ class ReviewEngine:
             lines.append(f"최저 전략: {result.worst_strategy}")
 
         if shadow_top3:
-            top_strs = [
-                f"{s[0]}({s[1].total_pnl:+.0f})"
-                for s in shadow_top3[:3]
-            ]
+            top_strs = [f"{s[0]}({s[1].total_pnl:+.0f})" for s in shadow_top3[:3]]
             lines.append(f"Shadow Top3: {', '.join(top_strs)}")
 
         if result.deepseek_suggestions:
@@ -598,9 +599,7 @@ class ReviewEngine:
 
         trades = self._journal.get_recent_trades(limit=1000)
         cutoff = int(time.time() * 1000) - 30 * DAY_MS
-        month_trades = [
-            t for t in trades if (t.get("created_at") or 0) >= cutoff
-        ]
+        month_trades = [t for t in trades if (t.get("created_at") or 0) >= cutoff]
 
         strategy_stats = self._calc_strategy_stats(month_trades)
         total_pnl = sum(t.get("net_pnl_krw") or 0 for t in month_trades)

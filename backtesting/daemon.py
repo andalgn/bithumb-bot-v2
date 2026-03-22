@@ -13,9 +13,10 @@ config.yaml의 backtest 섹션에서 스케줄 읽음.
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import logging
+import os
 import shutil
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -122,36 +123,38 @@ class BacktestDaemon:
                 week_key = f"{date_key}-w"
 
                 # 데이터 수집: 매일
-                if (now.hour == collect_h and now.minute >= collect_m
-                        and self._last_collect != date_key):
+                if (
+                    now.hour == collect_h
+                    and now.minute >= collect_m
+                    and self._last_collect != date_key
+                ):
                     self._last_collect = date_key
                     await self._collect_candles()
 
                 # Walk-Forward: 매일
-                if (now.hour == wf_h and now.minute >= wf_m
-                        and self._last_wf != date_key):
+                if now.hour == wf_h and now.minute >= wf_m and self._last_wf != date_key:
                     self._last_wf = date_key
                     await self._run_walk_forward()
 
                 # Monte Carlo + 민감도: 매주
                 if now.weekday() == mc_weekday:
-                    if (now.hour == mc_h and now.minute >= mc_m
-                            and self._last_mc != week_key):
+                    if now.hour == mc_h and now.minute >= mc_m and self._last_mc != week_key:
                         self._last_mc = week_key
                         await self._run_monte_carlo()
 
-                    if (now.hour == sens_h and now.minute >= sens_m
-                            and self._last_sens != week_key):
+                    if now.hour == sens_h and now.minute >= sens_m and self._last_sens != week_key:
                         self._last_sens = week_key
                         await self._run_sensitivity()
                         await self._send_weekly_report()
 
                 # 자동 최적화: 매주
-                if (c.auto_optimize_enabled
-                        and now.weekday() == opt_weekday
-                        and now.hour == opt_h
-                        and now.minute >= opt_m
-                        and self._last_optimize != week_key):
+                if (
+                    c.auto_optimize_enabled
+                    and now.weekday() == opt_weekday
+                    and now.hour == opt_h
+                    and now.minute >= opt_m
+                    and self._last_optimize != week_key
+                ):
                     self._last_optimize = week_key
                     await self._run_auto_optimize()
 
@@ -159,10 +162,12 @@ class BacktestDaemon:
                 if c.auto_research_enabled:
                     research_h, research_m = self._parse_time(c.auto_research_time)
                     research_weekday = self._parse_weekday(c.auto_research_day)
-                    if (now.weekday() == research_weekday
-                            and now.hour == research_h
-                            and now.minute >= research_m
-                            and self._last_research != week_key):
+                    if (
+                        now.weekday() == research_weekday
+                        and now.hour == research_h
+                        and now.minute >= research_m
+                        and self._last_research != week_key
+                    ):
                         self._last_research = week_key
                         await self._run_auto_research()
 
@@ -215,12 +220,14 @@ class BacktestDaemon:
 
         wf_trades = []
         for i, t in enumerate(reversed(trades)):
-            wf_trades.append({
-                "entry_price": t.get("entry_price", 0) or 0,
-                "exit_price": t.get("exit_price", 0) or 0,
-                "qty": t.get("qty", 0) or 0,
-                "day": i // 10,
-            })
+            wf_trades.append(
+                {
+                    "entry_price": t.get("entry_price", 0) or 0,
+                    "exit_price": t.get("exit_price", 0) or 0,
+                    "qty": t.get("qty", 0) or 0,
+                    "day": i // 10,
+                }
+            )
 
         self.wf_result = self._walk_forward.run(wf_trades)
 
@@ -239,9 +246,7 @@ class BacktestDaemon:
             return
 
         pnl_list = [
-            t.get("net_pnl_krw", 0) or 0
-            for t in trades
-            if t.get("net_pnl_krw") is not None
+            t.get("net_pnl_krw", 0) or 0 for t in trades if t.get("net_pnl_krw") is not None
         ]
 
         if not pnl_list:
@@ -258,11 +263,13 @@ class BacktestDaemon:
 
         bt_trades = []
         for t in reversed(trades):
-            bt_trades.append({
-                "entry_price": t.get("entry_price", 0) or 0,
-                "exit_price": t.get("exit_price", 0) or 0,
-                "qty": t.get("qty", 0) or 0,
-            })
+            bt_trades.append(
+                {
+                    "entry_price": t.get("entry_price", 0) or 0,
+                    "exit_price": t.get("exit_price", 0) or 0,
+                    "qty": t.get("qty", 0) or 0,
+                }
+            )
 
         base_params = {
             "rsi_lower": 30.0,
@@ -310,6 +317,7 @@ class BacktestDaemon:
 
         # rule_engine 로그 억제
         import logging as _logging
+
         _logging.getLogger("strategy.rule_engine").setLevel(_logging.WARNING)
 
         optimizer = ParameterOptimizer(self._coins, config)
@@ -319,7 +327,10 @@ class BacktestDaemon:
         for strategy, grid in grids.items():
             combos = grid.combinations()
             oos_list = optimizer.optimize(
-                strategy, combos, candles_15m, candles_1h,
+                strategy,
+                combos,
+                candles_15m,
+                candles_1h,
             )
             if not oos_list:
                 continue
@@ -332,15 +343,20 @@ class BacktestDaemon:
             }
             logger.info(
                 "최적화 %s: PF=%.2f WR=%.0f%% (%d건)",
-                strategy, best.profit_factor, best.win_rate * 100, best.trades,
+                strategy,
+                best.profit_factor,
+                best.win_rate * 100,
+                best.trades,
             )
 
         # 기준 충족 시 자동 적용
         config_path = Path("configs/config.yaml")
         applied = []
         for strategy, r in results.items():
-            if (r["pf"] >= self._config.auto_apply_min_pf
-                    and r["trades"] >= self._config.auto_apply_min_trades):
+            if (
+                r["pf"] >= self._config.auto_apply_min_pf
+                and r["trades"] >= self._config.auto_apply_min_trades
+            ):
                 self._apply_optimized_params(strategy, r["params"], config_path)
                 applied.append(f"{strategy}: PF={r['pf']:.2f}")
 
@@ -383,7 +399,9 @@ class BacktestDaemon:
                 final_params.update(r.params_changed)
             config_path = Path("configs/config.yaml")
             self._apply_optimized_params(
-                kept[-1].strategy, final_params, config_path,
+                kept[-1].strategy,
+                final_params,
+                config_path,
             )
 
         # 텔레그램 리포트
@@ -394,8 +412,7 @@ class BacktestDaemon:
             for r in results:
                 icon = "+" if r.verdict == "KEEP" else "-"
                 lines.append(
-                    f"  {icon} {r.params_changed}"
-                    f" PF {r.baseline_pf:.2f}->{r.result_pf:.2f}"
+                    f"  {icon} {r.params_changed} PF {r.baseline_pf:.2f}->{r.result_pf:.2f}"
                 )
             await self._notifier.send("\n".join(lines))
 
@@ -425,13 +442,24 @@ class BacktestDaemon:
                 continue
             sp[strategy][k] = round(v, 4)
 
-        with open(config_path, "w", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            yaml.dump(
-                raw, f, default_flow_style=False,
-                allow_unicode=True, sort_keys=False,
-            )
-            fcntl.flock(f, fcntl.LOCK_UN)
+        # 원자적 쓰기: 임시 파일에 쓴 뒤 rename (같은 파일시스템이면 atomic)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=config_path.parent,
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    raw,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
+            os.replace(tmp_path, config_path)
+        except Exception:
+            os.unlink(tmp_path)
+            raise
 
         logger.info("config 업데이트: %s → %s", strategy, params)
 
@@ -448,9 +476,7 @@ class BacktestDaemon:
 
         if self.wf_result:
             wf = self.wf_result
-            lines.append(
-                f"[Walk-Forward] {wf.pass_count}/{wf.total_segments} -> {wf.verdict}"
-            )
+            lines.append(f"[Walk-Forward] {wf.pass_count}/{wf.total_segments} -> {wf.verdict}")
 
         if self.mc_result:
             mc = self.mc_result
@@ -492,7 +518,12 @@ class BacktestDaemon:
     def _parse_weekday(day_str: str) -> int:
         """요일 문자열 → weekday (0=월, 6=일)."""
         mapping = {
-            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-            "friday": 4, "saturday": 5, "sunday": 6,
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
         }
         return mapping.get(day_str.lower(), 6)

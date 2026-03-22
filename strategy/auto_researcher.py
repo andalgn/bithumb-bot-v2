@@ -129,7 +129,8 @@ class AutoResearcher:
         for i in range(self._max_experiments):
             if consecutive_failures >= self._max_consecutive_failures:
                 logger.info(
-                    "연속 %d회 REVERT, 세션 조기 종료", consecutive_failures,
+                    "연속 %d회 REVERT, 세션 조기 종료",
+                    consecutive_failures,
                 )
                 break
 
@@ -137,7 +138,10 @@ class AutoResearcher:
 
             # DeepSeek 제안
             proposal = await self._propose_experiment(
-                strategy, current_params, baseline, history[-10:],
+                strategy,
+                current_params,
+                baseline,
+                history[-10:],
             )
             if proposal is None:
                 logger.warning("제안 파싱 실패, 건너뜀")
@@ -293,6 +297,7 @@ class AutoResearcher:
         )
 
         try:
+            # DeepSeek API는 직접 접속 (프록시 불필요 — 프록시는 한국 서버용)
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     f"{self._deepseek_url}/chat/completions",
@@ -373,7 +378,10 @@ class AutoResearcher:
             if not (lo <= float(value) <= hi):
                 logger.warning(
                     "범위 초과: %s=%s (허용: %.1f~%.1f)",
-                    key, value, lo, hi,
+                    key,
+                    value,
+                    lo,
+                    hi,
                 )
                 return False
         return True

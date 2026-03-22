@@ -20,6 +20,7 @@ from app.data_types import MarketSnapshot, Signal, Tier
 
 if TYPE_CHECKING:
     from app.journal import Journal
+    from strategy.coin_profiler import CoinProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ class DarwinEngine:
         population_size: int = 20,
         champion_params: ShadowParams | None = None,
         journal: Journal | None = None,
+        profiler: CoinProfiler | None = None,
     ) -> None:
         """초기화.
 
@@ -145,10 +147,12 @@ class DarwinEngine:
             population_size: Shadow 개수 (20~30).
             champion_params: 챔피언 파라미터. None이면 기본값.
             journal: 거래 기록 저장소. Shadow 거래 기록용.
+            profiler: 코인 프로파일러. Tier별 슬리피지 적용용.
         """
         self._pop_size = population_size
         self._champion = champion_params or ShadowParams(shadow_id="champion")
         self._journal = journal
+        self._profiler = profiler
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
@@ -244,7 +248,11 @@ class DarwinEngine:
 
                 exit_price = sl if hit_sl else tp
                 raw_pnl = (exit_price - entry) / entry
-                slippage = SLIPPAGE_BY_TIER.get(Tier.TIER1, 0.001)
+                # 코인의 실제 Tier에 따른 슬리피지 적용
+                coin_tier = Tier.TIER2  # 기본값
+                if self._profiler:
+                    coin_tier = self._profiler.get_tier(sym).tier
+                slippage = SLIPPAGE_BY_TIER.get(coin_tier, 0.001)
                 virtual_pnl = raw_pnl - (FEE_PCT + slippage * 2)
 
                 perf = self._performances[sid]

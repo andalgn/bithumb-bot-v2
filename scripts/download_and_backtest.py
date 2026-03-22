@@ -62,7 +62,10 @@ async def download_candles(
                 result[coin][interval] = len(candles)
                 logger.info(
                     "%s %s: %d봉 다운로드 → %d건 저장",
-                    coin, interval, len(candles), stored,
+                    coin,
+                    interval,
+                    len(candles),
+                    stored,
                 )
             except Exception:
                 logger.exception("%s %s 다운로드 실패", coin, interval)
@@ -156,13 +159,17 @@ def run_backtest(
         if len(candles_15m) < 200 or len(candles_1h) < 200:
             logger.warning(
                 "%s: 데이터 부족 (15m=%d, 1h=%d)",
-                coin, len(candles_15m), len(candles_1h),
+                coin,
+                len(candles_15m),
+                len(candles_1h),
             )
             continue
 
         logger.info(
             "%s: 백테스트 시작 (15m=%d, 1h=%d)",
-            coin, len(candles_15m), len(candles_1h),
+            coin,
+            len(candles_15m),
+            len(candles_1h),
         )
 
         # 슬라이딩 윈도우 (15M 기준, 4봉씩 = 1시간)
@@ -171,7 +178,7 @@ def run_backtest(
         position: BacktestTrade | None = None
 
         for i in range(window_15m, len(candles_15m) - step, step):
-            slice_15m = candles_15m[i - window_15m: i]
+            slice_15m = candles_15m[i - window_15m : i]
             current_ts = slice_15m[-1].timestamp
             current_price = slice_15m[-1].close
 
@@ -183,14 +190,12 @@ def run_backtest(
 
             # 포지션 보유 중이면 SL/TP 체크
             if position is not None:
-                future = candles_15m[i: i + step]
+                future = candles_15m[i : i + step]
                 hit_sl = any(c.low <= position.stop_loss for c in future)
                 hit_tp = any(c.high >= position.take_profit for c in future)
 
                 if hit_sl or hit_tp:
-                    exit_price = (
-                        position.stop_loss if hit_sl else position.take_profit
-                    )
+                    exit_price = position.stop_loss if hit_sl else position.take_profit
 
                     entry_adj = position.entry_price * (1 + SLIPPAGE_RATE)
                     exit_adj = exit_price * (1 - SLIPPAGE_RATE)
@@ -331,21 +336,15 @@ def format_results(
         for skey, trades in sorted(btc_by_strat.items()):
             ws = sum(1 for t in trades if t.pnl > 0)
             pnl = sum(t.pnl for t in trades)
-            avg_win = (
-                sum(t.pnl for t in trades if t.pnl > 0) / ws if ws > 0 else 0
-            )
+            avg_win = sum(t.pnl for t in trades if t.pnl > 0) / ws if ws > 0 else 0
             ls = len(trades) - ws
-            avg_loss = (
-                sum(t.pnl for t in trades if t.pnl <= 0) / ls if ls > 0 else 0
-            )
+            avg_loss = sum(t.pnl for t in trades if t.pnl <= 0) / ls if ls > 0 else 0
             name = strat_names.get(skey, skey)
             lines.append(
-                f"  {name}: {len(trades)}건 {ws}W/{ls}L"
-                f" PnL={pnl:,.0f}",
+                f"  {name}: {len(trades)}건 {ws}W/{ls}L PnL={pnl:,.0f}",
             )
             lines.append(
-                f"    avg_win={avg_win:,.0f}"
-                f" avg_loss={avg_loss:,.0f}",
+                f"    avg_win={avg_win:,.0f} avg_loss={avg_loss:,.0f}",
             )
 
     lines.append("")
@@ -358,8 +357,7 @@ def format_results(
         wins = sum(1 for p in pnls if p > 0)
         total = sum(pnls)
         lines.append(
-            f"  {sym}: {len(pnls)}건 {wins}/{len(pnls)}"
-            f" PnL={total:,.0f}",
+            f"  {sym}: {len(pnls)}건 {wins}/{len(pnls)} PnL={total:,.0f}",
         )
 
     return "\n".join(lines)
@@ -397,10 +395,7 @@ async def main() -> None:
         logger.info("1단계: 캔들 데이터 다운로드")
         download_info = await download_candles(client, store, coins)
 
-        total_candles = sum(
-            v for coin_data in download_info.values()
-            for v in coin_data.values()
-        )
+        total_candles = sum(v for coin_data in download_info.values() for v in coin_data.values())
         logger.info("다운로드 완료: 총 %d봉", total_candles)
 
         # 2. 백테스트
@@ -408,7 +403,8 @@ async def main() -> None:
         logger.info("2단계: 전략 파이프라인 백테스트")
 
         profiler = CoinProfiler(
-            tier1_atr_max=0.03, tier3_atr_min=0.07,
+            tier1_atr_max=0.03,
+            tier3_atr_min=0.07,
         )
         engine = RuleEngine(
             profiler=profiler,
@@ -423,11 +419,16 @@ async def main() -> None:
 
         start_time = time.time()
         all_trades, strategy_stats = run_backtest(
-            store, coins, engine, profiler,
+            store,
+            coins,
+            engine,
+            profiler,
         )
         elapsed = time.time() - start_time
         logger.info(
-            "백테스트 완료: %d건 거래, %.1f초", len(all_trades), elapsed,
+            "백테스트 완료: %d건 거래, %.1f초",
+            len(all_trades),
+            elapsed,
         )
 
         # 3. 결과

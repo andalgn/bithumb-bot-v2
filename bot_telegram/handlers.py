@@ -313,16 +313,39 @@ class TelegramHandler:
                 if self._bot._paper_start_time > 0
                 else 0
             )
+
+            # 전략별 expectancy 계산
+            from collections import defaultdict
+
+            trades = self._bot._journal.get_recent_trades(limit=500)
+            strat_pnls: dict[str, list[float]] = defaultdict(list)
+            for t in trades:
+                s = t.get("strategy", "")
+                pnl = t.get("net_pnl_krw", 0) or 0
+                if s:
+                    strat_pnls[s].append(pnl)
+            strat_exp: dict[str, float] = {}
+            for s, pnls in strat_pnls.items():
+                strat_exp[s] = sum(pnls) / len(pnls) if pnls else 0
+
+            # 실제 가동률 계산
+            total_seconds = time.time() - self._bot._paper_start_time
+            expected_cycles = (
+                total_seconds / self._bot._cycle_interval if self._bot._paper_start_time > 0 else 0
+            )
+            actual_cycles = self._bot._cycle_count
+            uptime_pct = min(actual_cycles / expected_cycles, 1.0) if expected_cycles > 0 else 0.99
+
             bd = self._bot._backtest_daemon
             gate_result = gate.evaluate(
                 paper_days=paper_days,
                 total_trades=self._bot._journal.get_trade_count(),
-                strategy_expectancy={},
+                strategy_expectancy=strat_exp,
                 mdd_pct=self._bot._dd_limits._calc_dd(
                     self._bot._dd_limits.state.total_base,
                 ),
                 max_daily_dd_pct=self._bot._dd_limits.get_max_daily_dd(),
-                uptime_pct=0.99,
+                uptime_pct=uptime_pct,
                 unresolved_auth_errors=0,
                 slippage_model_error_pct=0.0,
                 wf_pass_count=(bd.wf_result.pass_count if bd.wf_result else 0),
