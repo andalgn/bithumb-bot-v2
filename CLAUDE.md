@@ -141,3 +141,4 @@ VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 - 로그: `sudo journalctl -u bithumb-bot -f`
 - VPN 자동 재연결 설정 필수
 - 봇 crash 시 자동 재시작 (Restart=always) + 텔레그램 알림
+- 텔레그램 알림: `verify_ssl` 파라미터로 SSL 검증 제어 (프록시 경유 시에만 비활성화, 직접 연결 시 활성화)
