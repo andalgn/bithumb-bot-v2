@@ -48,7 +48,7 @@ bithumb_auto_v2/
 │   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
-│   ├── notify.py                   ← 텔레그램 알림 모듈.
+│   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
@@ -82,8 +82,8 @@ bithumb_auto_v2/
 │   ├── param_grid.py               ← 파라미터 그리드 정의.
 │   ├── sensitivity.py              ← 파라미터 민감도 분석.
 │   └── walk_forward.py             ← Walk-Forward 검증.
-├── bot_telegram/
-│   └── handlers.py                 ← 텔레그램 명령어 핸들러.
+├── bot_discord/
+│   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
@@ -141,5 +141,4 @@ VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 - 관리: `sudo systemctl {start|stop|restart|status} bithumb-bot`
 - 로그: `sudo journalctl -u bithumb-bot -f`
 - VPN 자동 재연결 설정 필수
-- 봇 crash 시 자동 재시작 (Restart=always) + 텔레그램 알림
-- 텔레그램 알림: `verify_ssl` 파라미터로 SSL 검증 제어 (프록시 경유 시에만 비활성화, 직접 연결 시 활성화)
+- 봇 crash 시 자동 재시작 (Restart=always) + 디스코드 알림

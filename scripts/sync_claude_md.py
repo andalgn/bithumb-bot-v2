@@ -20,7 +20,7 @@ CLAUDE_MD = ROOT / "CLAUDE.md"
 # 소스 디렉토리 (스캔 대상)
 SOURCE_DIRS = [
     "app", "strategy", "market", "risk", "execution",
-    "backtesting", "bot_telegram", "scripts",
+    "backtesting", "bot_discord", "scripts",
 ]
 
 # 자동생성 마커
@@ -147,7 +147,7 @@ def generate_tree_section(tree: dict[str, list[tuple[str, str]]]) -> str:
     # 고정 순서 + 나머지
     order = [
         "app", "strategy", "market", "risk", "execution",
-        "backtesting", "bot_telegram", "scripts",
+        "backtesting", "bot_discord", "scripts",
     ]
     sorted_dirs = [d for d in order if d in tree]
     for extra in dir_list:
