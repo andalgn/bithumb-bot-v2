@@ -135,13 +135,8 @@ class DDLimits:
             equity: 현재 총 자산(KRW).
         """
         self._state.current_equity = equity
-        # 기준 자산은 상승 시 갱신 (high-water mark)
-        if equity > self._state.daily_base:
-            self._state.daily_base = equity
-        if equity > self._state.weekly_base:
-            self._state.weekly_base = equity
-        if equity > self._state.monthly_base:
-            self._state.monthly_base = equity
+        # total_base만 HWM 갱신 (총 DD는 전고점 기준)
+        # daily/weekly/monthly base는 _check_resets()에서 기간 경계 시점에만 설정
         if equity > self._state.total_base:
             self._state.total_base = equity
 

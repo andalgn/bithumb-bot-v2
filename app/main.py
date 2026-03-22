@@ -198,6 +198,7 @@ class TradingBot:
         # 텔레그램 핸들러 / 일시 중지 / 시작 시간
         self._paused = False
         self._bot_start_time = time.time()
+        self._paper_start_time: float = 0.0
 
         # LIVE 전환 risk_pct 50% 축소
         self._live_risk_reduction = False
@@ -868,7 +869,8 @@ class TradingBot:
         gross_pnl = (exit_price - pos.entry_price) * pos.qty
         fee = pos.entry_price * pos.qty * 0.0025 + exit_price * pos.qty * 0.0025
         cum_fee = self._exit_manager.get_cumulative_fee(symbol)
-        net_pnl = gross_pnl - fee - cum_fee
+        net_pnl = gross_pnl - fee  # 잔여 포지션만, 부분 청산 수수료는 이미 반영됨
+        total_fee = fee + cum_fee  # 저널 기록용 전체 수수료
 
         # Pool 반환
         self._pool_manager.release(pos.pool, pos.size_krw, pnl=net_pnl)
@@ -886,8 +888,8 @@ class TradingBot:
             "entry_price": pos.entry_price,
             "exit_price": exit_price,
             "qty": pos.qty,
-            "entry_fee_krw": pos.entry_price * pos.qty * 0.0025,
-            "exit_fee_krw": exit_price * pos.qty * 0.0025,
+            "entry_fee_krw": total_fee / 2,  # 근사 배분 (저널용)
+            "exit_fee_krw": total_fee / 2,
             "gross_pnl_krw": gross_pnl,
             "net_pnl_krw": net_pnl,
             "net_pnl_pct": net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0,
@@ -941,6 +943,7 @@ class TradingBot:
             token=self._config.secrets.telegram_bot_token,
             chat_id=self._config.secrets.telegram_chat_id,
             bot=self,
+            verify_ssl=not bool(self._config.proxy),
         )
         self._telegram_task = asyncio.create_task(
             self._telegram_handler.start_polling(),

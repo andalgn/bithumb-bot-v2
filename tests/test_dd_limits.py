@@ -42,10 +42,14 @@ class TestDDLimits:
         assert blocked is True  # BUY는 차단
 
     def test_hwm_update(self, dd: DDLimits) -> None:
-        """High-water mark 갱신."""
+        """total_base만 HWM 갱신, daily/weekly/monthly는 기간 경계에서만 리셋."""
         dd.update_equity(1_100_000)
-        assert dd._state.daily_base == 1_100_000
+        # total_base는 전고점 기준이므로 HWM 갱신
         assert dd._state.total_base == 1_100_000
+        # daily/weekly/monthly base는 기간 시작 시점 값 유지 (ratchet 안 함)
+        assert dd._state.daily_base == 1_000_000
+        assert dd._state.weekly_base == 1_000_000
+        assert dd._state.monthly_base == 1_000_000
 
     def test_state_dump_load(self, dd: DDLimits) -> None:
         """상태 직렬화/역직렬화."""

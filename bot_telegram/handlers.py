@@ -41,6 +41,7 @@ class TelegramHandler:
 
     def __init__(
         self, token: str, chat_id: str, bot: TradingBot,
+        *, verify_ssl: bool = True,
     ) -> None:
         """초기화.
 
@@ -48,6 +49,7 @@ class TelegramHandler:
             token: 텔레그램 봇 토큰.
             chat_id: 허가된 채팅 ID.
             bot: TradingBot 인스턴스 참조.
+            verify_ssl: SSL 인증서 검증 여부. 프록시 환경에서는 False.
         """
         self._token = token
         self._chat_id = chat_id
@@ -56,8 +58,9 @@ class TelegramHandler:
         self._offset = 0
         self._base_url = f"https://api.telegram.org/bot{token}"
         self._ssl_ctx = ssl.create_default_context()
-        self._ssl_ctx.check_hostname = False
-        self._ssl_ctx.verify_mode = ssl.CERT_NONE
+        if not verify_ssl:
+            self._ssl_ctx.check_hostname = False
+            self._ssl_ctx.verify_mode = ssl.CERT_NONE
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
