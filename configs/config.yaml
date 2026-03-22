@@ -57,27 +57,31 @@ regime:
   aux_flag_confirm_bars: 2
 strategy_params:
   trend_follow:
-    # Tier별 최적화 파라미터
+    # Tier별 최적화 파라미터 (넓은SL + 낮은TP)
     tier1:
-      sl_mult: 2.5
-      tp_rr: 2.5
-    tier2:
-      sl_mult: 2.5
-      tp_rr: 3.5
-    tier3:
-      sl_mult: 3.0
+      sl_mult: 4.0
       tp_rr: 2.0
+    tier2:
+      sl_mult: 5.0
+      tp_rr: 1.5
+    tier3:
+      sl_mult: 5.0
+      tp_rr: 1.0
     # 공통 (tier 미지정 시 기본값)
-    sl_mult: 3.0
-    tp_rr: 2.5
+    sl_mult: 5.0
+    tp_rr: 1.5
     w_trend_align: 30
     w_macd: 25
     w_volume: 20
     w_rsi_pullback: 15
     w_supertrend: 10
   mean_reversion:
-    sl_mult: 2.5
-    tp_rr: 3.0
+    # T3에서 PF 1.26 달성
+    tier3:
+      sl_mult: 5.0
+      tp_rr: 1.5
+    sl_mult: 4.0
+    tp_rr: 2.5
   breakout:
     sl_mult: 2.0
     tp_rr: 3.0
@@ -86,8 +90,9 @@ strategy_params:
     tp_pct: 0.03
     enabled: false
   dca:
-    sl_pct: 0.03
-    tp_pct: 0.05
+    # DCA T1에서 PF 2.22 달성 (넓은SL + 빠른 TP)
+    sl_pct: 0.05
+    tp_pct: 0.03
 promotion:
   profit_pct: 0.012
   profit_hold_bars: 2
