@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.config import load_config
-from app.notify import TelegramNotifier
+from app.notify import DiscordNotifier
 from backtesting.optimizer import ParameterOptimizer
 from backtesting.param_grid import build_grids
 from market.bithumb_api import BithumbClient
@@ -35,7 +35,9 @@ logger = logging.getLogger(__name__)
 
 
 async def ensure_data(
-    client: BithumbClient, store: MarketStore, coins: list[str],
+    client: BithumbClient,
+    store: MarketStore,
+    coins: list[str],
 ) -> None:
     """데이터가 없으면 다운로드한다.
 
@@ -62,7 +64,8 @@ async def ensure_data(
 
 
 def format_report(
-    results: dict[str, list], baseline: dict[str, dict],
+    results: dict[str, list],
+    baseline: dict[str, dict],
 ) -> str:
     """최적화 결과 리포트를 생성한다.
 
@@ -156,7 +159,11 @@ def apply_to_config(results: dict[str, list], config_path: Path) -> None:
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(
-            raw, f, default_flow_style=False, allow_unicode=True, sort_keys=False,
+            raw,
+            f,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
         )
 
     logger.info("config.yaml 업데이트 완료")
@@ -181,9 +188,10 @@ async def main() -> None:
         public_rate_limit=config.bithumb.public_rate_limit,
         private_rate_limit=config.bithumb.private_rate_limit,
     )
-    notifier = TelegramNotifier(
-        token=config.secrets.telegram_bot_token,
-        chat_id=config.secrets.telegram_chat_id,
+    notifier = DiscordNotifier(
+        webhooks=config.secrets.discord_webhooks,
+        proxy=config.proxy,
+        timeout_sec=config.discord.timeout_sec,
     )
 
     try:
@@ -224,16 +232,17 @@ async def main() -> None:
         # 4. Grid Search + WF
         grids = build_grids()
         all_results: dict[str, list] = {}
-        target_strategies = (
-            [args.strategy] if args.strategy else list(grids.keys())
-        )
+        target_strategies = [args.strategy] if args.strategy else list(grids.keys())
 
         start = time.time()
         for strategy in target_strategies:
             grid = grids[strategy]
             combos = grid.combinations()
             oos_results = optimizer.optimize(
-                strategy, combos, candles_15m, candles_1h,
+                strategy,
+                combos,
+                candles_15m,
+                candles_1h,
             )
             all_results[strategy] = oos_results
         elapsed = time.time() - start
@@ -243,14 +252,12 @@ async def main() -> None:
         report = format_report(all_results, baseline)
         # 터미널 인코딩 문제 방지 (UTF-8 강제)
         sys.stdout.buffer.write(
-            ("\n" + report.replace("<b>", "").replace("</b>", "") + "\n").encode(
-                "utf-8"
-            )
+            ("\n" + report.replace("<b>", "").replace("</b>", "") + "\n").encode("utf-8")
         )
 
-        # 6. 텔레그램 전송
-        await notifier.send(report)
-        logger.info("텔레그램 전송 완료")
+        # 6. 디스코드 전송
+        await notifier.send(report, channel="backtest")
+        logger.info("디스코드 전송 완료")
 
         # 7. --apply
         if args.apply:

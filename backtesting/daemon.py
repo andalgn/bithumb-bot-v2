@@ -25,7 +25,7 @@ import yaml
 
 from app.config import BacktestConfig
 from app.journal import Journal
-from app.notify import TelegramNotifier
+from app.notify import Notifier
 from backtesting.monte_carlo import MonteCarlo, MonteCarloResult
 from backtesting.sensitivity import SensitivityAnalyzer, SensitivityResult
 from backtesting.walk_forward import WalkForward, WalkForwardResult
@@ -45,7 +45,7 @@ class BacktestDaemon:
     def __init__(
         self,
         journal: Journal,
-        notifier: TelegramNotifier | None = None,
+        notifier: Notifier | None = None,
         config: BacktestConfig | None = None,
         store: MarketStore | None = None,
         client: BithumbClient | None = None,
@@ -56,7 +56,7 @@ class BacktestDaemon:
 
         Args:
             journal: 거래 기록.
-            notifier: 텔레그램 알림 (선택).
+            notifier: 알림 (선택).
             config: 백테스트 설정 (없으면 기본값).
             store: 시장 데이터 저장소 (선택, 데이터 수집/최적화용).
             client: 빗썸 API 클라이언트 (선택, 데이터 수집용).
@@ -236,7 +236,7 @@ class BacktestDaemon:
                 f"<b>Walk-Forward</b>: {self.wf_result.pass_count}/"
                 f"{self.wf_result.total_segments} -> {self.wf_result.verdict}"
             )
-            await self._notifier.send(msg)
+            await self._notifier.send(msg, channel="backtest")
 
     async def _run_monte_carlo(self) -> None:
         """Monte Carlo를 실행한다."""
@@ -360,7 +360,7 @@ class BacktestDaemon:
                 self._apply_optimized_params(strategy, r["params"], config_path)
                 applied.append(f"{strategy}: PF={r['pf']:.2f}")
 
-        # 텔레그램 알림
+        # 디스코드 알림
         if self._notifier:
             lines = ["<b>자동 최적화 완료</b>"]
             for s, r in results.items():
@@ -369,7 +369,7 @@ class BacktestDaemon:
                 lines.append(f"\n<b>자동 적용:</b> {', '.join(applied)}")
             else:
                 lines.append("\n기준 미달 — 적용 없음")
-            await self._notifier.send("\n".join(lines))
+            await self._notifier.send("\n".join(lines), channel="backtest")
 
         self.optimize_result = results
         return results
@@ -404,7 +404,7 @@ class BacktestDaemon:
                 config_path,
             )
 
-        # 텔레그램 리포트
+        # 디스코드 리포트
         if self._notifier and results:
             total = len(results)
             keep_count = len(kept)
@@ -414,7 +414,7 @@ class BacktestDaemon:
                 lines.append(
                     f"  {icon} {r.params_changed} PF {r.baseline_pf:.2f}->{r.result_pf:.2f}"
                 )
-            await self._notifier.send("\n".join(lines))
+            await self._notifier.send("\n".join(lines), channel="backtest")
 
     def _apply_optimized_params(
         self,
@@ -496,7 +496,7 @@ class BacktestDaemon:
             lines.append(f"[민감도] {', '.join(param_summary)}")
 
         lines.append("=" * 20)
-        await self._notifier.send("\n".join(lines))
+        await self._notifier.send("\n".join(lines), channel="backtest")
 
     # ═══════════════════════════════════════════
     # 유틸

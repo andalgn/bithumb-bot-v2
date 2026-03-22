@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from app.journal import Journal
-from app.notify import TelegramNotifier
+from app.notify import Notifier
 from backtesting.backtest import Backtester
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class ReviewEngine:
     def __init__(
         self,
         journal: Journal,
-        notifier: TelegramNotifier | None = None,
+        notifier: Notifier | None = None,
         deepseek_api_key: str = "",
         deepseek_base_url: str = "https://api.deepseek.com/v1",
     ) -> None:
@@ -86,7 +86,7 @@ class ReviewEngine:
 
         Args:
             journal: 거래 기록.
-            notifier: 텔레그램 알림.
+            notifier: 알림.
             deepseek_api_key: DeepSeek API 키.
             deepseek_base_url: DeepSeek API URL.
         """
@@ -158,7 +158,7 @@ class ReviewEngine:
             strategy_stats=strategy_stats,
         )
 
-        # 텔레그램 일일 요약
+        # 일일 요약 알림
         if self._notifier:
             await self._send_daily_report(result, utilization_pct, promotions)
 
@@ -257,7 +257,7 @@ class ReviewEngine:
         utilization_pct: float,
         promotions: list[str] | None,
     ) -> None:
-        """일일 리포트를 텔레그램으로 전송한다."""
+        """일일 리포트를 전송한다."""
         lines = [
             f"<b>일일 리뷰 ({result.date})</b>",
             "=" * 20,
@@ -284,7 +284,7 @@ class ReviewEngine:
         lines.append("=" * 20)
 
         if self._notifier:
-            await self._notifier.send("\n".join(lines))
+            await self._notifier.send("\n".join(lines), channel="report")
 
     # ═══════════════════════════════════════════
     # 주간 DeepSeek 분석
@@ -371,7 +371,7 @@ class ReviewEngine:
             result.applied_suggestions = applied
             result.rejected_suggestions = rejected
 
-        # 텔레그램 주간 리포트
+        # 주간 리포트 알림
         if self._notifier:
             await self._send_weekly_report(result, shadow_top3)
 
@@ -557,7 +557,7 @@ class ReviewEngine:
     async def _send_weekly_report(
         self, result: WeeklyReviewResult, shadow_top3: list | None
     ) -> None:
-        """주간 리포트를 텔레그램으로 전송한다."""
+        """주간 리포트를 전송한다."""
         lines = [
             f"<b>주간 리뷰 ({result.week_start})</b>",
             "=" * 20,
@@ -583,7 +583,7 @@ class ReviewEngine:
         lines.append("=" * 20)
 
         if self._notifier:
-            await self._notifier.send("\n".join(lines))
+            await self._notifier.send("\n".join(lines), channel="report")
 
     # ═══════════════════════════════════════════
     # 월간 DeepSeek 심층
@@ -609,7 +609,8 @@ class ReviewEngine:
                 f"<b>월간 리뷰</b>\n"
                 f"30일 거래: {len(month_trades)}건\n"
                 f"Net PnL: {total_pnl:+,.0f}원\n"
-                f"전략별: {json.dumps(strategy_stats, ensure_ascii=False)}"
+                f"전략별: {json.dumps(strategy_stats, ensure_ascii=False)}",
+                channel="report",
             )
 
         logger.info("월간 심층 리뷰 완료: %d건, PnL=%.0f원", len(month_trades), total_pnl)

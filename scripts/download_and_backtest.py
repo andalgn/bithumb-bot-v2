@@ -4,7 +4,7 @@
 2. market_data.db에 저장
 3. 전체 전략 파이프라인으로 백테스트 실행
 4. 전략별 성과 지표 계산 (승률, Expectancy, MDD, Profit Factor)
-5. 텔레그램으로 결과 전송
+5. 디스코드로 결과 전송
 """
 # ruff: noqa: E402
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.config import load_config
 from app.data_types import Candle, MarketSnapshot, Regime, Strategy, parse_raw_candles
-from app.notify import TelegramNotifier
+from app.notify import DiscordNotifier
 from market.bithumb_api import BithumbClient
 from market.market_store import MarketStore
 from strategy.coin_profiler import CoinProfiler
@@ -281,7 +281,7 @@ def format_results(
     strategy_stats: dict[str, StrategyStats],
     download_info: dict[str, dict[str, int]],
 ) -> str:
-    """결과를 텔레그램 메시지로 포맷한다."""
+    """결과를 디스코드 메시지로 포맷한다."""
     lines = ["<b>[BackTest] 백테스트 결과</b>"]
     lines.append("")
 
@@ -384,9 +384,10 @@ async def main() -> None:
         private_rate_limit=config.bithumb.private_rate_limit,
     )
     store = MarketStore(db_path="data/market_data.db")
-    notifier = TelegramNotifier(
-        token=config.secrets.telegram_bot_token,
-        chat_id=config.secrets.telegram_chat_id,
+    notifier = DiscordNotifier(
+        webhooks=config.secrets.discord_webhooks,
+        proxy=config.proxy,
+        timeout_sec=config.discord.timeout_sec,
     )
 
     try:
@@ -439,12 +440,12 @@ async def main() -> None:
 
         # 4. 텔레그램 전송
         logger.info("=" * 50)
-        logger.info("3단계: 텔레그램 전송")
-        ok = await notifier.send(msg)
+        logger.info("3단계: 디스코드 전송")
+        ok = await notifier.send(msg, channel="backtest")
         if ok:
-            logger.info("텔레그램 전송 성공")
+            logger.info("디스코드 전송 성공")
         else:
-            logger.warning("텔레그램 전송 실패")
+            logger.warning("디스코드 전송 실패")
 
     finally:
         await client.close()
