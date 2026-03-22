@@ -18,6 +18,7 @@ from app.journal import Journal
 from app.notify import DiscordNotifier
 from app.storage import StateStorage
 from backtesting.daemon import BacktestDaemon
+from bot_discord.bot import DiscordBot
 from execution.order_manager import OrderManager
 from execution.partial_exit import ExitAction, PartialExitManager
 from execution.quarantine import QuarantineManager
@@ -1001,7 +1002,19 @@ class TradingBot:
             channel="system",
         )
 
-        # DiscordBot은 Task 7에서 추가
+        # 디스코드 명령어 봇 시작
+        guild_id_str = self._config.secrets.discord_guild_id
+        if self._config.secrets.discord_bot_token and guild_id_str:
+            self._discord_bot = DiscordBot(
+                token=self._config.secrets.discord_bot_token,
+                bot=self,
+                guild_id=int(guild_id_str),
+                proxy=self._config.proxy,
+                admin_role=self._config.discord.admin_role,
+            )
+            self._discord_task = asyncio.create_task(self._discord_bot.start())
+        else:
+            logger.warning("디스코드 봇 토큰/guild_id 미설정 — 명령어 비활성화")
 
         # BacktestDaemon 백그라운드 시작
         self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
@@ -1023,7 +1036,14 @@ class TradingBot:
     async def stop(self) -> None:
         """봇을 중지한다."""
         self._running = False
-        # DiscordBot 정리는 Task 7에서 추가
+        if hasattr(self, "_discord_bot"):
+            await self._discord_bot.stop()
+        if hasattr(self, "_discord_task"):
+            self._discord_task.cancel()
+            try:
+                await self._discord_task
+            except asyncio.CancelledError:
+                pass
         if hasattr(self, "_daemon_task"):
             self._daemon_task.cancel()
             try:
