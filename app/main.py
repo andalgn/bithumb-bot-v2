@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -173,8 +174,15 @@ class TradingBot:
         # Phase 4: 부분청산 + 트레일링
         self._exit_manager = PartialExitManager()
 
+        # ExperimentStore + 파일럿 사이징
+        self._experiment_store = ExperimentStore()
+
         # Phase 5: Darwin + BacktestDaemon
-        self._darwin = DarwinEngine(population_size=20, journal=self._journal)
+        self._darwin = DarwinEngine(
+            population_size=20,
+            journal=self._journal,
+            experiment_store=self._experiment_store,
+        )
         self._backtest_daemon = BacktestDaemon(
             journal=self._journal,
             notifier=self._notifier,
@@ -183,6 +191,7 @@ class TradingBot:
             client=self._client,
             coins=config.coins,
             deepseek_api_key=config.secrets.deepseek_api_key,
+            experiment_store=self._experiment_store,
         )
 
         # Phase 6: ReviewEngine
@@ -190,11 +199,9 @@ class TradingBot:
             journal=self._journal,
             notifier=self._notifier,
             deepseek_api_key=config.secrets.deepseek_api_key,
+            experiment_store=self._experiment_store,
         )
         self._review_engine._risk_gate = self._risk_gate
-
-        # ExperimentStore + 파일럿 사이징
-        self._experiment_store = ExperimentStore()
         self._pilot_remaining: int = 0
         self._pilot_size_mult: float = 1.0
 
@@ -617,36 +624,32 @@ class TradingBot:
                         self._darwin.replace_champion(new_champion)
                         champ_params = self._darwin.champion_to_strategy_params()
                         config_path = self._config_path
-                        self._backtest_daemon._apply_optimized_params(
-                            "mean_reversion",
-                            champ_params["mean_reversion"],
-                            config_path,
-                        )
-                        self._backtest_daemon._apply_optimized_params(
-                            "dca",
-                            champ_params["dca"],
-                            config_path,
-                        )
-                        import glob as _glob
 
-                        _backup_files = sorted(_glob.glob(str(config_path) + ".bak.*"))
-                        if not _backup_files:
-                            logger.error("config 백업 파일 없음 — 챔피언 적용 취소")
-                        else:
-                            _actual_backup = _backup_files[-1]
-                            self._experiment_store.log_param_change(
-                                source="darwin",
-                                strategy="mean_reversion",
-                                old_params=self._rule_engine._strategy_params.get(
-                                    "mean_reversion", {}
-                                ),
-                                new_params=champ_params["mean_reversion"],
-                                backup_path=_actual_backup,
-                                baseline_pf=current_pf,
-                            )
-                            self._pilot_remaining = 20
-                            self._pilot_size_mult = 0.5
-                            logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+                        # 단일 백업 생성
+                        import shutil as _shutil
+
+                        backup_path = config_path.with_suffix(
+                            f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
+                        )
+                        _shutil.copy2(config_path, backup_path)
+
+                        # 두 전략 모두 일괄 적용 (개별 백업 없이)
+                        self._apply_champion_params(champ_params, config_path)
+
+                        # 롤백 모니터링 등록 (두 전략 모두 포함)
+                        old_mr = self._rule_engine._strategy_params.get("mean_reversion", {})
+                        old_dca = self._rule_engine._strategy_params.get("dca", {})
+                        self._experiment_store.log_param_change(
+                            source="darwin",
+                            strategy="mean_reversion+dca",
+                            old_params={"mean_reversion": old_mr, "dca": old_dca},
+                            new_params=champ_params,
+                            backup_path=str(backup_path),
+                            baseline_pf=current_pf,
+                        )
+                        self._pilot_remaining = 20
+                        self._pilot_size_mult = 0.5
+                        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
 
         # 8. 신호 평가 + Pool 사이징 + 주문
         for signal in signals:
@@ -1040,6 +1043,41 @@ class TradingBot:
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
 
+    def _apply_champion_params(self, champ_params: dict, config_path: Path) -> None:
+        """챔피언 파라미터를 config에 일괄 적용한다."""
+        import fcntl
+        import os
+        import tempfile
+
+        import yaml
+
+        with open(config_path, "r+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                raw = yaml.safe_load(f)
+                sp = raw.setdefault("strategy_params", {})
+                for strategy, params in champ_params.items():
+                    if strategy not in sp:
+                        sp[strategy] = {}
+                    for k, v in params.items():
+                        sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
+                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(config_path.parent), suffix=".yaml.tmp")
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                        yaml.dump(
+                            raw,
+                            tmp_f,
+                            allow_unicode=True,
+                            default_flow_style=False,
+                            sort_keys=False,
+                        )
+                    os.replace(tmp_path, str(config_path))
+                except Exception:
+                    os.unlink(tmp_path)
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
     async def _check_rollback(self) -> None:
         """파라미터 변경 모니터링 + 자동 롤백."""
         active = self._experiment_store.get_active_changes()
@@ -1062,22 +1100,29 @@ class TradingBot:
     async def _rollback_params(self, change: dict, current_pf: float) -> None:
         """파라미터를 이전 값으로 롤백한다."""
         import shutil
-        from pathlib import Path
 
-        self._experiment_store.update_change_status(change["id"], "rolled_back")
         backup = Path(change["backup_path"])
+        rolled_back = False
         if backup.exists():
-            shutil.copy2(backup, self._config_path)
-            self._check_config_reload()  # 롤백 후 즉시 config 재로딩
+            try:
+                shutil.copy2(backup, self._config_path)
+                self._experiment_store.update_change_status(change["id"], "rolled_back")
+                self._check_config_reload()  # 롤백 후 즉시 config 재로딩
+                rolled_back = True
+            except Exception:
+                logger.exception("롤백 파일 복원 실패: %s", backup)
+                self._experiment_store.update_change_status(change["id"], "rollback_failed")
         else:
             logger.error("롤백 실패: 백업 파일 없음 %s", backup)
+            self._experiment_store.update_change_status(change["id"], "rollback_failed")
+
         self._pilot_remaining = 0
         self._pilot_size_mult = 1.0
         await self._notifier.send(
             f"<b>파라미터 자동 롤백</b>\n"
             f"source: {change['source']} | strategy: {change['strategy']}\n"
             f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})\n"
-            f"백업 복원: {'성공' if backup.exists() else '실패 — 수동 확인 필요'}",
+            f"복원: {'성공' if rolled_back else '실패 — 수동 확인 필요'}",
             channel="system",
         )
 

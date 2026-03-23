@@ -52,6 +52,7 @@ class BacktestDaemon:
         client: BithumbClient | None = None,
         coins: list[str] | None = None,
         deepseek_api_key: str = "",
+        experiment_store: object | None = None,
     ) -> None:
         """초기화.
 
@@ -63,6 +64,7 @@ class BacktestDaemon:
             client: 빗썸 API 클라이언트 (선택, 데이터 수집용).
             coins: 대상 코인 목록 (선택).
             deepseek_api_key: DeepSeek API 키 (자율 연구용).
+            experiment_store: ExperimentStore 인스턴스 (자율 연구용).
         """
         self._journal = journal
         self._notifier = notifier
@@ -71,6 +73,7 @@ class BacktestDaemon:
         self._client = client
         self._coins = coins or []
         self._deepseek_key = deepseek_api_key
+        self._experiment_store = experiment_store
         self._running = False
 
         c = self._config
@@ -393,6 +396,7 @@ class BacktestDaemon:
             deepseek_api_key=self._deepseek_key,
             max_experiments=self._config.auto_research_max_experiments,
             max_consecutive_failures=self._config.auto_research_max_failures,
+            experiment_store=self._experiment_store,
         )
         results = await researcher.run_session()
 
