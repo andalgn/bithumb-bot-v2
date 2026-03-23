@@ -10,13 +10,14 @@ import copy
 import dataclasses
 import json
 import logging
+import math
 import random
 import time
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.data_types import MarketSnapshot, Signal, Strategy, Tier
+from app.data_types import MarketSnapshot, Regime, Signal, Strategy, Tier
 
 if TYPE_CHECKING:
     from app.journal import Journal
@@ -307,20 +308,24 @@ class DarwinEngine:
 
         return count
 
-    def run_tournament(self, top_survive: int = 5) -> list[CompositeScore]:
+    def run_tournament(self, market_regime: Regime | None = None) -> list[CompositeScore]:
         """주간 토너먼트를 실행한다.
 
         Args:
-            top_survive: 생존 수.
+            market_regime: 현재 시장 국면 (동적 변이율 결정용).
 
         Returns:
             Composite Score 랭킹.
         """
+        # 30일 롤링 윈도우: 오래된 trades 제거
+        cutoff_ms = int((time.time() - 30 * 86400) * 1000)
+        self._trades = [t for t in self._trades if t.timestamp >= cutoff_ms]
+
         scores: list[CompositeScore] = []
 
         for shadow in self._shadows:
             perf = self._performances.get(shadow.shadow_id)
-            if perf is None or perf.trade_count < 5:
+            if perf is None or perf.trade_count < 30:
                 continue
 
             cs = self._calc_composite_score(shadow.shadow_id, perf)
@@ -328,8 +333,9 @@ class DarwinEngine:
 
         scores.sort(key=lambda s: s.score, reverse=True)
 
-        # 상위 생존, 하위 변이
-        survivors = scores[:top_survive]
+        # 상위 70% 생존, 하위 30% 멸종
+        survive_count = max(1, int(len(scores) * 0.7))
+        survivors = scores[:survive_count]
         survivor_ids = {s.shadow_id for s in survivors}
 
         new_shadows = []
@@ -337,10 +343,13 @@ class DarwinEngine:
             if shadow.shadow_id in survivor_ids:
                 new_shadows.append(shadow)
 
-        # 부족분을 상위 Shadow에서 변이 생성
+        # 동적 변이율
+        mutation_rate = self._get_mutation_rate(market_regime)
+
+        # 부족분을 생존 Shadow에서 변이 생성
         while len(new_shadows) < self._pop_size:
-            parent = random.choice(new_shadows[:top_survive]) if new_shadows else self._champion
-            child = self._mutate(parent, variation=0.15, group="moderate")
+            parent = random.choice(new_shadows[:survive_count]) if new_shadows else self._champion
+            child = self._mutate(parent, variation=mutation_rate, group="moderate")
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
             self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)
@@ -348,12 +357,65 @@ class DarwinEngine:
         self._shadows = new_shadows
         self._last_tournament = time.time()
 
+        # 강제 다양성 확보
+        diversity_mutations = self._enforce_diversity()
+
         logger.info(
-            "토너먼트 완료: 생존=%d, 새생성=%d",
+            "토너먼트 완료: 생존=%d, 새생성=%d, 다양성변이=%d",
             len(survivor_ids),
             self._pop_size - len(survivor_ids),
+            diversity_mutations,
         )
         return scores
+
+    def _get_mutation_rate(self, market_regime: Regime | None) -> float:
+        """시장 국면에 따른 변이율을 반환한다."""
+        if market_regime is None:
+            return 0.2
+        if market_regime == Regime.CRISIS:
+            return 0.4
+        if market_regime == Regime.WEAK_DOWN:
+            return 0.2
+        return 0.1  # RANGE, WEAK_UP, STRONG_UP
+
+    def _enforce_diversity(self) -> int:
+        """Shadow 간 다양성을 강제한다.
+
+        정규화된 유클리드 거리가 0.1 미만인 쌍이 있으면 하나를 강제 변이.
+
+        Returns:
+            강제 변이 적용 횟수.
+        """
+        param_names = list(MUTATION_RANGES.keys())
+        mutation_count = 0
+
+        for i in range(len(self._shadows)):
+            for j in range(i + 1, len(self._shadows)):
+                s1 = self._shadows[i]
+                s2 = self._shadows[j]
+
+                # 정규화된 유클리드 거리 계산
+                dist_sq = 0.0
+                for name in param_names:
+                    _, lo, hi = MUTATION_RANGES[name]
+                    span = hi - lo
+                    if span <= 0:
+                        continue
+                    v1 = (getattr(s1, name) - lo) / span
+                    v2 = (getattr(s2, name) - lo) / span
+                    dist_sq += (v1 - v2) ** 2
+
+                dist = math.sqrt(dist_sq / len(param_names))
+
+                if dist < 0.1:
+                    # j번째 Shadow를 강제 변이
+                    mutated = self._mutate(s2, variation=0.3, group=s2.group)
+                    mutated.shadow_id = s2.shadow_id
+                    mutated.group = s2.group
+                    self._shadows[j] = mutated
+                    mutation_count += 1
+
+        return mutation_count
 
     def check_champion_replacement(self) -> ShadowParams | None:
         """챔피언 교체 가능 여부를 확인한다.
@@ -367,7 +429,7 @@ class DarwinEngine:
             return None
 
         champ_perf = self._performances.get("champion")
-        if champ_perf is None or champ_perf.trade_count < 10:
+        if champ_perf is None or champ_perf.trade_count < 30:
             return None
 
         champ_score = self._calc_composite_score("champion", champ_perf)
@@ -377,7 +439,7 @@ class DarwinEngine:
 
         for shadow in self._shadows:
             perf = self._performances.get(shadow.shadow_id)
-            if perf is None or perf.trade_count < 10:
+            if perf is None or perf.trade_count < 30:
                 continue
 
             cs = self._calc_composite_score(shadow.shadow_id, perf)

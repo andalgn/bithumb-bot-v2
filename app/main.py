@@ -379,6 +379,16 @@ class TradingBot:
 
         self._storage.save()
 
+    def _get_market_regime(self) -> Regime | None:
+        """10개 코인의 국면 최빈값을 반환한다."""
+        from collections import Counter
+
+        states = self._rule_engine._regime_states
+        if not states:
+            return None
+        counts = Counter(rs.current for rs in states.values())
+        return counts.most_common(1)[0][0]
+
     async def run_cycle(self) -> None:
         """한 사이클을 실행한다."""
         self._check_config_reload()

@@ -91,7 +91,7 @@ class TestTournament:
             snapshots = {"BTC": _make_snapshot(price=51_000_000)}
             engine.record_cycle(snapshots, signals)
 
-        scores = engine.run_tournament(top_survive=3)
+        scores = engine.run_tournament(market_regime=Regime.RANGE)
         # 결과 리스트 반환
         assert isinstance(scores, list)
 
@@ -102,7 +102,7 @@ class TestTournament:
                 {"BTC": _make_snapshot()},
                 [_make_signal()],
             )
-        engine.run_tournament(top_survive=3)
+        engine.run_tournament(market_regime=Regime.RANGE)
         assert engine.shadow_count == 10
 
 
