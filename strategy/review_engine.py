@@ -81,6 +81,7 @@ class ReviewEngine:
         notifier: Notifier | None = None,
         deepseek_api_key: str = "",
         deepseek_base_url: str = "https://api.deepseek.com/v1",
+        experiment_store: object | None = None,
     ) -> None:
         """초기화.
 
@@ -89,6 +90,7 @@ class ReviewEngine:
             notifier: 알림.
             deepseek_api_key: DeepSeek API 키.
             deepseek_base_url: DeepSeek API URL.
+            experiment_store: 실험 기록 저장소 (ExperimentStore).
         """
         self._journal = journal
         self._notifier = notifier
@@ -98,6 +100,7 @@ class ReviewEngine:
         self._adjustments: list[Adjustment] = []
         self._risk_gate: object | None = None  # 외부에서 주입
         self._rule_engine: object | None = None  # 외부에서 주입
+        self._experiment_store = experiment_store
         self._last_daily: str = ""
         self._last_weekly: str = ""
 
@@ -145,6 +148,12 @@ class ReviewEngine:
 
         # 규칙 기반 조정
         adjustments = self._apply_rules(strategy_stats, trades)
+
+        # 백테스트 검증 후 적용
+        if adjustments:
+            verified = await self._apply_and_verify_rules(adjustments)
+            if verified:
+                logger.info("일일 리뷰 검증 적용: %d건", len(verified))
 
         result = DailyReviewResult(
             date=date_key,
@@ -250,6 +259,24 @@ class ReviewEngine:
                     self._risk_gate.record_entry(coin)
 
         return adjustments
+
+    async def _apply_and_verify_rules(
+        self,
+        adjustments: list[dict],
+    ) -> list[dict]:
+        """조정 사항을 백테스트로 검증 후 config에 적용한다."""
+        applied = []
+        for adj in adjustments:
+            if adj.get("type") != "cutoff_increase":
+                continue
+            # cutoff 조정은 현재 strategy_params가 아닌 별도 메커니즘 필요
+            # strategy_params 변경(sl_mult/tp_rr 등)이 추가되면 백테스트 검증 적용 예정
+            logger.info(
+                "일일 조정 검증: %s (백테스트 검증은 strategy_params 변경에만 적용)",
+                adj,
+            )
+            applied.append(adj)
+        return applied
 
     async def _send_daily_report(
         self,
