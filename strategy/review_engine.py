@@ -264,17 +264,20 @@ class ReviewEngine:
         self,
         adjustments: list[dict],
     ) -> list[dict]:
-        """조정 사항을 백테스트로 검증 후 config에 적용한다."""
+        """조정 사항을 기록한다. cutoff가 strategy_params에 포함되면 백테스트 검증 적용 예정."""
         applied = []
         for adj in adjustments:
-            if adj.get("type") != "cutoff_increase":
-                continue
-            # cutoff 조정은 현재 strategy_params가 아닌 별도 메커니즘 필요
-            # strategy_params 변경(sl_mult/tp_rr 등)이 추가되면 백테스트 검증 적용 예정
-            logger.info(
-                "일일 조정 검증: %s (백테스트 검증은 strategy_params 변경에만 적용)",
-                adj,
-            )
+            logger.info("일일 조정 기록: %s", adj)
+            if self._experiment_store:
+                self._experiment_store.record(
+                    source="daily_review",
+                    strategy=adj.get("strategy", ""),
+                    params=adj,
+                    pf=0.0,
+                    mdd=0.0,
+                    trades=0,
+                    verdict="recorded",
+                )
             applied.append(adj)
         return applied
 
@@ -516,6 +519,8 @@ class ReviewEngine:
         "cutoff": (40.0, 95.0),
         "tp_pct": (0.005, 0.10),
         "sl_pct": (0.005, 0.05),
+        "sl_mult": (1.0, 15.0),
+        "tp_rr": (0.5, 5.0),
     }
 
     # delta 절대값 상한 (파라미터별)
@@ -526,6 +531,8 @@ class ReviewEngine:
         "cutoff": 10.0,
         "tp_pct": 0.02,
         "sl_pct": 0.02,
+        "sl_mult": 2.0,
+        "tp_rr": 1.0,
     }
 
     def _validate_suggestions(
@@ -596,17 +603,11 @@ class ReviewEngine:
         self,
         suggestions: list[dict],
     ) -> int:
-        """DeepSeek 제안을 백테스트 검증 후 config에 적용한다."""
-        import os
-        import shutil
-        import tempfile
-        from pathlib import Path
+        """DeepSeek 제안을 기록한다. 백테스트 검증 후 적용은 향후 구현.
 
-        import yaml
-
-        applied = 0
-        config_path = Path("configs/config.yaml")
-
+        현재는 config.yaml에 직접 쓰지 않고 기록만 남긴다.
+        백테스터 API가 단일 파라미터 테스트를 지원하면 검증 후 적용 예정.
+        """
         for suggestion in suggestions:
             param = suggestion.get("param", "")
             action = suggestion.get("action", "")
@@ -615,78 +616,25 @@ class ReviewEngine:
             if not param or not action or not delta:
                 continue
 
-            # 현재 config 로드
-            with open(config_path, encoding="utf-8") as f:
-                raw = yaml.safe_load(f)
-
-            sp = raw.get("strategy_params", {})
-
-            # 파라미터가 어느 전략에 속하는지 찾기
-            target_strategy = None
-            for strategy_name, strategy_params in sp.items():
-                if isinstance(strategy_params, dict) and param in strategy_params:
-                    target_strategy = strategy_name
-                    break
-
-            if not target_strategy:
-                logger.warning("제안 파라미터 %s를 찾을 수 없음", param)
-                continue
-
-            old_val = sp[target_strategy].get(param, 0)
-            new_val = old_val + delta if action == "increase" else old_val - delta
-
-            # 백테스트로 검증 (간단 버전: 현재는 로그만)
             logger.info(
-                "주간 리뷰 제안 적용: %s.%s %.4f → %.4f",
-                target_strategy,
+                "주간 리뷰 제안 기록 (미적용): %s %s %.4f",
                 param,
-                old_val,
-                new_val,
+                action,
+                delta,
             )
 
-            # config에 적용 (백업 후 atomic write)
-            backup_path = config_path.with_suffix(f".yaml.bak.weekly.{int(time.time())}")
-            shutil.copy2(config_path, backup_path)
-
-            sp[target_strategy][param] = round(new_val, 4)
-            raw["strategy_params"] = sp
-
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=str(config_path.parent),
-                suffix=".yaml.tmp",
-            )
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    yaml.dump(raw, f, allow_unicode=True, default_flow_style=False)
-                os.replace(tmp_path, str(config_path))
-            except Exception:
-                os.unlink(tmp_path)
-                raise
-
-            # ExperimentStore에 기록
             if self._experiment_store:
                 self._experiment_store.record(
                     source="weekly_review",
-                    strategy=target_strategy,
-                    params={param: new_val},
-                    old_params={param: old_val},
-                    pf=0.0,  # 백테스트 미실행
+                    strategy="",
+                    params={param: delta},
+                    pf=0.0,
                     mdd=0.0,
                     trades=0,
-                    verdict="keep",
-                )
-                self._experiment_store.log_param_change(
-                    source="weekly_review",
-                    strategy=target_strategy,
-                    old_params={param: old_val},
-                    new_params={param: new_val},
-                    backup_path=str(backup_path),
-                    baseline_pf=1.0,
+                    verdict="pending_verification",
                 )
 
-            applied += 1
-
-        return applied
+        return 0
 
     async def _send_weekly_report(
         self, result: WeeklyReviewResult, shadow_top3: list | None

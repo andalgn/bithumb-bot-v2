@@ -588,7 +588,8 @@ class TradingBot:
             logger.info("시그널 없음 (조건 미충족)")
 
         # 7.5 Darwin Shadow 기록
-        shadow_count = self._darwin.record_cycle(snapshots, signals)
+        sl_mult = self._rule_engine._strategy_params.get("mean_reversion", {}).get("sl_mult", 7.0)
+        shadow_count = self._darwin.record_cycle(snapshots, signals, live_sl_mult=sl_mult)
         if shadow_count > 0 and self._cycle_count % 12 == 0:
             logger.info("Darwin Shadow 기록: %d건", shadow_count)
 
@@ -602,40 +603,49 @@ class TradingBot:
 
             new_champion = self._darwin.check_champion_replacement()
             if new_champion:
-                self._darwin.replace_champion(new_champion)
-                champ_params = self._darwin.champion_to_strategy_params()
-                champ_perf = self._darwin._performances.get("champion")
-                if champ_perf and (
-                    champ_perf.trade_count >= 30
-                    and champ_perf.profit_factor > 1.0
-                    and champ_perf.max_drawdown <= 0.15
-                ):
-                    config_path = self._config_path
-                    self._backtest_daemon._apply_optimized_params(
-                        "mean_reversion",
-                        champ_params["mean_reversion"],
-                        config_path,
+                # C1 fix: 성능 데이터를 replace 전에 캡처 (replace 후 리셋됨)
+                shadow_perf = self._darwin._performances.get(new_champion.shadow_id)
+                if shadow_perf and shadow_perf.trade_count >= 30:
+                    pf = shadow_perf.profit_factor
+                    mdd = shadow_perf.max_drawdown
+                    # 현재 config PF와 비교
+                    recent_trades = self._journal.get_trades_since(int(time.time()) - 30 * 86400)
+                    current_pf = (
+                        self._backtest_daemon._calc_pf(recent_trades) if recent_trades else 1.0
                     )
-                    self._backtest_daemon._apply_optimized_params(
-                        "dca",
-                        champ_params["dca"],
-                        config_path,
-                    )
-                    self._experiment_store.log_param_change(
-                        source="darwin",
-                        strategy="mean_reversion",
-                        old_params=self._rule_engine._strategy_params.get("mean_reversion", {}),
-                        new_params=champ_params["mean_reversion"],
-                        backup_path=str(
-                            config_path.with_suffix(
-                                f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
-                            )
-                        ),
-                        baseline_pf=1.0,
-                    )
-                    self._pilot_remaining = 20
-                    self._pilot_size_mult = 0.5
-                    logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+                    if pf > current_pf and mdd <= 0.15:
+                        self._darwin.replace_champion(new_champion)
+                        champ_params = self._darwin.champion_to_strategy_params()
+                        config_path = self._config_path
+                        self._backtest_daemon._apply_optimized_params(
+                            "mean_reversion",
+                            champ_params["mean_reversion"],
+                            config_path,
+                        )
+                        self._backtest_daemon._apply_optimized_params(
+                            "dca",
+                            champ_params["dca"],
+                            config_path,
+                        )
+                        import glob as _glob
+
+                        _backup_files = sorted(
+                            _glob.glob(str(config_path) + ".bak.*")
+                        )
+                        _actual_backup = _backup_files[-1] if _backup_files else ""
+                        self._experiment_store.log_param_change(
+                            source="darwin",
+                            strategy="mean_reversion",
+                            old_params=self._rule_engine._strategy_params.get(
+                                "mean_reversion", {}
+                            ),
+                            new_params=champ_params["mean_reversion"],
+                            backup_path=_actual_backup,
+                            baseline_pf=current_pf,
+                        )
+                        self._pilot_remaining = 20
+                        self._pilot_size_mult = 0.5
+                        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
 
         # 8. 신호 평가 + Pool 사이징 + 주문
         for signal in signals:
@@ -685,6 +695,8 @@ class TradingBot:
             # Pool 기반 사이징 (DCA는 고정 사이징)
             if signal.strategy == Strategy.DCA:
                 dca_krw = self._position_manager.calculate_dca_size()
+                if self._pilot_size_mult < 1.0:
+                    dca_krw = int(dca_krw * self._pilot_size_mult)
                 sizing = SizingResult(
                     pool=Pool.CORE,
                     size_krw=dca_krw,

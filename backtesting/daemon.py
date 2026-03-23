@@ -13,6 +13,7 @@ config.yaml의 backtest 섹션에서 스케줄 읽음.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import os
 import shutil
@@ -426,7 +427,7 @@ class BacktestDaemon:
         params: dict[str, float],
         config_path: Path,
     ) -> None:
-        """최적 파라미터를 config.yaml에 백업 후 적용한다."""
+        """최적 파라미터를 config.yaml에 백업 후 적용한다 (파일 잠금 포함)."""
         # 백업
         backup_path = config_path.with_suffix(
             f".yaml.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -434,36 +435,40 @@ class BacktestDaemon:
         shutil.copy2(config_path, backup_path)
         logger.info("config 백업: %s", backup_path)
 
-        # 업데이트
-        with open(config_path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
+        # 파일 잠금 후 read-modify-write
+        with open(config_path, "r+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                raw = yaml.safe_load(f)
 
-        sp = raw.setdefault("strategy_params", {})
-        if strategy not in sp:
-            sp[strategy] = {}
-        for k, v in params.items():
-            if k == "cutoff_full":
-                continue
-            sp[strategy][k] = round(v, 4)
+                sp = raw.setdefault("strategy_params", {})
+                if strategy not in sp:
+                    sp[strategy] = {}
+                for k, v in params.items():
+                    if k == "cutoff_full":
+                        continue
+                    sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
 
-        # 원자적 쓰기: 임시 파일에 쓴 뒤 rename (같은 파일시스템이면 atomic)
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=config_path.parent,
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    raw,
-                    f,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
+                # 원자적 쓰기: 임시 파일에 쓴 뒤 rename
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    dir=str(config_path.parent),
+                    suffix=".yaml.tmp",
                 )
-            os.replace(tmp_path, config_path)
-        except Exception:
-            os.unlink(tmp_path)
-            raise
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                        yaml.dump(
+                            raw,
+                            tmp_f,
+                            default_flow_style=False,
+                            allow_unicode=True,
+                            sort_keys=False,
+                        )
+                    os.replace(tmp_path, str(config_path))
+                except Exception:
+                    os.unlink(tmp_path)
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
         logger.info("config 업데이트: %s → %s", strategy, params)
 
