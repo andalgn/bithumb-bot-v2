@@ -13,6 +13,7 @@ config.yaml의 backtest 섹션에서 스케줄 읽음.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import os
 import shutil
@@ -51,6 +52,7 @@ class BacktestDaemon:
         client: BithumbClient | None = None,
         coins: list[str] | None = None,
         deepseek_api_key: str = "",
+        experiment_store: object | None = None,
     ) -> None:
         """초기화.
 
@@ -62,6 +64,7 @@ class BacktestDaemon:
             client: 빗썸 API 클라이언트 (선택, 데이터 수집용).
             coins: 대상 코인 목록 (선택).
             deepseek_api_key: DeepSeek API 키 (자율 연구용).
+            experiment_store: ExperimentStore 인스턴스 (자율 연구용).
         """
         self._journal = journal
         self._notifier = notifier
@@ -70,6 +73,7 @@ class BacktestDaemon:
         self._client = client
         self._coins = coins or []
         self._deepseek_key = deepseek_api_key
+        self._experiment_store = experiment_store
         self._running = False
 
         c = self._config
@@ -349,16 +353,20 @@ class BacktestDaemon:
                 best.trades,
             )
 
-        # 기준 충족 시 자동 적용
+        # 기준 충족 시 자동 적용 (현재 config 대비 개선된 경우만)
         config_path = Path("configs/config.yaml")
         applied = []
+        # 현재 config로 baseline PF 계산
+        current_trades = self._journal.get_recent_trades(limit=100)
+        current_pf = self._calc_pf(current_trades) if current_trades else 0.0
         for strategy, r in results.items():
             if (
                 r["pf"] >= self._config.auto_apply_min_pf
                 and r["trades"] >= self._config.auto_apply_min_trades
+                and r["pf"] > current_pf
             ):
                 self._apply_optimized_params(strategy, r["params"], config_path)
-                applied.append(f"{strategy}: PF={r['pf']:.2f}")
+                applied.append(f"{strategy}: PF={r['pf']:.2f} (현재={current_pf:.2f})")
 
         # 디스코드 알림
         if self._notifier:
@@ -388,6 +396,7 @@ class BacktestDaemon:
             deepseek_api_key=self._deepseek_key,
             max_experiments=self._config.auto_research_max_experiments,
             max_consecutive_failures=self._config.auto_research_max_failures,
+            experiment_store=self._experiment_store,
         )
         results = await researcher.run_session()
 
@@ -422,7 +431,7 @@ class BacktestDaemon:
         params: dict[str, float],
         config_path: Path,
     ) -> None:
-        """최적 파라미터를 config.yaml에 백업 후 적용한다."""
+        """최적 파라미터를 config.yaml에 백업 후 적용한다 (파일 잠금 포함)."""
         # 백업
         backup_path = config_path.with_suffix(
             f".yaml.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -430,36 +439,40 @@ class BacktestDaemon:
         shutil.copy2(config_path, backup_path)
         logger.info("config 백업: %s", backup_path)
 
-        # 업데이트
-        with open(config_path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
+        # 파일 잠금 후 read-modify-write
+        with open(config_path, "r+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                raw = yaml.safe_load(f)
 
-        sp = raw.setdefault("strategy_params", {})
-        if strategy not in sp:
-            sp[strategy] = {}
-        for k, v in params.items():
-            if k == "cutoff_full":
-                continue
-            sp[strategy][k] = round(v, 4)
+                sp = raw.setdefault("strategy_params", {})
+                if strategy not in sp:
+                    sp[strategy] = {}
+                for k, v in params.items():
+                    if k == "cutoff_full":
+                        continue
+                    sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
 
-        # 원자적 쓰기: 임시 파일에 쓴 뒤 rename (같은 파일시스템이면 atomic)
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=config_path.parent,
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    raw,
-                    f,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
+                # 원자적 쓰기: 임시 파일에 쓴 뒤 rename
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    dir=str(config_path.parent),
+                    suffix=".yaml.tmp",
                 )
-            os.replace(tmp_path, config_path)
-        except Exception:
-            os.unlink(tmp_path)
-            raise
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                        yaml.dump(
+                            raw,
+                            tmp_f,
+                            default_flow_style=False,
+                            allow_unicode=True,
+                            sort_keys=False,
+                        )
+                    os.replace(tmp_path, str(config_path))
+                except Exception:
+                    os.unlink(tmp_path)
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
         logger.info("config 업데이트: %s → %s", strategy, params)
 
@@ -507,6 +520,19 @@ class BacktestDaemon:
         await self._run_walk_forward()
         await self._run_monte_carlo()
         await self._run_sensitivity()
+
+    @staticmethod
+    def _calc_pf(trades: list[dict]) -> float:
+        """거래 목록에서 Profit Factor를 계산한다."""
+        gross_profit = sum(
+            t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) > 0
+        )
+        gross_loss = abs(
+            sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) < 0)
+        )
+        if gross_loss == 0:
+            return 99.0 if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
 
     @staticmethod
     def _parse_time(time_str: str) -> tuple[int, int]:

@@ -9,10 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 
 import numpy as np
 
-from app.config import AppConfig
+from app.config import PROJECT_ROOT, AppConfig, load_config
 from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
 from app.journal import Journal
 from app.notify import DiscordNotifier
@@ -32,6 +33,7 @@ from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
 from strategy.correlation_monitor import CorrelationMonitor
 from strategy.darwin_engine import DarwinEngine
+from strategy.experiment_store import ExperimentStore
 from strategy.indicators import compute_indicators
 from strategy.pool_manager import PoolManager
 from strategy.position_manager import PositionManager, SizingResult
@@ -172,8 +174,15 @@ class TradingBot:
         # Phase 4: 부분청산 + 트레일링
         self._exit_manager = PartialExitManager()
 
+        # ExperimentStore + 파일럿 사이징
+        self._experiment_store = ExperimentStore()
+
         # Phase 5: Darwin + BacktestDaemon
-        self._darwin = DarwinEngine(population_size=20, journal=self._journal)
+        self._darwin = DarwinEngine(
+            population_size=20,
+            journal=self._journal,
+            experiment_store=self._experiment_store,
+        )
         self._backtest_daemon = BacktestDaemon(
             journal=self._journal,
             notifier=self._notifier,
@@ -182,6 +191,7 @@ class TradingBot:
             client=self._client,
             coins=config.coins,
             deepseek_api_key=config.secrets.deepseek_api_key,
+            experiment_store=self._experiment_store,
         )
 
         # Phase 6: ReviewEngine
@@ -189,8 +199,11 @@ class TradingBot:
             journal=self._journal,
             notifier=self._notifier,
             deepseek_api_key=config.secrets.deepseek_api_key,
+            experiment_store=self._experiment_store,
         )
         self._review_engine._risk_gate = self._risk_gate
+        self._pilot_remaining: int = 0
+        self._pilot_size_mult: float = 1.0
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
@@ -209,8 +222,28 @@ class TradingBot:
         self._data_failure_alert_threshold = 2  # 연속 2회 실패 시 알림
         self._data_failure_alerted = False
 
+        # config 핫 리로드
+        self._config_path = PROJECT_ROOT / "configs" / "config.yaml"
+        self._config_mtime: float = self._config_path.stat().st_mtime
+
         # 상태 복원
         self._restore_state()
+
+    def _check_config_reload(self) -> None:
+        """config.yaml 변경 시 strategy_params를 리로드한다."""
+        try:
+            mtime = self._config_path.stat().st_mtime
+        except OSError:
+            return
+        if mtime <= self._config_mtime:
+            return
+        try:
+            new_config = load_config(self._config_path)
+            self._rule_engine._strategy_params = new_config.strategy_params
+            self._config_mtime = mtime
+            logger.info("config 핫 리로드 완료: strategy_params 갱신")
+        except Exception:
+            logger.exception("config 리로드 실패 — 기존 설정 유지")
 
     def _restore_state(self) -> None:
         """저장된 상태를 복원한다."""
@@ -294,6 +327,10 @@ class TradingBot:
         # pause 상태 복원
         self._paused = self._storage.get("paused", False)
 
+        # 파일럿 상태 복원
+        self._pilot_remaining = self._storage.get("pilot_remaining", 0)
+        self._pilot_size_mult = self._storage.get("pilot_size_mult", 1.0)
+
         # PAPER 모드 시작 시간 복원 (없으면 현재 시간으로 초기화)
         stored_paper_start = self._storage.get("paper_start_time", 0.0)
         if stored_paper_start > 0:
@@ -357,10 +394,38 @@ class TradingBot:
         self._storage.set("paused", self._paused)
         self._storage.set("paper_start_time", self._paper_start_time)
 
+        # 파일럿 상태 영속화
+        self._storage.set("pilot_remaining", self._pilot_remaining)
+        self._storage.set("pilot_size_mult", self._pilot_size_mult)
+
         self._storage.save()
+
+    @staticmethod
+    def _calc_pf(trades: list[dict]) -> float:
+        """거래 목록에서 Profit Factor를 계산한다."""
+        gross_profit = sum(
+            t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) > 0
+        )
+        gross_loss = abs(
+            sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) < 0)
+        )
+        if gross_loss == 0:
+            return 99.0 if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
+
+    def _get_market_regime(self) -> Regime | None:
+        """10개 코인의 국면 최빈값을 반환한다."""
+        from collections import Counter
+
+        states = self._rule_engine._regime_states
+        if not states:
+            return None
+        counts = Counter(rs.current for rs in states.values())
+        return counts.most_common(1)[0][0]
 
     async def run_cycle(self) -> None:
         """한 사이클을 실행한다."""
+        self._check_config_reload()
         self._cycle_count += 1
         cycle_start = time.time()
         logger.info("=" * 40)
@@ -530,9 +595,61 @@ class TradingBot:
             logger.info("시그널 없음 (조건 미충족)")
 
         # 7.5 Darwin Shadow 기록
-        shadow_count = self._darwin.record_cycle(snapshots, signals)
+        sl_mult = self._rule_engine._strategy_params.get("mean_reversion", {}).get("sl_mult", 7.0)
+        shadow_count = self._darwin.record_cycle(snapshots, signals, live_sl_mult=sl_mult)
         if shadow_count > 0 and self._cycle_count % 12 == 0:
             logger.info("Darwin Shadow 기록: %d건", shadow_count)
+
+        # 7.6 주간 토너먼트 + 챔피언 적용 (일요일, 매시간 체크)
+        import datetime as _dt
+
+        _now_kst = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9)))
+        if _now_kst.weekday() == 6 and _now_kst.hour >= 4 and self._cycle_count % 12 == 0:
+            market_regime = self._get_market_regime()
+            self._darwin.run_tournament(market_regime=market_regime)
+
+            new_champion = self._darwin.check_champion_replacement()
+            if new_champion:
+                # C1 fix: 성능 데이터를 replace 전에 캡처 (replace 후 리셋됨)
+                shadow_perf = self._darwin._performances.get(new_champion.shadow_id)
+                if shadow_perf and shadow_perf.trade_count >= 30:
+                    pf = shadow_perf.profit_factor
+                    mdd = shadow_perf.max_drawdown
+                    # 현재 config PF와 비교
+                    recent_trades = self._journal.get_trades_since(int(time.time()) - 30 * 86400)
+                    current_pf = (
+                        self._backtest_daemon._calc_pf(recent_trades) if recent_trades else 1.0
+                    )
+                    if pf > current_pf and mdd <= 0.15:
+                        self._darwin.replace_champion(new_champion)
+                        champ_params = self._darwin.champion_to_strategy_params()
+                        config_path = self._config_path
+
+                        # 단일 백업 생성
+                        import shutil as _shutil
+
+                        backup_path = config_path.with_suffix(
+                            f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
+                        )
+                        _shutil.copy2(config_path, backup_path)
+
+                        # 두 전략 모두 일괄 적용 (개별 백업 없이)
+                        self._apply_champion_params(champ_params, config_path)
+
+                        # 롤백 모니터링 등록 (두 전략 모두 포함)
+                        old_mr = self._rule_engine._strategy_params.get("mean_reversion", {})
+                        old_dca = self._rule_engine._strategy_params.get("dca", {})
+                        self._experiment_store.log_param_change(
+                            source="darwin",
+                            strategy="mean_reversion+dca",
+                            old_params={"mean_reversion": old_mr, "dca": old_dca},
+                            new_params=champ_params,
+                            backup_path=str(backup_path),
+                            baseline_pf=current_pf,
+                        )
+                        self._pilot_remaining = 20
+                        self._pilot_size_mult = 0.5
+                        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
 
         # 8. 신호 평가 + Pool 사이징 + 주문
         for signal in signals:
@@ -582,6 +699,8 @@ class TradingBot:
             # Pool 기반 사이징 (DCA는 고정 사이징)
             if signal.strategy == Strategy.DCA:
                 dca_krw = self._position_manager.calculate_dca_size()
+                if self._pilot_size_mult < 1.0:
+                    dca_krw = int(dca_krw * self._pilot_size_mult)
                 sizing = SizingResult(
                     pool=Pool.CORE,
                     size_krw=dca_krw,
@@ -598,6 +717,7 @@ class TradingBot:
                     active_positions=active_coins,
                     weekly_dd_pct=weekly_dd,
                     candles_1h=snapshots[signal.symbol].candles_1h,
+                    pilot_mult=self._pilot_size_mult,
                 )
 
             # LIVE 전환 첫 7일: risk_pct 50% 축소
@@ -675,6 +795,13 @@ class TradingBot:
                         signal_price=signal.entry_price,
                     )
                     self._exit_manager.init_position(signal.symbol)
+
+                    # 파일럿 카운터 감소
+                    if self._pilot_remaining > 0:
+                        self._pilot_remaining -= 1
+                        if self._pilot_remaining == 0:
+                            self._pilot_size_mult = 1.0
+                            logger.info("Pilot 기간 종료: 포지션 사이즈 100% 복원")
 
                     # 체결 알림
                     await self._notifier.send(
@@ -837,6 +964,9 @@ class TradingBot:
             if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
                 await self._review_engine.run_monthly_review()
 
+        # 롤백 모니터링 (매 사이클)
+        await self._check_rollback()
+
         # 12. 상태 저장
         self._save_state()
 
@@ -913,6 +1043,89 @@ class TradingBot:
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
 
+    def _apply_champion_params(self, champ_params: dict, config_path: Path) -> None:
+        """챔피언 파라미터를 config에 일괄 적용한다."""
+        import fcntl
+        import os
+        import tempfile
+
+        import yaml
+
+        with open(config_path, "r+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                raw = yaml.safe_load(f)
+                sp = raw.setdefault("strategy_params", {})
+                for strategy, params in champ_params.items():
+                    if strategy not in sp:
+                        sp[strategy] = {}
+                    for k, v in params.items():
+                        sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
+                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(config_path.parent), suffix=".yaml.tmp")
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                        yaml.dump(
+                            raw,
+                            tmp_f,
+                            allow_unicode=True,
+                            default_flow_style=False,
+                            sort_keys=False,
+                        )
+                    os.replace(tmp_path, str(config_path))
+                except Exception:
+                    os.unlink(tmp_path)
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+    async def _check_rollback(self) -> None:
+        """파라미터 변경 모니터링 + 자동 롤백."""
+        active = self._experiment_store.get_active_changes()
+        for change in active:
+            change_time = change["timestamp"]
+            trades = self._journal.get_trades_since(change_time)
+            if len(trades) >= 20:
+                pf = self._calc_pf(trades)
+                if pf >= change["baseline_pf"]:
+                    self._experiment_store.update_change_status(change["id"], "confirmed")
+                else:
+                    await self._rollback_params(change, pf)
+            elif len(trades) >= 10:
+                pf = self._calc_pf(trades)
+                if pf < change["baseline_pf"] * 0.9:
+                    await self._rollback_params(change, pf)
+            elif int(time.time()) > change["monitoring_until"]:
+                self._experiment_store.update_change_status(change["id"], "confirmed")
+
+    async def _rollback_params(self, change: dict, current_pf: float) -> None:
+        """파라미터를 이전 값으로 롤백한다."""
+        import shutil
+
+        backup = Path(change["backup_path"])
+        rolled_back = False
+        if backup.exists():
+            try:
+                shutil.copy2(backup, self._config_path)
+                self._experiment_store.update_change_status(change["id"], "rolled_back")
+                self._check_config_reload()  # 롤백 후 즉시 config 재로딩
+                rolled_back = True
+            except Exception:
+                logger.exception("롤백 파일 복원 실패: %s", backup)
+                self._experiment_store.update_change_status(change["id"], "rollback_failed")
+        else:
+            logger.error("롤백 실패: 백업 파일 없음 %s", backup)
+            self._experiment_store.update_change_status(change["id"], "rollback_failed")
+
+        self._pilot_remaining = 0
+        self._pilot_size_mult = 1.0
+        await self._notifier.send(
+            f"<b>파라미터 자동 롤백</b>\n"
+            f"source: {change['source']} | strategy: {change['strategy']}\n"
+            f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})\n"
+            f"복원: {'성공' if rolled_back else '실패 — 수동 확인 필요'}",
+            channel="system",
+        )
+
     async def _close_position(self, symbol: str, exit_price: float, exit_reason: str) -> None:
         """포지션을 청산한다.
 
@@ -984,6 +1197,9 @@ class TradingBot:
             net_pnl,
             exit_reason,
         )
+
+        # 파라미터 변경 모니터링 + 자동 롤백
+        await self._check_rollback()
 
         # 청산 알림 (실패해도 청산 로직에 영향 없음)
         try:

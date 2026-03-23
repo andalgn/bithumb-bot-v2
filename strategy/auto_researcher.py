@@ -15,6 +15,7 @@ from pathlib import Path
 
 from backtesting.optimizer import OptResult, ParameterOptimizer
 from market.market_store import MarketStore
+from strategy.experiment_store import ExperimentStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,14 @@ PARAM_BOUNDS: dict[str, dict[str, tuple[float, float]]] = {
         "w_volume": (0, 35),
         "w_rsi_pullback": (0, 30),
         "w_supertrend": (0, 25),
+    },
+    "mean_reversion": {
+        "sl_mult": (2.0, 10.0),
+        "tp_rr": (1.0, 4.0),
+    },
+    "dca": {
+        "sl_pct": (0.02, 0.08),
+        "tp_pct": (0.01, 0.05),
     },
 }
 
@@ -61,6 +70,7 @@ class AutoResearcher:
         max_experiments: int = 10,
         max_consecutive_failures: int = 5,
         log_path: Path | None = None,
+        experiment_store: ExperimentStore | None = None,
     ) -> None:
         """초기화.
 
@@ -72,6 +82,7 @@ class AutoResearcher:
             max_experiments: 세션당 최대 실험 횟수.
             max_consecutive_failures: 연속 REVERT 최대 횟수 (초과 시 중단).
             log_path: TSV 로그 파일 경로.
+            experiment_store: ExperimentStore 인스턴스 (실패 이력 조회/기록용).
         """
         self._store: MarketStore = store  # type: ignore[assignment]
         self._coins = coins
@@ -80,6 +91,7 @@ class AutoResearcher:
         self._max_experiments = max_experiments
         self._max_consecutive_failures = max_consecutive_failures
         self._log_path = log_path or Path("data/research_log.tsv")
+        self._experiment_store = experiment_store
         self._min_pf = 1.0
         self._min_trades = 20
         self._max_mdd = 0.15
@@ -91,7 +103,8 @@ class AutoResearcher:
     async def run_session(self) -> list[ExperimentResult]:
         """자율 실험 세션을 실행한다.
 
-        설정 로딩 → 캔들 로딩 → 베이스라인 계산 → 실험 루프.
+        설정 로딩 → 캔들 로딩 → 전략별 베이스라인 계산 → 실험 루프.
+        PARAM_BOUNDS에 정의된 모든 전략에 대해 실험을 수행한다.
 
         Returns:
             실험 결과 리스트.
@@ -103,108 +116,148 @@ class AutoResearcher:
         logging.getLogger("backtesting.optimizer").setLevel(logging.WARNING)
 
         config = load_config()
-        strategy = "trend_follow"
-        current_params = dict(config.strategy_params.get(strategy, {}))
 
         candles_15m, candles_1h = self._load_candles()
         if not candles_15m:
             logger.warning("캔들 데이터 없음, 세션 종료")
             return []
 
-        # 베이스라인 계산
         optimizer = ParameterOptimizer(self._coins, config)
-        baseline = optimizer.run_single(strategy, current_params, candles_15m, candles_1h)
-        logger.info(
-            "베이스라인: PF=%.2f, Sharpe=%.2f, trades=%d, MDD=%.2f%%",
-            baseline.profit_factor,
-            baseline.sharpe,
-            baseline.trades,
-            baseline.max_drawdown * 100,
-        )
 
-        results: list[ExperimentResult] = []
+        # 활성 전략 결정: config에 파라미터가 있는 전략 우선
+        strategies = list(PARAM_BOUNDS.keys())
+        active_strategies = [s for s in strategies if config.strategy_params.get(s)]
+        inactive_strategies = [s for s in strategies if s not in active_strategies]
+        ordered_strategies = active_strategies + inactive_strategies
+
+        all_results: list[ExperimentResult] = []
         history = self._load_history()
-        consecutive_failures = 0
 
-        for i in range(self._max_experiments):
-            if consecutive_failures >= self._max_consecutive_failures:
-                logger.info(
-                    "연속 %d회 REVERT, 세션 조기 종료",
-                    consecutive_failures,
-                )
-                break
+        for strategy in ordered_strategies:
+            current_params = dict(config.strategy_params.get(strategy, {}))
+            if not current_params:
+                logger.info("전략 '%s': config에 파라미터 없음, 건너뜀", strategy)
+                continue
 
-            logger.info("실험 %d/%d 시작", i + 1, self._max_experiments)
-
-            # DeepSeek 제안
-            proposal = await self._propose_experiment(
+            # 베이스라인 계산
+            baseline = optimizer.run_single(strategy, current_params, candles_15m, candles_1h)
+            logger.info(
+                "[%s] 베이스라인: PF=%.2f, Sharpe=%.2f, trades=%d, MDD=%.2f%%",
                 strategy,
-                current_params,
-                baseline,
-                history[-10:],
+                baseline.profit_factor,
+                baseline.sharpe,
+                baseline.trades,
+                baseline.max_drawdown * 100,
             )
-            if proposal is None:
-                logger.warning("제안 파싱 실패, 건너뜀")
-                consecutive_failures += 1
-                continue
 
-            new_params = {**current_params, **proposal["params"]}
+            consecutive_failures = 0
+            experiments_per_strategy = max(self._max_experiments // len(ordered_strategies), 3)
 
-            # 범위 검증
-            if not self._validate_bounds(strategy, new_params):
-                logger.warning("파라미터 범위 초과, 건너뜀: %s", proposal["params"])
-                consecutive_failures += 1
-                continue
+            for i in range(experiments_per_strategy):
+                if consecutive_failures >= self._max_consecutive_failures:
+                    logger.info(
+                        "[%s] 연속 %d회 REVERT, 전략 실험 중단",
+                        strategy,
+                        consecutive_failures,
+                    )
+                    break
 
-            # 백테스트 (캐시 리셋으로 가중치 변경 반영)
-            optimizer._entry_cache = {}
-            result = optimizer.run_single(strategy, new_params, candles_15m, candles_1h)
-
-            # 평가
-            is_better = self._evaluate(result, baseline)
-            exp_id = uuid.uuid4().hex[:8]
-
-            exp = ExperimentResult(
-                experiment_id=exp_id,
-                strategy=strategy,
-                params_changed=proposal["params"],
-                baseline_pf=baseline.profit_factor,
-                result_pf=result.profit_factor,
-                baseline_sharpe=baseline.sharpe,
-                result_sharpe=result.sharpe,
-                trades=result.trades,
-                mdd=result.max_drawdown,
-                verdict="KEEP" if is_better else "REVERT",
-                description=proposal.get("hypothesis", ""),
-            )
-            results.append(exp)
-            history.append(exp)
-            self._log_result(exp)
-
-            if is_better:
                 logger.info(
-                    "KEEP: PF %.2f→%.2f, Sharpe %.2f→%.2f",
-                    baseline.profit_factor,
-                    result.profit_factor,
-                    baseline.sharpe,
-                    result.sharpe,
+                    "[%s] 실험 %d/%d 시작",
+                    strategy,
+                    i + 1,
+                    experiments_per_strategy,
                 )
-                baseline = result
-                current_params = new_params
-                consecutive_failures = 0
-            else:
-                logger.info(
-                    "REVERT: PF %.2f→%.2f, trades=%d, MDD=%.2f%%",
-                    baseline.profit_factor,
-                    result.profit_factor,
-                    result.trades,
-                    result.max_drawdown * 100,
-                )
-                consecutive_failures += 1
 
-        kept = sum(1 for r in results if r.verdict == "KEEP")
-        logger.info("세션 완료: %d건 실험, %d건 KEEP", len(results), kept)
-        return results
+                # DeepSeek 제안
+                proposal = await self._propose_experiment(
+                    strategy,
+                    current_params,
+                    baseline,
+                    history[-10:],
+                )
+                if proposal is None:
+                    logger.warning("[%s] 제안 파싱 실패, 건너뜀", strategy)
+                    consecutive_failures += 1
+                    continue
+
+                new_params = {**current_params, **proposal["params"]}
+
+                # 범위 검증
+                if not self._validate_bounds(strategy, new_params):
+                    logger.warning(
+                        "[%s] 파라미터 범위 초과, 건너뜀: %s",
+                        strategy,
+                        proposal["params"],
+                    )
+                    consecutive_failures += 1
+                    continue
+
+                # 백테스트 (캐시 리셋으로 가중치 변경 반영)
+                optimizer._entry_cache = {}
+                result = optimizer.run_single(strategy, new_params, candles_15m, candles_1h)
+
+                # 평가
+                is_better = self._evaluate(result, baseline)
+                exp_id = uuid.uuid4().hex[:8]
+                verdict = "KEEP" if is_better else "REVERT"
+
+                exp = ExperimentResult(
+                    experiment_id=exp_id,
+                    strategy=strategy,
+                    params_changed=proposal["params"],
+                    baseline_pf=baseline.profit_factor,
+                    result_pf=result.profit_factor,
+                    baseline_sharpe=baseline.sharpe,
+                    result_sharpe=result.sharpe,
+                    trades=result.trades,
+                    mdd=result.max_drawdown,
+                    verdict=verdict,
+                    description=proposal.get("hypothesis", ""),
+                )
+                all_results.append(exp)
+                history.append(exp)
+                self._log_result(exp)
+
+                # ExperimentStore에 기록
+                if self._experiment_store:
+                    self._experiment_store.record(
+                        source="auto_research",
+                        strategy=strategy,
+                        params=proposal.get("params", {}),
+                        old_params=current_params,
+                        pf=result.profit_factor,
+                        mdd=result.max_drawdown,
+                        trades=result.trades,
+                        verdict="keep" if is_better else "revert",
+                    )
+
+                if is_better:
+                    logger.info(
+                        "[%s] KEEP: PF %.2f→%.2f, Sharpe %.2f→%.2f",
+                        strategy,
+                        baseline.profit_factor,
+                        result.profit_factor,
+                        baseline.sharpe,
+                        result.sharpe,
+                    )
+                    baseline = result
+                    current_params = new_params
+                    consecutive_failures = 0
+                else:
+                    logger.info(
+                        "[%s] REVERT: PF %.2f→%.2f, trades=%d, MDD=%.2f%%",
+                        strategy,
+                        baseline.profit_factor,
+                        result.profit_factor,
+                        result.trades,
+                        result.max_drawdown * 100,
+                    )
+                    consecutive_failures += 1
+
+        kept = sum(1 for r in all_results if r.verdict == "KEEP")
+        logger.info("세션 완료: %d건 실험, %d건 KEEP", len(all_results), kept)
+        return all_results
 
     # ═══════════════════════════════════════════
     # 캔들 로딩
@@ -276,6 +329,20 @@ class AutoResearcher:
 
         bounds_text = json.dumps(PARAM_BOUNDS.get(strategy, {}), indent=2)
 
+        # ExperimentStore에서 실패 이력 조회
+        failure_text = ""
+        if self._experiment_store:
+            failures = self._experiment_store.get_history(strategy, limit=10)
+            failed_params = [f for f in failures if f.get("verdict") in ("revert", "rolled_back")]
+            if failed_params:
+                failure_text = "\n\n## 이전 실패 실험 (피해야 할 방향):\n"
+                for fp in failed_params[:5]:
+                    failure_text += (
+                        f"  - params={fp.get('params')}, "
+                        f"PF={fp.get('pf', 0):.3f}, "
+                        f"verdict={fp.get('verdict')}\n"
+                    )
+
         prompt = (
             "당신은 암호화폐 자동매매 전략 파라미터 최적화 연구원입니다.\n\n"
             f"## 연구 프로그램\n{program_content}\n\n"
@@ -288,9 +355,11 @@ class AutoResearcher:
             f"- Trades: {baseline.trades}\n"
             f"- MDD: {baseline.max_drawdown:.2%}\n\n"
             f"## 파라미터 허용 범위:\n{bounds_text}\n\n"
-            f"## 최근 실험 이력:\n{history_text or '  (없음)'}\n\n"
+            f"## 최근 실험 이력:\n{history_text or '  (없음)'}\n"
+            f"{failure_text}\n"
             "## 지시사항\n"
             "한 가지 파라미터 변경 실험을 JSON으로 제안하세요.\n"
+            "이전 실패 실험과 동일한 방향의 변경은 피하세요.\n"
             "반드시 아래 형식만 출력하세요:\n"
             '```json\n{"params": {"파라미터명": 값}, '
             '"hypothesis": "가설", "expected_impact": "예상 효과"}\n```'

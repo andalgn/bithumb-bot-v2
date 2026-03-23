@@ -10,17 +10,19 @@ import copy
 import dataclasses
 import json
 import logging
+import math
 import random
 import time
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.data_types import MarketSnapshot, Signal, Tier
+from app.data_types import MarketSnapshot, Regime, Signal, Strategy, Tier
 
 if TYPE_CHECKING:
     from app.journal import Journal
     from strategy.coin_profiler import CoinProfiler
+    from strategy.experiment_store import ExperimentStore
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +35,13 @@ SLIPPAGE_BY_TIER: dict[Tier, float] = {
 }
 SHADOW_DISCOUNT = 0.85  # Shadow net_pnl × 0.85 vs Live
 
-# 돌연변이 범위
-MUTATION_RANGES: dict[str, float] = {
-    "rsi_lower": 3.0,
-    "rsi_upper": 3.0,
-    "atr_mult": 0.3,
-    "cutoff": 5.0,
-    "tp_pct": 0.005,
-    "sl_pct": 0.005,
+# 돌연변이 범위: (delta, min, max)
+MUTATION_RANGES: dict[str, tuple[float, float, float]] = {
+    "mr_sl_mult": (0.5, 2.0, 10.0),
+    "mr_tp_rr": (0.3, 1.0, 4.0),
+    "dca_sl_pct": (0.005, 0.02, 0.08),
+    "dca_tp_pct": (0.005, 0.01, 0.05),
+    "cutoff": (3.0, 55.0, 90.0),
 }
 
 # Composite Score 가중치
@@ -55,16 +56,15 @@ COMPOSITE_WEIGHTS = {
 
 @dataclass
 class ShadowParams:
-    """Shadow 파라미터 세트."""
+    """Shadow 파라미터 세트 — strategy_params와 동일 구조."""
 
     shadow_id: str = ""
     group: str = "conservative"  # conservative/moderate/innovative
-    rsi_lower: float = 30.0
-    rsi_upper: float = 70.0
-    atr_mult: float = 2.0
-    cutoff: float = 72.0
-    tp_pct: float = 0.03
-    sl_pct: float = 0.02
+    mr_sl_mult: float = 7.0  # mean_reversion SL multiplier (2.0~10.0)
+    mr_tp_rr: float = 1.5  # mean_reversion TP risk-reward (1.0~4.0)
+    dca_sl_pct: float = 0.05  # dca SL percent (0.02~0.08)
+    dca_tp_pct: float = 0.03  # dca TP percent (0.01~0.05)
+    cutoff: float = 72.0  # entry score cutoff (55~90)
 
 
 @dataclass
@@ -140,6 +140,7 @@ class DarwinEngine:
         champion_params: ShadowParams | None = None,
         journal: Journal | None = None,
         profiler: CoinProfiler | None = None,
+        experiment_store: ExperimentStore | None = None,
     ) -> None:
         """초기화.
 
@@ -148,11 +149,13 @@ class DarwinEngine:
             champion_params: 챔피언 파라미터. None이면 기본값.
             journal: 거래 기록 저장소. Shadow 거래 기록용.
             profiler: 코인 프로파일러. Tier별 슬리피지 적용용.
+            experiment_store: 실험 저장소. Shadow 거래 영속화용.
         """
         self._pop_size = population_size
         self._champion = champion_params or ShadowParams(shadow_id="champion")
         self._journal = journal
         self._profiler = profiler
+        self._experiment_store = experiment_store
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
@@ -162,6 +165,7 @@ class DarwinEngine:
         self._last_champion_change: float = 0.0
         self._champion_cooldown_days = 14
         self._initialize_population()
+        self._restore_shadow_trades()
 
     def _initialize_population(self) -> None:
         """초기 Shadow 인구를 생성한다."""
@@ -186,26 +190,41 @@ class DarwinEngine:
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("Darwin 인구 초기화: %d shadows", len(self._shadows))
 
+    def _restore_shadow_trades(self) -> None:
+        """ExperimentStore에서 Shadow 거래를 복원한다."""
+        if not self._experiment_store:
+            return
+        restored = 0
+        all_ids = [s.shadow_id for s in self._shadows] + ["champion"]
+        for sid in all_ids:
+            rows = self._experiment_store.get_shadow_trades(sid, days=30)
+            for row in rows:
+                trade = ShadowTrade(
+                    shadow_id=row["shadow_id"],
+                    symbol=row["symbol"],
+                    strategy=row["strategy"],
+                    would_enter=bool(row["would_enter"]),
+                    signal_score=row["signal_score"],
+                    virtual_pnl=row["virtual_pnl"],
+                    timestamp=row["timestamp"] * 1000,  # s -> ms
+                )
+                self._trades.append(trade)
+                restored += 1
+        if restored:
+            logger.info("Shadow 거래 복원: %d건", restored)
+
     def _mutate(self, base: ShadowParams, variation: float, group: str) -> ShadowParams:
         """파라미터를 돌연변이시킨다."""
         params = copy.copy(base)
         params.group = group
 
-        for name, max_delta in MUTATION_RANGES.items():
+        for name, (max_delta, lo, hi) in MUTATION_RANGES.items():
             base_val = getattr(base, name, None)
             if base_val is None:
                 continue
             multiplier = min(variation / 0.10, 2.0)  # 최대 2배로 제한
             delta = random.uniform(-max_delta, max_delta) * multiplier
-            setattr(params, name, base_val + delta)
-
-        # 범위 클램핑
-        params.rsi_lower = max(15, min(45, params.rsi_lower))
-        params.rsi_upper = max(55, min(85, params.rsi_upper))
-        params.atr_mult = max(0.5, min(5.0, params.atr_mult))
-        params.cutoff = max(40, min(95, params.cutoff))
-        params.tp_pct = max(0.005, min(0.10, params.tp_pct))
-        params.sl_pct = max(0.005, min(0.05, params.sl_pct))
+            setattr(params, name, max(lo, min(hi, base_val + delta)))
 
         return params
 
@@ -213,12 +232,14 @@ class DarwinEngine:
         self,
         snapshots: dict[str, MarketSnapshot],
         live_signals: list[Signal],
+        live_sl_mult: float = 7.0,
     ) -> int:
         """매 사이클마다 Shadow들의 '진입했을까?' 를 기록한다.
 
         Args:
             snapshots: 시장 스냅샷.
             live_signals: 챔피언이 생성한 실제 신호.
+            live_sl_mult: 현재 config의 mean_reversion.sl_mult.
 
         Returns:
             기록된 Shadow trade 수.
@@ -290,11 +311,23 @@ class DarwinEngine:
                 )
                 self._trades.append(trade)
 
+                # Shadow 거래를 DB에 영속화
+                if self._experiment_store:
+                    self._experiment_store.record_shadow_trade(
+                        shadow_id=sid,
+                        symbol=signal.symbol,
+                        strategy=signal.strategy.value,
+                        would_enter=would_enter,
+                        signal_score=signal.score,
+                        virtual_pnl=0.0,
+                    )
+
                 if would_enter and signal.entry_price > 0:
+                    sl, tp = self._compute_shadow_sl_tp(shadow, signal, live_sl_mult)
                     open_pos[signal.symbol] = (
                         signal.entry_price,
-                        signal.stop_loss,
-                        signal.take_profit,
+                        sl,
+                        tp,
                     )
                     if self._journal:
                         self._journal.record_shadow_trade(
@@ -316,20 +349,24 @@ class DarwinEngine:
 
         return count
 
-    def run_tournament(self, top_survive: int = 5) -> list[CompositeScore]:
+    def run_tournament(self, market_regime: Regime | None = None) -> list[CompositeScore]:
         """주간 토너먼트를 실행한다.
 
         Args:
-            top_survive: 생존 수.
+            market_regime: 현재 시장 국면 (동적 변이율 결정용).
 
         Returns:
             Composite Score 랭킹.
         """
+        # 30일 롤링 윈도우: 오래된 trades 제거
+        cutoff_ms = int((time.time() - 30 * 86400) * 1000)
+        self._trades = [t for t in self._trades if t.timestamp >= cutoff_ms]
+
         scores: list[CompositeScore] = []
 
         for shadow in self._shadows:
             perf = self._performances.get(shadow.shadow_id)
-            if perf is None or perf.trade_count < 5:
+            if perf is None or perf.trade_count < 30:
                 continue
 
             cs = self._calc_composite_score(shadow.shadow_id, perf)
@@ -337,8 +374,9 @@ class DarwinEngine:
 
         scores.sort(key=lambda s: s.score, reverse=True)
 
-        # 상위 생존, 하위 변이
-        survivors = scores[:top_survive]
+        # 상위 70% 생존, 하위 30% 멸종
+        survive_count = max(1, int(len(scores) * 0.7))
+        survivors = scores[:survive_count]
         survivor_ids = {s.shadow_id for s in survivors}
 
         new_shadows = []
@@ -346,10 +384,13 @@ class DarwinEngine:
             if shadow.shadow_id in survivor_ids:
                 new_shadows.append(shadow)
 
-        # 부족분을 상위 Shadow에서 변이 생성
+        # 동적 변이율
+        mutation_rate = self._get_mutation_rate(market_regime)
+
+        # 부족분을 생존 Shadow에서 변이 생성
         while len(new_shadows) < self._pop_size:
-            parent = random.choice(new_shadows[:top_survive]) if new_shadows else self._champion
-            child = self._mutate(parent, variation=0.15, group="moderate")
+            parent = random.choice(new_shadows[:survive_count]) if new_shadows else self._champion
+            child = self._mutate(parent, variation=mutation_rate, group="moderate")
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
             self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)
@@ -357,12 +398,65 @@ class DarwinEngine:
         self._shadows = new_shadows
         self._last_tournament = time.time()
 
+        # 강제 다양성 확보
+        diversity_mutations = self._enforce_diversity()
+
         logger.info(
-            "토너먼트 완료: 생존=%d, 새생성=%d",
+            "토너먼트 완료: 생존=%d, 새생성=%d, 다양성변이=%d",
             len(survivor_ids),
             self._pop_size - len(survivor_ids),
+            diversity_mutations,
         )
         return scores
+
+    def _get_mutation_rate(self, market_regime: Regime | None) -> float:
+        """시장 국면에 따른 변이율을 반환한다."""
+        if market_regime is None:
+            return 0.2
+        if market_regime == Regime.CRISIS:
+            return 0.4
+        if market_regime == Regime.WEAK_DOWN:
+            return 0.2
+        return 0.1  # RANGE, WEAK_UP, STRONG_UP
+
+    def _enforce_diversity(self) -> int:
+        """Shadow 간 다양성을 강제한다.
+
+        정규화된 유클리드 거리가 0.1 미만인 쌍이 있으면 하나를 강제 변이.
+
+        Returns:
+            강제 변이 적용 횟수.
+        """
+        param_names = list(MUTATION_RANGES.keys())
+        mutation_count = 0
+
+        for i in range(len(self._shadows)):
+            for j in range(i + 1, len(self._shadows)):
+                s1 = self._shadows[i]
+                s2 = self._shadows[j]
+
+                # 정규화된 유클리드 거리 계산
+                dist_sq = 0.0
+                for name in param_names:
+                    _, lo, hi = MUTATION_RANGES[name]
+                    span = hi - lo
+                    if span <= 0:
+                        continue
+                    v1 = (getattr(s1, name) - lo) / span
+                    v2 = (getattr(s2, name) - lo) / span
+                    dist_sq += (v1 - v2) ** 2
+
+                dist = math.sqrt(dist_sq / len(param_names))
+
+                if dist < 0.1:
+                    # j번째 Shadow를 강제 변이
+                    mutated = self._mutate(s2, variation=0.3, group=s2.group)
+                    mutated.shadow_id = s2.shadow_id
+                    mutated.group = s2.group
+                    self._shadows[j] = mutated
+                    mutation_count += 1
+
+        return mutation_count
 
     def check_champion_replacement(self) -> ShadowParams | None:
         """챔피언 교체 가능 여부를 확인한다.
@@ -376,7 +470,7 @@ class DarwinEngine:
             return None
 
         champ_perf = self._performances.get("champion")
-        if champ_perf is None or champ_perf.trade_count < 10:
+        if champ_perf is None or champ_perf.trade_count < 30:
             return None
 
         champ_score = self._calc_composite_score("champion", champ_perf)
@@ -386,7 +480,7 @@ class DarwinEngine:
 
         for shadow in self._shadows:
             perf = self._performances.get(shadow.shadow_id)
-            if perf is None or perf.trade_count < 10:
+            if perf is None or perf.trade_count < 30:
                 continue
 
             cs = self._calc_composite_score(shadow.shadow_id, perf)
@@ -417,6 +511,53 @@ class DarwinEngine:
         self._last_champion_change = time.time()
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("챔피언 교체 완료: %s -> %s", old_id, new_params.shadow_id)
+
+    @staticmethod
+    def _compute_shadow_sl_tp(
+        shadow: ShadowParams,
+        signal: Signal,
+        live_sl_mult: float = 7.0,
+    ) -> tuple[float, float]:
+        """Shadow 파라미터 기반으로 SL/TP를 계산한다.
+
+        Args:
+            shadow: Shadow 파라미터.
+            signal: 매매 신호.
+            live_sl_mult: 현재 config의 mean_reversion.sl_mult.
+
+        Returns:
+            (stop_loss, take_profit) 튜플.
+        """
+        entry = signal.entry_price
+        if signal.strategy == Strategy.DCA:
+            sl = entry * (1.0 - shadow.dca_sl_pct)
+            tp = entry * (1.0 + shadow.dca_tp_pct)
+        else:
+            # ATR 기반 전략 (MEAN_REVERSION, TREND_FOLLOW, BREAKOUT, SCALPING)
+            # live signal의 SL 거리를 ATR 추정치로 사용
+            if signal.stop_loss > 0:
+                live_atr_est = abs(entry - signal.stop_loss)
+            else:
+                live_atr_est = entry * 0.02  # fallback 2%
+            # ATR 1단위 = live_atr_est / live_sl_mult
+            atr_unit = live_atr_est / live_sl_mult
+            sl = entry - atr_unit * shadow.mr_sl_mult
+            risk = entry - sl
+            tp = entry + risk * shadow.mr_tp_rr
+        return sl, tp
+
+    def champion_to_strategy_params(self) -> dict:
+        """챔피언 파라미터를 strategy_params 형식으로 변환한다.
+
+        Note: cutoff는 score_cutoff 시스템과 형식이 달라 변환하지 않는다.
+        score_cutoff는 group별 full/probe_min/probe_max 구조이므로
+        단일 cutoff 값으로는 매핑할 수 없다.
+        """
+        c = self._champion
+        return {
+            "mean_reversion": {"sl_mult": c.mr_sl_mult, "tp_rr": c.mr_tp_rr},
+            "dca": {"sl_pct": c.dca_sl_pct, "tp_pct": c.dca_tp_pct},
+        }
 
     def _calc_composite_score(self, shadow_id: str, perf: ShadowPerformance) -> CompositeScore:
         """Composite Score를 계산한다."""

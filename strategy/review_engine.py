@@ -81,6 +81,7 @@ class ReviewEngine:
         notifier: Notifier | None = None,
         deepseek_api_key: str = "",
         deepseek_base_url: str = "https://api.deepseek.com/v1",
+        experiment_store: object | None = None,
     ) -> None:
         """초기화.
 
@@ -89,6 +90,7 @@ class ReviewEngine:
             notifier: 알림.
             deepseek_api_key: DeepSeek API 키.
             deepseek_base_url: DeepSeek API URL.
+            experiment_store: 실험 기록 저장소 (ExperimentStore).
         """
         self._journal = journal
         self._notifier = notifier
@@ -98,6 +100,7 @@ class ReviewEngine:
         self._adjustments: list[Adjustment] = []
         self._risk_gate: object | None = None  # 외부에서 주입
         self._rule_engine: object | None = None  # 외부에서 주입
+        self._experiment_store = experiment_store
         self._last_daily: str = ""
         self._last_weekly: str = ""
 
@@ -145,6 +148,12 @@ class ReviewEngine:
 
         # 규칙 기반 조정
         adjustments = self._apply_rules(strategy_stats, trades)
+
+        # 백테스트 검증 후 적용
+        if adjustments:
+            verified = await self._apply_and_verify_rules(adjustments)
+            if verified:
+                logger.info("일일 리뷰 검증 적용: %d건", len(verified))
 
         result = DailyReviewResult(
             date=date_key,
@@ -250,6 +259,27 @@ class ReviewEngine:
                     self._risk_gate.record_entry(coin)
 
         return adjustments
+
+    async def _apply_and_verify_rules(
+        self,
+        adjustments: list[dict],
+    ) -> list[dict]:
+        """조정 사항을 기록한다. cutoff가 strategy_params에 포함되면 백테스트 검증 적용 예정."""
+        applied = []
+        for adj in adjustments:
+            logger.info("일일 조정 기록: %s", adj)
+            if self._experiment_store:
+                self._experiment_store.record(
+                    source="daily_review",
+                    strategy=adj.get("strategy", ""),
+                    params=adj,
+                    pf=0.0,
+                    mdd=0.0,
+                    trades=0,
+                    verdict="recorded",
+                )
+            applied.append(adj)
+        return applied
 
     async def _send_daily_report(
         self,
@@ -367,9 +397,16 @@ class ReviewEngine:
             result.deepseek_suggestions = suggestions
 
             # 제안별 백테스트 검증
-            applied, rejected = self._validate_suggestions(suggestions, week_trades)
+            applied, rejected, valid_suggestions = self._validate_suggestions(
+                suggestions, week_trades
+            )
             result.applied_suggestions = applied
             result.rejected_suggestions = rejected
+
+            # 검증 통과 제안을 config에 적용
+            if valid_suggestions:
+                applied_count = await self._apply_verified_suggestions(valid_suggestions)
+                logger.info("주간 리뷰 제안 적용: %d건", applied_count)
 
         # 주간 리포트 알림
         if self._notifier:
@@ -482,6 +519,8 @@ class ReviewEngine:
         "cutoff": (40.0, 95.0),
         "tp_pct": (0.005, 0.10),
         "sl_pct": (0.005, 0.05),
+        "sl_mult": (1.0, 15.0),
+        "tp_rr": (0.5, 5.0),
     }
 
     # delta 절대값 상한 (파라미터별)
@@ -492,9 +531,13 @@ class ReviewEngine:
         "cutoff": 10.0,
         "tp_pct": 0.02,
         "sl_pct": 0.02,
+        "sl_mult": 2.0,
+        "tp_rr": 1.0,
     }
 
-    def _validate_suggestions(self, suggestions: list[dict], trades: list[dict]) -> tuple[int, int]:
+    def _validate_suggestions(
+        self, suggestions: list[dict], trades: list[dict]
+    ) -> tuple[int, int, list[dict]]:
         """제안의 타당성을 검증한다.
 
         파라미터 존재 여부, 허용 범위, delta 크기를 확인하는 기본 검증이다.
@@ -502,10 +545,11 @@ class ReviewEngine:
         사이클에서 실제 성과로 검증된다.
 
         Returns:
-            (적용 건수, 기각 건수).
+            (적용 건수, 기각 건수, 유효한 제안 목록).
         """
         applied = 0
         rejected = 0
+        valid: list[dict] = []
 
         for suggestion in suggestions:
             param = suggestion.get("param", "")
@@ -550,9 +594,47 @@ class ReviewEngine:
                 continue
 
             applied += 1
+            valid.append(suggestion)
             logger.info("DeepSeek 제안 적용: %s", suggestion)
 
-        return applied, rejected
+        return applied, rejected, valid
+
+    async def _apply_verified_suggestions(
+        self,
+        suggestions: list[dict],
+    ) -> int:
+        """DeepSeek 제안을 기록한다. 백테스트 검증 후 적용은 향후 구현.
+
+        현재는 config.yaml에 직접 쓰지 않고 기록만 남긴다.
+        백테스터 API가 단일 파라미터 테스트를 지원하면 검증 후 적용 예정.
+        """
+        for suggestion in suggestions:
+            param = suggestion.get("param", "")
+            action = suggestion.get("action", "")
+            delta = suggestion.get("delta", 0)
+
+            if not param or not action or not delta:
+                continue
+
+            logger.info(
+                "주간 리뷰 제안 기록 (미적용): %s %s %.4f",
+                param,
+                action,
+                delta,
+            )
+
+            if self._experiment_store:
+                self._experiment_store.record(
+                    source="weekly_review",
+                    strategy="",
+                    params={param: delta},
+                    pf=0.0,
+                    mdd=0.0,
+                    trades=0,
+                    verdict="pending_verification",
+                )
+
+        return 0
 
     async def _send_weekly_report(
         self, result: WeeklyReviewResult, shadow_top3: list | None
