@@ -96,24 +96,24 @@ class OrderManager:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         items = []
         for t in self._tickets.values():
-            items.append({
-                "ticket_id": t.ticket_id,
-                "symbol": t.symbol,
-                "side": t.side.value,
-                "price": t.price,
-                "qty": t.qty,
-                "status": t.status.value,
-                "exchange_order_id": t.exchange_order_id,
-                "filled_qty": t.filled_qty,
-                "filled_price": t.filled_price,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at,
-                "retry_count": t.retry_count,
-                "error_msg": t.error_msg,
-            })
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=str(self._state_path.parent), suffix=".tmp"
-        )
+            items.append(
+                {
+                    "ticket_id": t.ticket_id,
+                    "symbol": t.symbol,
+                    "side": t.side.value,
+                    "price": t.price,
+                    "qty": t.qty,
+                    "status": t.status.value,
+                    "exchange_order_id": t.exchange_order_id,
+                    "filled_qty": t.filled_qty,
+                    "filled_price": t.filled_price,
+                    "created_at": t.created_at,
+                    "updated_at": t.updated_at,
+                    "retry_count": t.retry_count,
+                    "error_msg": t.error_msg,
+                }
+            )
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(self._state_path.parent), suffix=".tmp")
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(items, f, indent=2)
@@ -127,9 +127,7 @@ class OrderManager:
 
     def _cleanup_tickets(self) -> None:
         """티켓 메모리를 관리한다. 터미널 상태 100개, 전체 1000개."""
-        terminal = [
-            t for t in self._tickets.values() if t.status in TERMINAL_STATES
-        ]
+        terminal = [t for t in self._tickets.values() if t.status in TERMINAL_STATES]
         if len(terminal) > MAX_TICKETS_TERMINAL:
             terminal.sort(key=lambda t: t.updated_at)
             for t in terminal[: len(terminal) - MAX_TICKETS_TERMINAL]:
@@ -141,9 +139,7 @@ class OrderManager:
                 if t.status in TERMINAL_STATES:
                     del self._tickets[t.ticket_id]
 
-    def create_ticket(
-        self, symbol: str, side: OrderSide, price: float, qty: float
-    ) -> OrderTicket:
+    def create_ticket(self, symbol: str, side: OrderSide, price: float, qty: float) -> OrderTicket:
         """주문 티켓을 생성한다.
 
         Args:
@@ -185,8 +181,13 @@ class OrderManager:
             ticket.filled_qty = ticket.qty
             ticket.filled_price = ticket.price
             ticket.updated_at = int(time.time() * 1000)
-            logger.info("[DRY] 주문 시뮬레이션: %s %s %.4f @ %.0f",
-                        ticket.side.value, ticket.symbol, ticket.qty, ticket.price)
+            logger.info(
+                "[DRY] 주문 시뮬레이션: %s %s %.4f @ %.0f",
+                ticket.side.value,
+                ticket.symbol,
+                ticket.qty,
+                ticket.price,
+            )
             self._save_state()
             return ticket
 
@@ -196,8 +197,13 @@ class OrderManager:
             ticket.filled_qty = ticket.qty
             ticket.filled_price = ticket.price
             ticket.updated_at = int(time.time() * 1000)
-            logger.info("[PAPER] 가상 체결: %s %s %.4f @ %.0f",
-                        ticket.side.value, ticket.symbol, ticket.qty, ticket.price)
+            logger.info(
+                "[PAPER] 가상 체결: %s %s %.4f @ %.0f",
+                ticket.side.value,
+                ticket.symbol,
+                ticket.qty,
+                ticket.price,
+            )
             self._save_state()
             return ticket
 
@@ -205,7 +211,9 @@ class OrderManager:
         return await self._execute_live(ticket)
 
     async def execute_with_price_check(
-        self, ticket: OrderTicket, current_price: float,
+        self,
+        ticket: OrderTicket,
+        current_price: float,
         max_deviation: float = 0.003,
     ) -> OrderTicket:
         """가격 이탈 체크 후 주문을 실행한다.
@@ -252,10 +260,20 @@ class OrderManager:
                     price=ticket.price,
                     qty=ticket.qty,
                 )
-                ticket.exchange_order_id = str(result.get("order_id", ""))
-                ticket.status = OrderStatus.PLACED
+                ticket.exchange_order_id = str(result.get("uuid", ""))
                 ticket.retry_count = attempt
                 ticket.updated_at = int(time.time() * 1000)
+
+                # v1 API: 즉시 체결 확인
+                result_state = result.get("state", "wait")
+                if result_state == "done":
+                    ticket.status = OrderStatus.FILLED
+                    ticket.filled_qty = float(result.get("executed_volume", ticket.qty))
+                    ticket.filled_price = ticket.price
+                    self._save_state()
+                    return ticket
+
+                ticket.status = OrderStatus.PLACED
                 break
             except BithumbAPIError as e:
                 ticket.error_msg = e.message
@@ -265,10 +283,13 @@ class OrderManager:
                     self._save_state()
                     raise
                 if attempt < self._max_retries - 1:
-                    delay = RETRY_BASE_MS * (2 ** attempt) / 1000
+                    delay = RETRY_BASE_MS * (2**attempt) / 1000
                     logger.warning(
                         "주문 재시도 %d/%d (%s): %.1f초 후",
-                        attempt + 1, self._max_retries, e.message, delay,
+                        attempt + 1,
+                        self._max_retries,
+                        e.message,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                 else:
@@ -299,68 +320,68 @@ class OrderManager:
                 detail = await self._client.get_order_detail(
                     ticket.symbol, ticket.exchange_order_id
                 )
-                # 체결 상태 확인
-                order_status = detail.get("order_status", "")
-                if order_status == "Completed":
+                state = detail.get("state", "")
+                executed_vol = float(detail.get("executed_volume", 0))
+
+                if state == "done":
                     ticket.status = OrderStatus.FILLED
-                    ticket.filled_qty = ticket.qty
-                    # 실제 체결가는 contract에서 가져옴
-                    contracts = detail.get("contract", [])
-                    if contracts:
-                        total_price = sum(
-                            float(c.get("price", 0)) * float(c.get("units", 0))
-                            for c in contracts
-                        )
-                        total_units = sum(
-                            float(c.get("units", 0)) for c in contracts
-                        )
-                        if total_units > 0:
-                            ticket.filled_price = total_price / total_units
-                            ticket.filled_qty = total_units
+                    ticket.filled_qty = executed_vol if executed_vol > 0 else ticket.qty
+                    # 실제 체결가: trades에서 가중평균
+                    trades = detail.get("trades", [])
+                    if trades:
+                        total_funds = sum(float(t.get("funds", 0)) for t in trades)
+                        total_vol = sum(float(t.get("volume", 0)) for t in trades)
+                        if total_vol > 0:
+                            ticket.filled_price = total_funds / total_vol
+                            ticket.filled_qty = total_vol
+                    else:
+                        ticket.filled_price = ticket.price
                     ticket.updated_at = int(time.time() * 1000)
                     return ticket
-                elif order_status == "Cancel":
+
+                elif state == "cancel":
                     ticket.status = OrderStatus.CANCELED
                     ticket.updated_at = int(time.time() * 1000)
                     return ticket
+
+                elif executed_vol > 0:
+                    # 부분 체결
+                    ticket.status = OrderStatus.PARTIAL
+                    ticket.filled_qty = executed_vol
+
             except Exception:
                 logger.debug("주문 폴링 오류 (재시도 중)")
 
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
-        # 타임아웃 -> 시장가 전환 시도
-        logger.warning("주문 타임아웃 -> 시장가 전환: %s", ticket.ticket_id)
+        # 타임아웃 -> 미체결 취소
+        logger.warning("주문 타임아웃 -> 취소 시도: %s", ticket.ticket_id)
         try:
             await self._client.cancel_order(
                 ticket.symbol, ticket.exchange_order_id, ticket.side.value
             )
         except Exception:
-            logger.debug("지정가 취소 실패 (이미 체결된 경우)")
+            logger.debug("주문 취소 실패 (이미 체결된 경우)")
 
-        # 부분체결 확인: 잔량 × 현재가 < 5,000이면 포기
-        remaining_qty = ticket.qty - ticket.filled_qty
-        if remaining_qty > 0 and remaining_qty * ticket.price < 5000:
-            ticket.status = OrderStatus.FILLED if ticket.filled_qty > 0 else OrderStatus.EXPIRED
-            ticket.updated_at = int(time.time() * 1000)
-            return ticket
-
-        # 시장가 전환
-        if remaining_qty > 0:
-            try:
-                if ticket.side.value == "bid":
-                    await self._client.market_buy(
-                        ticket.symbol, remaining_qty * ticket.price
-                    )
-                else:
-                    await self._client.market_sell(ticket.symbol, remaining_qty)
-                ticket.filled_qty = ticket.qty
-                ticket.filled_price = ticket.price  # 근사값
+        # 취소 후 최종 상태 확인
+        try:
+            final = await self._client.get_order_detail(ticket.symbol, ticket.exchange_order_id)
+            final_executed = float(final.get("executed_volume", 0))
+            if final_executed > 0:
                 ticket.status = OrderStatus.FILLED
-            except Exception:
-                logger.warning("시장가 전환 실패")
-                ticket.status = (
-                    OrderStatus.FILLED if ticket.filled_qty > 0 else OrderStatus.EXPIRED
-                )
+                ticket.filled_qty = final_executed
+                trades = final.get("trades", [])
+                if trades:
+                    total_funds = sum(float(t.get("funds", 0)) for t in trades)
+                    total_vol = sum(float(t.get("volume", 0)) for t in trades)
+                    if total_vol > 0:
+                        ticket.filled_price = total_funds / total_vol
+                else:
+                    ticket.filled_price = ticket.price
+            else:
+                ticket.status = OrderStatus.EXPIRED
+        except Exception:
+            ticket.status = OrderStatus.EXPIRED
 
         ticket.updated_at = int(time.time() * 1000)
         return ticket
@@ -399,9 +420,7 @@ class OrderManager:
 
     def get_active_tickets(self) -> list[OrderTicket]:
         """활성(비터미널) 티켓 목록을 반환한다."""
-        return [
-            t for t in self._tickets.values() if t.status not in TERMINAL_STATES
-        ]
+        return [t for t in self._tickets.values() if t.status not in TERMINAL_STATES]
 
     def get_ticket(self, ticket_id: str) -> OrderTicket | None:
         """티켓 ID로 티켓을 조회한다."""
