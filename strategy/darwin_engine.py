@@ -232,12 +232,14 @@ class DarwinEngine:
         self,
         snapshots: dict[str, MarketSnapshot],
         live_signals: list[Signal],
+        live_sl_mult: float = 7.0,
     ) -> int:
         """매 사이클마다 Shadow들의 '진입했을까?' 를 기록한다.
 
         Args:
             snapshots: 시장 스냅샷.
             live_signals: 챔피언이 생성한 실제 신호.
+            live_sl_mult: 현재 config의 mean_reversion.sl_mult.
 
         Returns:
             기록된 Shadow trade 수.
@@ -321,7 +323,7 @@ class DarwinEngine:
                     )
 
                 if would_enter and signal.entry_price > 0:
-                    sl, tp = self._compute_shadow_sl_tp(shadow, signal)
+                    sl, tp = self._compute_shadow_sl_tp(shadow, signal, live_sl_mult)
                     open_pos[signal.symbol] = (
                         signal.entry_price,
                         sl,
@@ -511,12 +513,17 @@ class DarwinEngine:
         logger.info("챔피언 교체 완료: %s -> %s", old_id, new_params.shadow_id)
 
     @staticmethod
-    def _compute_shadow_sl_tp(shadow: ShadowParams, signal: Signal) -> tuple[float, float]:
+    def _compute_shadow_sl_tp(
+        shadow: ShadowParams,
+        signal: Signal,
+        live_sl_mult: float = 7.0,
+    ) -> tuple[float, float]:
         """Shadow 파라미터 기반으로 SL/TP를 계산한다.
 
         Args:
             shadow: Shadow 파라미터.
             signal: 매매 신호.
+            live_sl_mult: 현재 config의 mean_reversion.sl_mult.
 
         Returns:
             (stop_loss, take_profit) 튜플.
@@ -532,10 +539,9 @@ class DarwinEngine:
                 live_atr_est = abs(entry - signal.stop_loss)
             else:
                 live_atr_est = entry * 0.02  # fallback 2%
-            # ATR 1단위 = live_atr_est / (live에서 사용된 mult)
-            # 정확한 live mult를 모르므로 live_atr_est 자체를 ATR 단위로 근사
-            atr_unit = live_atr_est
-            sl = entry - atr_unit * (shadow.mr_sl_mult / 7.0)
+            # ATR 1단위 = live_atr_est / live_sl_mult
+            atr_unit = live_atr_est / live_sl_mult
+            sl = entry - atr_unit * shadow.mr_sl_mult
             risk = entry - sl
             tp = entry + risk * shadow.mr_tp_rr
         return sl, tp

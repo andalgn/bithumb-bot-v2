@@ -127,8 +127,7 @@ class ExperimentStore:
             # old_params가 없으면 방향 판단 불가 → 카운트
             old_raw = row["old_params"] if "old_params" in row.keys() else None
             if old_raw is None:
-                count += 1
-                continue
+                continue  # 방향 판단 불가 → 건너뜀
             old_params = json.loads(old_raw)
             old_val = old_params.get(param_key, 0)
             new_val = params[param_key]

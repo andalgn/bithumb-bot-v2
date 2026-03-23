@@ -629,16 +629,12 @@ class TradingBot:
                         )
                         import glob as _glob
 
-                        _backup_files = sorted(
-                            _glob.glob(str(config_path) + ".bak.*")
-                        )
+                        _backup_files = sorted(_glob.glob(str(config_path) + ".bak.*"))
                         _actual_backup = _backup_files[-1] if _backup_files else ""
                         self._experiment_store.log_param_change(
                             source="darwin",
                             strategy="mean_reversion",
-                            old_params=self._rule_engine._strategy_params.get(
-                                "mean_reversion", {}
-                            ),
+                            old_params=self._rule_engine._strategy_params.get("mean_reversion", {}),
                             new_params=champ_params["mean_reversion"],
                             backup_path=_actual_backup,
                             baseline_pf=current_pf,

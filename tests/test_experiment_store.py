@@ -32,17 +32,28 @@ class TestExperimentStore:
                 source="auto_research",
                 strategy="mean_reversion",
                 params={"sl_mult": 8.0 + i * 0.1},
+                old_params={"sl_mult": 7.0},
                 pf=0.8,
                 mdd=0.12,
                 trades=30,
                 verdict="revert",
             )
+        # old_params=None인 레코드는 방향 판단 불가 → 건너뜀
+        store.record(
+            source="auto_research",
+            strategy="mean_reversion",
+            params={"sl_mult": 9.0},
+            pf=0.8,
+            mdd=0.12,
+            trades=30,
+            verdict="revert",
+        )
         count = store.count_similar_failures(
             strategy="mean_reversion",
             param_key="sl_mult",
             direction="increase",
         )
-        assert count >= 3
+        assert count == 4  # old_params 있는 4건만 카운트, None 1건 건너뜀
 
     def test_param_change_log(self, tmp_path: Path) -> None:
         store = ExperimentStore(db_path=str(tmp_path / "exp.db"))
