@@ -79,6 +79,13 @@ strategy_params:
     # 자율연구 결과: RSI<=35 + sl=7.0 + tp=1.5 → PF 1.11
     sl_mult: 7.0
     tp_rr: 1.5
+    regime_override:
+      RANGE:
+        sl_mult: 5.0
+        tp_rr: 2.0
+      WEAK_DOWN:
+        sl_mult: 8.0
+        tp_rr: 1.2
   breakout:
     sl_mult: 2.0
     tp_rr: 3.0
@@ -90,6 +97,10 @@ strategy_params:
     # DCA T1에서 PF 2.22 달성 (넓은SL + 빠른 TP)
     sl_pct: 0.05
     tp_pct: 0.03
+    regime_override:
+      WEAK_DOWN:
+        sl_pct: 0.06
+        tp_pct: 0.025
 promotion:
   profit_pct: 0.012
   profit_hold_bars: 2
