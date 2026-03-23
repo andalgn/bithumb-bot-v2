@@ -144,3 +144,28 @@ VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 - 로그: `sudo journalctl -u bithumb-bot -f`
 - VPN 자동 재연결 설정 필수
 - 봇 crash 시 자동 재시작 (Restart=always) + 디스코드 알림
+
+### 봇 프로세스 관리 (필수)
+**봇은 systemd 서비스로 운영 중. `nohup`이나 직접 `python run_bot.py`로 실행하지 않는다.**
+
+```bash
+# 재시작 (코드 변경 후)
+sudo systemctl restart bithumb-bot
+
+# 중지
+sudo systemctl stop bithumb-bot
+
+# 상태 확인
+sudo systemctl status bithumb-bot
+
+# 실시간 로그
+sudo journalctl -u bithumb-bot -f
+
+# 최근 로그 N줄
+sudo journalctl -u bithumb-bot -n 100
+
+# 서비스 파일 수정 후 반영
+sudo cp scripts/bithumb-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl restart bithumb-bot
+```
