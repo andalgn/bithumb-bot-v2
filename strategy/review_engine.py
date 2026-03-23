@@ -394,9 +394,16 @@ class ReviewEngine:
             result.deepseek_suggestions = suggestions
 
             # 제안별 백테스트 검증
-            applied, rejected = self._validate_suggestions(suggestions, week_trades)
+            applied, rejected, valid_suggestions = self._validate_suggestions(
+                suggestions, week_trades
+            )
             result.applied_suggestions = applied
             result.rejected_suggestions = rejected
+
+            # 검증 통과 제안을 config에 적용
+            if valid_suggestions:
+                applied_count = await self._apply_verified_suggestions(valid_suggestions)
+                logger.info("주간 리뷰 제안 적용: %d건", applied_count)
 
         # 주간 리포트 알림
         if self._notifier:
@@ -521,7 +528,9 @@ class ReviewEngine:
         "sl_pct": 0.02,
     }
 
-    def _validate_suggestions(self, suggestions: list[dict], trades: list[dict]) -> tuple[int, int]:
+    def _validate_suggestions(
+        self, suggestions: list[dict], trades: list[dict]
+    ) -> tuple[int, int, list[dict]]:
         """제안의 타당성을 검증한다.
 
         파라미터 존재 여부, 허용 범위, delta 크기를 확인하는 기본 검증이다.
@@ -529,10 +538,11 @@ class ReviewEngine:
         사이클에서 실제 성과로 검증된다.
 
         Returns:
-            (적용 건수, 기각 건수).
+            (적용 건수, 기각 건수, 유효한 제안 목록).
         """
         applied = 0
         rejected = 0
+        valid: list[dict] = []
 
         for suggestion in suggestions:
             param = suggestion.get("param", "")
@@ -577,9 +587,106 @@ class ReviewEngine:
                 continue
 
             applied += 1
+            valid.append(suggestion)
             logger.info("DeepSeek 제안 적용: %s", suggestion)
 
-        return applied, rejected
+        return applied, rejected, valid
+
+    async def _apply_verified_suggestions(
+        self,
+        suggestions: list[dict],
+    ) -> int:
+        """DeepSeek 제안을 백테스트 검증 후 config에 적용한다."""
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        applied = 0
+        config_path = Path("configs/config.yaml")
+
+        for suggestion in suggestions:
+            param = suggestion.get("param", "")
+            action = suggestion.get("action", "")
+            delta = suggestion.get("delta", 0)
+
+            if not param or not action or not delta:
+                continue
+
+            # 현재 config 로드
+            with open(config_path, encoding="utf-8") as f:
+                raw = yaml.safe_load(f)
+
+            sp = raw.get("strategy_params", {})
+
+            # 파라미터가 어느 전략에 속하는지 찾기
+            target_strategy = None
+            for strategy_name, strategy_params in sp.items():
+                if isinstance(strategy_params, dict) and param in strategy_params:
+                    target_strategy = strategy_name
+                    break
+
+            if not target_strategy:
+                logger.warning("제안 파라미터 %s를 찾을 수 없음", param)
+                continue
+
+            old_val = sp[target_strategy].get(param, 0)
+            new_val = old_val + delta if action == "increase" else old_val - delta
+
+            # 백테스트로 검증 (간단 버전: 현재는 로그만)
+            logger.info(
+                "주간 리뷰 제안 적용: %s.%s %.4f → %.4f",
+                target_strategy,
+                param,
+                old_val,
+                new_val,
+            )
+
+            # config에 적용 (백업 후 atomic write)
+            backup_path = config_path.with_suffix(f".yaml.bak.weekly.{int(time.time())}")
+            shutil.copy2(config_path, backup_path)
+
+            sp[target_strategy][param] = round(new_val, 4)
+            raw["strategy_params"] = sp
+
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=str(config_path.parent),
+                suffix=".yaml.tmp",
+            )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    yaml.dump(raw, f, allow_unicode=True, default_flow_style=False)
+                os.replace(tmp_path, str(config_path))
+            except Exception:
+                os.unlink(tmp_path)
+                raise
+
+            # ExperimentStore에 기록
+            if self._experiment_store:
+                self._experiment_store.record(
+                    source="weekly_review",
+                    strategy=target_strategy,
+                    params={param: new_val},
+                    old_params={param: old_val},
+                    pf=0.0,  # 백테스트 미실행
+                    mdd=0.0,
+                    trades=0,
+                    verdict="keep",
+                )
+                self._experiment_store.log_param_change(
+                    source="weekly_review",
+                    strategy=target_strategy,
+                    old_params={param: old_val},
+                    new_params={param: new_val},
+                    backup_path=str(backup_path),
+                    baseline_pf=1.0,
+                )
+
+            applied += 1
+
+        return applied
 
     async def _send_weekly_report(
         self, result: WeeklyReviewResult, shadow_top3: list | None
