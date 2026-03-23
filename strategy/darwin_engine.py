@@ -547,7 +547,12 @@ class DarwinEngine:
         return sl, tp
 
     def champion_to_strategy_params(self) -> dict:
-        """챔피언 파라미터를 strategy_params 형식으로 변환한다."""
+        """챔피언 파라미터를 strategy_params 형식으로 변환한다.
+
+        Note: cutoff는 score_cutoff 시스템과 형식이 달라 변환하지 않는다.
+        score_cutoff는 group별 full/probe_min/probe_max 구조이므로
+        단일 cutoff 값으로는 매핑할 수 없다.
+        """
         c = self._champion
         return {
             "mean_reversion": {"sl_mult": c.mr_sl_mult, "tp_rr": c.mr_tp_rr},

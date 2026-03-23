@@ -108,6 +108,9 @@ class SizeDecision:
     HOLD = "HOLD"
 
 
+_NON_PARAM_KEYS = {"regime_override", "enabled"}
+
+
 def _merge_strategy_params(
     sp: dict,
     tier: int,
@@ -117,8 +120,8 @@ def _merge_strategy_params(
     tier_key = f"tier{tier}"
     tier_sp = sp.get(tier_key, {})
     regime_sp = sp.get("regime_override", {}).get(regime, {})
-    # regime_override, tier 키 자체는 결과에서 제외
-    base = {k: v for k, v in sp.items() if k != "regime_override" and not k.startswith("tier")}
+    # regime_override, enabled, tier 키 자체는 결과에서 제외
+    base = {k: v for k, v in sp.items() if k not in _NON_PARAM_KEYS and not k.startswith("tier")}
     return {**base, **tier_sp, **regime_sp}
 
 

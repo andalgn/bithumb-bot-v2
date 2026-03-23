@@ -597,7 +597,7 @@ class TradingBot:
         import datetime as _dt
 
         _now_kst = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9)))
-        if _now_kst.weekday() == 6 and self._cycle_count % 12 == 0:
+        if _now_kst.weekday() == 6 and _now_kst.hour >= 4 and self._cycle_count % 12 == 0:
             market_regime = self._get_market_regime()
             self._darwin.run_tournament(market_regime=market_regime)
 
@@ -630,18 +630,23 @@ class TradingBot:
                         import glob as _glob
 
                         _backup_files = sorted(_glob.glob(str(config_path) + ".bak.*"))
-                        _actual_backup = _backup_files[-1] if _backup_files else ""
-                        self._experiment_store.log_param_change(
-                            source="darwin",
-                            strategy="mean_reversion",
-                            old_params=self._rule_engine._strategy_params.get("mean_reversion", {}),
-                            new_params=champ_params["mean_reversion"],
-                            backup_path=_actual_backup,
-                            baseline_pf=current_pf,
-                        )
-                        self._pilot_remaining = 20
-                        self._pilot_size_mult = 0.5
-                        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+                        if not _backup_files:
+                            logger.error("config 백업 파일 없음 — 챔피언 적용 취소")
+                        else:
+                            _actual_backup = _backup_files[-1]
+                            self._experiment_store.log_param_change(
+                                source="darwin",
+                                strategy="mean_reversion",
+                                old_params=self._rule_engine._strategy_params.get(
+                                    "mean_reversion", {}
+                                ),
+                                new_params=champ_params["mean_reversion"],
+                                backup_path=_actual_backup,
+                                baseline_pf=current_pf,
+                            )
+                            self._pilot_remaining = 20
+                            self._pilot_size_mult = 0.5
+                            logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
 
         # 8. 신호 평가 + Pool 사이징 + 주문
         for signal in signals:
@@ -956,6 +961,9 @@ class TradingBot:
             if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
                 await self._review_engine.run_monthly_review()
 
+        # 롤백 모니터링 (매 사이클)
+        await self._check_rollback()
+
         # 12. 상태 저장
         self._save_state()
 
@@ -1060,12 +1068,16 @@ class TradingBot:
         backup = Path(change["backup_path"])
         if backup.exists():
             shutil.copy2(backup, self._config_path)
+            self._check_config_reload()  # 롤백 후 즉시 config 재로딩
+        else:
+            logger.error("롤백 실패: 백업 파일 없음 %s", backup)
         self._pilot_remaining = 0
         self._pilot_size_mult = 1.0
         await self._notifier.send(
             f"<b>파라미터 자동 롤백</b>\n"
             f"source: {change['source']} | strategy: {change['strategy']}\n"
-            f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})",
+            f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})\n"
+            f"백업 복원: {'성공' if backup.exists() else '실패 — 수동 확인 필요'}",
             channel="system",
         )
 
