@@ -1,6 +1,6 @@
 """빗썸 REST API 클라이언트.
 
-HMAC-SHA512 인증, 비동기 aiohttp 기반.
+JWT (HS256) 인증, 비동기 aiohttp 기반.
 Public API: ticker, orderbook, candlestick
 Private API: balance, orders, order_detail, place, cancel, market_buy, market_sell
 """
@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import logging
 import ssl
 import time
 import urllib.parse
+import uuid
 from typing import Any
 
 import aiohttp
+import jwt
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,7 @@ class BithumbClient:
         """세션을 가져오거나 생성한다."""
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
-            self._session = aiohttp.ClientSession(
-                timeout=self._timeout, connector=connector
-            )
+            self._session = aiohttp.ClientSession(timeout=self._timeout, connector=connector)
         return self._session
 
     async def close(self) -> None:
@@ -89,34 +88,33 @@ class BithumbClient:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    def _make_signature(self, endpoint: str, params: dict[str, str]) -> dict[str, str]:
-        """HMAC-SHA512 서명을 생성한다.
+    def _make_auth_headers(
+        self,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """JWT 인증 헤더를 생성한다.
 
         Args:
-            endpoint: API 엔드포인트 경로.
-            params: 요청 파라미터.
+            params: 요청 파라미터 (없으면 파라미터 없는 요청).
 
         Returns:
             인증 헤더 딕셔너리.
         """
-        nonce = str(int(time.time() * 1000))
-        query_string = urllib.parse.urlencode(params)
-
-        # hmac_data = endpoint + chr(0) + query_string + chr(0) + nonce
-        hmac_data = endpoint + chr(0) + query_string + chr(0) + nonce
-
-        signature = hmac.new(
-            self._api_secret.encode("utf-8"),
-            hmac_data.encode("utf-8"),
-            hashlib.sha512,
-        ).hexdigest()
-
-        return {
-            "Api-Key": self._api_key,
-            "Api-Sign": signature,
-            "Api-Nonce": nonce,
-            "Content-Type": "application/x-www-form-urlencoded",
+        payload: dict[str, object] = {
+            "access_key": self._api_key,
+            "nonce": str(uuid.uuid4()),
+            "timestamp": round(time.time() * 1000),
         }
+
+        if params:
+            query = urllib.parse.urlencode(params).encode()
+            h = hashlib.sha512()
+            h.update(query)
+            payload["query_hash"] = h.hexdigest()
+            payload["query_hash_alg"] = "SHA512"
+
+        token = jwt.encode(payload, self._api_secret, algorithm="HS256")
+        return {"Authorization": f"Bearer {token}"}
 
     async def _rate_limited(self, semaphore: asyncio.Semaphore, rate: int) -> None:
         """Rate limiting을 적용한다."""
@@ -157,14 +155,16 @@ class BithumbClient:
             )
         return data.get("data", {})
 
-    async def _private_request(
-        self, endpoint: str, params: dict[str, str] | None = None
-    ) -> dict[str, Any]:
-        """Private API POST 요청.
+    async def _private_get(
+        self,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> Any:
+        """Private API GET 요청.
 
         Args:
-            endpoint: API 엔드포인트 (예: /info/balance).
-            params: 요청 파라미터.
+            path: API 경로 (예: /v1/accounts).
+            params: 쿼리 파라미터.
 
         Returns:
             응답 데이터.
@@ -173,37 +173,116 @@ class BithumbClient:
             BithumbAPIError: API 오류 시.
         """
         await self._rate_limited(self._private_semaphore, self._private_rate_limit)
-        if params is None:
-            params = {}
-        params["endpoint"] = endpoint
-
-        headers = self._make_signature(endpoint, params)
-        url = f"{self._base_url}{endpoint}"
+        headers = self._make_auth_headers(params)
+        url = f"{self._base_url}{path}"
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
         session = await self._get_session()
 
         try:
-            async with session.post(
+            async with session.get(
                 url,
-                data=urllib.parse.urlencode(params),
                 headers=headers,
                 proxy=self._proxy or None,
             ) as resp:
-                if resp.status == 401 or resp.status == 403:
-                    raise BithumbAPIError(str(resp.status), "Authentication error")
-                if resp.status != 200:
-                    raise BithumbAPIError(str(resp.status), f"HTTP {resp.status}")
                 data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    err = data.get("error", {})
+                    raise BithumbAPIError(
+                        str(resp.status),
+                        f"{err.get('name', 'unknown')}: {err.get('message', resp.status)}",
+                    )
+                return data
         except aiohttp.ClientError as e:
             raise BithumbAPIError("NETWORK", str(e)) from e
         except asyncio.TimeoutError as e:
             raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
-        if data.get("status") != "0000":
-            raise BithumbAPIError(
-                data.get("status", "UNKNOWN"),
-                data.get("message", "Unknown error"),
-            )
-        return data.get("data", {})
+    async def _private_post(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+    ) -> Any:
+        """Private API POST 요청 (JSON body).
+
+        Args:
+            path: API 경로 (예: /v1/orders).
+            body: JSON 요청 바디.
+
+        Returns:
+            응답 데이터.
+
+        Raises:
+            BithumbAPIError: API 오류 시.
+        """
+        await self._rate_limited(self._private_semaphore, self._private_rate_limit)
+        headers = self._make_auth_headers(body)
+        headers["Content-Type"] = "application/json"
+        url = f"{self._base_url}{path}"
+        session = await self._get_session()
+
+        try:
+            async with session.post(
+                url,
+                json=body,
+                headers=headers,
+                proxy=self._proxy or None,
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status not in (200, 201):
+                    err = data.get("error", {})
+                    raise BithumbAPIError(
+                        str(resp.status),
+                        f"{err.get('name', 'unknown')}: {err.get('message', resp.status)}",
+                    )
+                return data
+        except aiohttp.ClientError as e:
+            raise BithumbAPIError("NETWORK", str(e)) from e
+        except asyncio.TimeoutError as e:
+            raise BithumbAPIError("TIMEOUT", "Request timed out") from e
+
+    async def _private_delete(
+        self,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> Any:
+        """Private API DELETE 요청.
+
+        Args:
+            path: API 경로 (예: /v1/order).
+            params: 쿼리 파라미터.
+
+        Returns:
+            응답 데이터.
+
+        Raises:
+            BithumbAPIError: API 오류 시.
+        """
+        await self._rate_limited(self._private_semaphore, self._private_rate_limit)
+        headers = self._make_auth_headers(params)
+        url = f"{self._base_url}{path}"
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+        session = await self._get_session()
+
+        try:
+            async with session.delete(
+                url,
+                headers=headers,
+                proxy=self._proxy or None,
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    err = data.get("error", {})
+                    raise BithumbAPIError(
+                        str(resp.status),
+                        f"{err.get('name', 'unknown')}: {err.get('message', resp.status)}",
+                    )
+                return data
+        except aiohttp.ClientError as e:
+            raise BithumbAPIError("NETWORK", str(e)) from e
+        except asyncio.TimeoutError as e:
+            raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
     # ─── Public API ───
 
@@ -229,9 +308,7 @@ class BithumbClient:
         """
         return await self._public_request(f"/public/orderbook/{coin}_KRW")
 
-    async def get_candlestick(
-        self, coin: str, interval: str = "15m"
-    ) -> list[list]:
+    async def get_candlestick(self, coin: str, interval: str = "15m") -> list[list]:
         """캔들 데이터를 조회한다.
 
         Args:
@@ -242,9 +319,7 @@ class BithumbClient:
             캔들 데이터 리스트. 각 항목: [timestamp, open, close, high, low, volume]
         """
         chart_intervals = interval
-        data = await self._public_request(
-            f"/public/candlestick/{coin}_KRW/{chart_intervals}"
-        )
+        data = await self._public_request(f"/public/candlestick/{coin}_KRW/{chart_intervals}")
         if not isinstance(data, list):
             return []
         return data
@@ -258,13 +333,17 @@ class BithumbClient:
             coin: 코인 심볼. ALL이면 전체.
 
         Returns:
-            잔고 데이터.
+            잔고 데이터 (레거시 호환 형식).
         """
-        currency = "ALL" if coin == "ALL" else coin
-        return await self._private_request(
-            "/info/balance",
-            {"order_currency": currency, "payment_currency": "KRW"},
-        )
+        accounts = await self._private_get("/v1/accounts")
+        # v1 응답을 레거시 형식으로 변환
+        result: dict[str, Any] = {}
+        for acc in accounts:
+            currency = acc["currency"].lower()
+            result[f"available_{currency}"] = acc["balance"]
+            result[f"locked_{currency}"] = acc.get("locked", "0")
+            result[f"avg_buy_price_{currency}"] = acc.get("avg_buy_price", "0")
+        return result
 
     async def get_orders(
         self, coin: str, order_id: str = "", order_type: str = ""
@@ -273,42 +352,28 @@ class BithumbClient:
 
         Args:
             coin: 코인 심볼.
-            order_id: 주문 ID (선택).
+            order_id: 주문 ID (선택, 미사용).
             order_type: 주문 유형 bid/ask (선택).
 
         Returns:
             주문 내역 데이터.
         """
-        params: dict[str, str] = {
-            "order_currency": coin,
-            "payment_currency": "KRW",
-        }
-        if order_id:
-            params["order_id"] = order_id
+        params: dict[str, str] = {"market": f"KRW-{coin}", "state": "wait"}
         if order_type:
-            params["type"] = order_type
-        return await self._private_request("/info/orders", params)
+            params["side"] = order_type
+        return await self._private_get("/v1/orders", params)
 
-    async def get_order_detail(
-        self, coin: str, order_id: str
-    ) -> dict[str, Any]:
+    async def get_order_detail(self, coin: str, order_id: str) -> dict[str, Any]:
         """주문 상세를 조회한다.
 
         Args:
             coin: 코인 심볼.
-            order_id: 주문 ID.
+            order_id: 주문 UUID.
 
         Returns:
             주문 상세 데이터.
         """
-        return await self._private_request(
-            "/info/order_detail",
-            {
-                "order_currency": coin,
-                "payment_currency": "KRW",
-                "order_id": order_id,
-            },
-        )
+        return await self._private_get("/v1/order", {"uuid": order_id})
 
     async def place_order(
         self,
@@ -328,39 +393,27 @@ class BithumbClient:
         Returns:
             주문 결과 데이터.
         """
-        return await self._private_request(
-            "/trade/place",
-            {
-                "order_currency": coin,
-                "payment_currency": "KRW",
-                "units": str(qty),
-                "price": str(int(price)),
-                "type": side,
-            },
-        )
+        body = {
+            "market": f"KRW-{coin}",
+            "side": side,
+            "volume": str(qty),
+            "price": str(int(price)),
+            "ord_type": "limit",
+        }
+        return await self._private_post("/v1/orders", body)
 
-    async def cancel_order(
-        self, coin: str, order_id: str, side: str
-    ) -> dict[str, Any]:
+    async def cancel_order(self, coin: str, order_id: str, side: str) -> dict[str, Any]:
         """주문을 취소한다.
 
         Args:
             coin: 코인 심볼.
-            order_id: 주문 ID.
-            side: bid(매수) 또는 ask(매도).
+            order_id: 주문 UUID.
+            side: bid(매수) 또는 ask(매도) (v1에서는 미사용).
 
         Returns:
             취소 결과 데이터.
         """
-        return await self._private_request(
-            "/trade/cancel",
-            {
-                "order_currency": coin,
-                "payment_currency": "KRW",
-                "order_id": order_id,
-                "type": side,
-            },
-        )
+        return await self._private_delete("/v1/order", {"uuid": order_id})
 
     async def market_buy(self, coin: str, total_krw: float) -> dict[str, Any]:
         """시장가 매수를 실행한다.
@@ -372,14 +425,13 @@ class BithumbClient:
         Returns:
             주문 결과 데이터.
         """
-        return await self._private_request(
-            "/trade/market_buy",
-            {
-                "order_currency": coin,
-                "payment_currency": "KRW",
-                "units": str(total_krw),
-            },
-        )
+        body = {
+            "market": f"KRW-{coin}",
+            "side": "bid",
+            "price": str(int(total_krw)),
+            "ord_type": "price",
+        }
+        return await self._private_post("/v1/orders", body)
 
     async def market_sell(self, coin: str, qty: float) -> dict[str, Any]:
         """시장가 매도를 실행한다.
@@ -391,11 +443,10 @@ class BithumbClient:
         Returns:
             주문 결과 데이터.
         """
-        return await self._private_request(
-            "/trade/market_sell",
-            {
-                "order_currency": coin,
-                "payment_currency": "KRW",
-                "units": str(qty),
-            },
-        )
+        body = {
+            "market": f"KRW-{coin}",
+            "side": "ask",
+            "volume": str(qty),
+            "ord_type": "market",
+        }
+        return await self._private_post("/v1/orders", body)
