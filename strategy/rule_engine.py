@@ -108,6 +108,20 @@ class SizeDecision:
     HOLD = "HOLD"
 
 
+def _merge_strategy_params(
+    sp: dict,
+    tier: int,
+    regime: str,
+) -> dict:
+    """전략 파라미터를 base < tier < regime 우선순위로 병합한다."""
+    tier_key = f"tier{tier}"
+    tier_sp = sp.get(tier_key, {})
+    regime_sp = sp.get("regime_override", {}).get(regime, {})
+    # regime_override, tier 키 자체는 결과에서 제외
+    base = {k: v for k, v in sp.items() if k != "regime_override" and not k.startswith("tier")}
+    return {**base, **tier_sp, **regime_sp}
+
+
 class RuleEngine:
     """전략 엔진 — 5국면 + 전략 점수 + Layer 1."""
 
@@ -916,12 +930,7 @@ class RuleEngine:
         # Tier별 SL 최대 비율 상한
         max_sl_pct = {Tier.TIER1: 0.030, Tier.TIER2: 0.050, Tier.TIER3: 0.080}
         sp = self._strategy_params.get(best.strategy.value, {})
-        # Tier별 파라미터 우선 적용
-        tier_key = f"tier{tier_params.tier.value}"
-        tier_sp = sp.get(tier_key, {})
-        merged_sp: dict[str, object] = {**sp, **tier_sp}
-        # tier1/tier2/tier3 키 자체는 제거 (dict가 아닌 값만 사용)
-        merged_sp = {k: v for k, v in merged_sp.items() if not isinstance(v, dict)}
+        merged_sp = _merge_strategy_params(sp, tier=tier_params.tier.value, regime=regime.value)
         sl_cap = price * max_sl_pct.get(tier_params.tier, 0.025)
 
         if best.strategy == Strategy.SCALPING:
