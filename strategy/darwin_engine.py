@@ -16,7 +16,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from app.data_types import MarketSnapshot, Signal, Tier
+from app.data_types import MarketSnapshot, Signal, Strategy, Tier
 
 if TYPE_CHECKING:
     from app.journal import Journal
@@ -33,14 +33,13 @@ SLIPPAGE_BY_TIER: dict[Tier, float] = {
 }
 SHADOW_DISCOUNT = 0.85  # Shadow net_pnl × 0.85 vs Live
 
-# 돌연변이 범위
-MUTATION_RANGES: dict[str, float] = {
-    "rsi_lower": 3.0,
-    "rsi_upper": 3.0,
-    "atr_mult": 0.3,
-    "cutoff": 5.0,
-    "tp_pct": 0.005,
-    "sl_pct": 0.005,
+# 돌연변이 범위: (delta, min, max)
+MUTATION_RANGES: dict[str, tuple[float, float, float]] = {
+    "mr_sl_mult": (0.5, 2.0, 10.0),
+    "mr_tp_rr": (0.3, 1.0, 4.0),
+    "dca_sl_pct": (0.005, 0.02, 0.08),
+    "dca_tp_pct": (0.005, 0.01, 0.05),
+    "cutoff": (3.0, 55.0, 90.0),
 }
 
 # Composite Score 가중치
@@ -55,16 +54,15 @@ COMPOSITE_WEIGHTS = {
 
 @dataclass
 class ShadowParams:
-    """Shadow 파라미터 세트."""
+    """Shadow 파라미터 세트 — strategy_params와 동일 구조."""
 
     shadow_id: str = ""
     group: str = "conservative"  # conservative/moderate/innovative
-    rsi_lower: float = 30.0
-    rsi_upper: float = 70.0
-    atr_mult: float = 2.0
-    cutoff: float = 72.0
-    tp_pct: float = 0.03
-    sl_pct: float = 0.02
+    mr_sl_mult: float = 7.0  # mean_reversion SL multiplier (2.0~10.0)
+    mr_tp_rr: float = 1.5  # mean_reversion TP risk-reward (1.0~4.0)
+    dca_sl_pct: float = 0.05  # dca SL percent (0.02~0.08)
+    dca_tp_pct: float = 0.03  # dca TP percent (0.01~0.05)
+    cutoff: float = 72.0  # entry score cutoff (55~90)
 
 
 @dataclass
@@ -191,21 +189,13 @@ class DarwinEngine:
         params = copy.copy(base)
         params.group = group
 
-        for name, max_delta in MUTATION_RANGES.items():
+        for name, (max_delta, lo, hi) in MUTATION_RANGES.items():
             base_val = getattr(base, name, None)
             if base_val is None:
                 continue
             multiplier = min(variation / 0.10, 2.0)  # 최대 2배로 제한
             delta = random.uniform(-max_delta, max_delta) * multiplier
-            setattr(params, name, base_val + delta)
-
-        # 범위 클램핑
-        params.rsi_lower = max(15, min(45, params.rsi_lower))
-        params.rsi_upper = max(55, min(85, params.rsi_upper))
-        params.atr_mult = max(0.5, min(5.0, params.atr_mult))
-        params.cutoff = max(40, min(95, params.cutoff))
-        params.tp_pct = max(0.005, min(0.10, params.tp_pct))
-        params.sl_pct = max(0.005, min(0.05, params.sl_pct))
+            setattr(params, name, max(lo, min(hi, base_val + delta)))
 
         return params
 
@@ -291,10 +281,11 @@ class DarwinEngine:
                 self._trades.append(trade)
 
                 if would_enter and signal.entry_price > 0:
+                    sl, tp = self._compute_shadow_sl_tp(shadow, signal)
                     open_pos[signal.symbol] = (
                         signal.entry_price,
-                        signal.stop_loss,
-                        signal.take_profit,
+                        sl,
+                        tp,
                     )
                     if self._journal:
                         self._journal.record_shadow_trade(
@@ -417,6 +408,44 @@ class DarwinEngine:
         self._last_champion_change = time.time()
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("챔피언 교체 완료: %s -> %s", old_id, new_params.shadow_id)
+
+    @staticmethod
+    def _compute_shadow_sl_tp(shadow: ShadowParams, signal: Signal) -> tuple[float, float]:
+        """Shadow 파라미터 기반으로 SL/TP를 계산한다.
+
+        Args:
+            shadow: Shadow 파라미터.
+            signal: 매매 신호.
+
+        Returns:
+            (stop_loss, take_profit) 튜플.
+        """
+        entry = signal.entry_price
+        if signal.strategy == Strategy.DCA:
+            sl = entry * (1.0 - shadow.dca_sl_pct)
+            tp = entry * (1.0 + shadow.dca_tp_pct)
+        else:
+            # ATR 기반 전략 (MEAN_REVERSION, TREND_FOLLOW, BREAKOUT, SCALPING)
+            # live signal의 SL 거리를 ATR 추정치로 사용
+            if signal.stop_loss > 0:
+                live_atr_est = abs(entry - signal.stop_loss)
+            else:
+                live_atr_est = entry * 0.02  # fallback 2%
+            # ATR 1단위 = live_atr_est / (live에서 사용된 mult)
+            # 정확한 live mult를 모르므로 live_atr_est 자체를 ATR 단위로 근사
+            atr_unit = live_atr_est
+            sl = entry - atr_unit * (shadow.mr_sl_mult / 7.0)
+            risk = entry - sl
+            tp = entry + risk * shadow.mr_tp_rr
+        return sl, tp
+
+    def champion_to_strategy_params(self) -> dict:
+        """챔피언 파라미터를 strategy_params 형식으로 변환한다."""
+        c = self._champion
+        return {
+            "mean_reversion": {"sl_mult": c.mr_sl_mult, "tp_rr": c.mr_tp_rr},
+            "dca": {"sl_pct": c.dca_sl_pct, "tp_pct": c.dca_tp_pct},
+        }
 
     def _calc_composite_score(self, shadow_id: str, perf: ShadowPerformance) -> CompositeScore:
         """Composite Score를 계산한다."""
