@@ -320,6 +320,10 @@ class TradingBot:
         # pause 상태 복원
         self._paused = self._storage.get("paused", False)
 
+        # 파일럿 상태 복원
+        self._pilot_remaining = self._storage.get("pilot_remaining", 0)
+        self._pilot_size_mult = self._storage.get("pilot_size_mult", 1.0)
+
         # PAPER 모드 시작 시간 복원 (없으면 현재 시간으로 초기화)
         stored_paper_start = self._storage.get("paper_start_time", 0.0)
         if stored_paper_start > 0:
@@ -382,6 +386,10 @@ class TradingBot:
         self._storage.set("live_start_time", self._live_start_time)
         self._storage.set("paused", self._paused)
         self._storage.set("paper_start_time", self._paper_start_time)
+
+        # 파일럿 상태 영속화
+        self._storage.set("pilot_remaining", self._pilot_remaining)
+        self._storage.set("pilot_size_mult", self._pilot_size_mult)
 
         self._storage.save()
 
@@ -693,6 +701,7 @@ class TradingBot:
                     active_positions=active_coins,
                     weekly_dd_pct=weekly_dd,
                     candles_1h=snapshots[signal.symbol].candles_1h,
+                    pilot_mult=self._pilot_size_mult,
                 )
 
             # LIVE 전환 첫 7일: risk_pct 50% 축소
@@ -770,6 +779,13 @@ class TradingBot:
                         signal_price=signal.entry_price,
                     )
                     self._exit_manager.init_position(signal.symbol)
+
+                    # 파일럿 카운터 감소
+                    if self._pilot_remaining > 0:
+                        self._pilot_remaining -= 1
+                        if self._pilot_remaining == 0:
+                            self._pilot_size_mult = 1.0
+                            logger.info("Pilot 기간 종료: 포지션 사이즈 100% 복원")
 
                     # 체결 알림
                     await self._notifier.send(

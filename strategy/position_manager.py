@@ -78,6 +78,7 @@ class PositionManager:
         active_positions: list[str],
         weekly_dd_pct: float = 0.0,
         candles_1h: list[Candle] | None = None,
+        pilot_mult: float = 1.0,
     ) -> SizingResult:
         """Active Pool 사이징을 계산한다.
 
@@ -88,6 +89,7 @@ class PositionManager:
             active_positions: 현재 보유 코인 목록.
             weekly_dd_pct: 주간 DD 비율.
             candles_1h: 1H 캔들 (vol_target 계산용).
+            pilot_mult: 파일럿 사이즈 배수 (파라미터 변경 직후 축소용).
 
         Returns:
             SizingResult.
@@ -142,6 +144,11 @@ class PositionManager:
         if corr.size_mult < 1.0:
             final *= corr.size_mult
             detail["corr_mult"] = corr.size_mult
+
+        # 파일럿 축소
+        if pilot_mult < 1.0:
+            final *= pilot_mult
+            detail["pilot_mult"] = pilot_mult
 
         # 하한 체크
         if final < self._cfg.active_min_krw:
