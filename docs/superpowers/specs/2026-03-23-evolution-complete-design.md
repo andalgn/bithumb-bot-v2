@@ -25,7 +25,48 @@
 
 ## 2. Darwin 엔진 개선
 
-### 2-1. 30일 롤링 윈도우
+### 2-1. ShadowParams 재설계
+
+현재 `ShadowParams`는 `rsi_lower`, `rsi_upper`, `atr_mult`, `cutoff`, `tp_pct`, `sl_pct`로 구성되어 있으나, 실제 전략 파라미터(`sl_mult 2.0~10.0`, `tp_rr 1.0~4.0`)와 범위/의미가 불일치.
+
+**변경:** `ShadowParams`를 전략 파라미터 구조에 맞게 재설계.
+
+```python
+@dataclass
+class ShadowParams:
+    """Shadow 파라미터 세트 — strategy_params와 동일 구조."""
+
+    shadow_id: str = ""
+    group: str = "conservative"
+    # mean_reversion 파라미터
+    mr_sl_mult: float = 7.0       # (2.0 ~ 10.0)
+    mr_tp_rr: float = 1.5         # (1.0 ~ 4.0)
+    # dca 파라미터
+    dca_sl_pct: float = 0.05      # (0.02 ~ 0.08)
+    dca_tp_pct: float = 0.03      # (0.01 ~ 0.05)
+    # 진입 기준
+    cutoff: float = 72.0          # (55 ~ 90)
+```
+
+변환 함수가 불필요해짐 — Shadow 파라미터가 곧 strategy_params.
+
+```python
+def champion_to_strategy_params(shadow: ShadowParams) -> dict:
+    return {
+        "mean_reversion": {
+            "sl_mult": shadow.mr_sl_mult,
+            "tp_rr": shadow.mr_tp_rr,
+        },
+        "dca": {
+            "sl_pct": shadow.dca_sl_pct,
+            "tp_pct": shadow.dca_tp_pct,
+        },
+    }
+```
+
+기존 `rsi_lower`, `rsi_upper`, `atr_mult`, `tp_pct`, `sl_pct` 필드는 제거. 변이 범위도 `PARAM_BOUNDS`와 동일하게 적용.
+
+### 2-2. 30일 롤링 윈도우
 
 현재 매주 토너먼트 후 Shadow 성과를 리셋하여 1주일 데이터만으로 평가.
 
@@ -33,8 +74,9 @@
 - Shadow별 가상 거래 기록 보존 (최대 30일)
 - 토너먼트 시 30일 이내 거래만으로 Composite Score 계산
 - 30일 이전 거래는 자동 만료
+- **영속화:** Shadow 거래 기록을 `data/shadow_trades.db`에 저장하여 봇 재시작 후에도 유지
 
-### 2-2. 하위 멸종 + 상위 재생성
+### 2-3. 하위 멸종 + 상위 재생성
 
 현재 하위 Shadow를 랜덤 변이.
 
@@ -43,45 +85,42 @@
 - 하위 30% → 멸종, 상위 생존자의 유전자를 기반으로 변이 재생성
 - 생존자의 파라미터에 변이를 적용하여 새 Shadow 생성
 
-### 2-3. 동적 변이율
+### 2-4. 동적 변이율
 
 현재 고정 변이율 (conservative 10%, moderate 20%, innovative 40%).
 
-**변경:** 시장 국면에 따라 변이율 조정:
-- 안정 시장 (RANGE, WEAK_UP): 변이율 10%
+**변경:** 시장 국면에 따라 변이율 조정.
+
+**국면 집계 방법:** 10개 코인의 `regime_states`에서 최빈값(mode)을 "시장 국면"으로 사용.
+
+```python
+from collections import Counter
+
+def get_market_regime(regime_states: dict[str, RegimeState]) -> Regime:
+    """10개 코인의 국면 최빈값을 시장 국면으로 반환한다."""
+    counts = Counter(rs.current for rs in regime_states.values())
+    return counts.most_common(1)[0][0]
+```
+
+국면별 변이율:
+- 안정 시장 (RANGE, WEAK_UP, STRONG_UP): 변이율 10%
 - 하락 시장 (WEAK_DOWN): 변이율 20%
 - 급변 시장 (CRISIS): 변이율 40%
 
-현재 국면 분류 시스템(`rule_engine._regime_states`)의 다수 국면을 참조.
+**의존성 주입:** `DarwinEngine.run_tournament(market_regime: Regime)`으로 국면 정보를 전달. `main.py`에서 호출 시 `get_market_regime()` 결과를 인자로 전달.
 
-### 2-4. 강제 다양성
+### 2-5. 강제 다양성
 
-Shadow 간 파라미터 유사도 측정. 모든 파라미터가 ±5% 이내인 Shadow 쌍이 있으면 한쪽을 강제 변이. 전체 Shadow가 하나의 전략으로 수렴하는 것 방지.
+Shadow 간 파라미터 유사도를 **정규화 유클리드 거리**로 측정. 각 파라미터를 범위로 정규화(0~1)한 뒤 거리 계산. 거리 < 0.1인 Shadow 쌍이 있으면 한쪽을 강제 변이. 전체 Shadow가 하나의 전략으로 수렴하는 것 방지.
 
-### 2-5. 챔피언 교체 조건 강화
+### 2-6. 챔피언 교체 조건 강화
 
 - 최소 거래수: 10 → **30**
 - 기존 Composite Score 비교 + shadow_discount 유지
 
 ## 3. 챔피언 → 실전 적용
 
-### 3-1. 파라미터 변환
-
-```python
-def champion_to_strategy_params(shadow: ShadowParams) -> dict:
-    return {
-        "mean_reversion": {
-            "sl_mult": shadow.atr_mult,
-            "tp_rr": shadow.tp_pct / shadow.sl_pct if shadow.sl_pct > 0 else 2.0,
-        },
-        "dca": {
-            "sl_pct": shadow.sl_pct,
-            "tp_pct": shadow.tp_pct,
-        },
-    }
-```
-
-### 3-2. 적용 검증 게이트
+### 3-1. 적용 검증 게이트
 
 챔피언 교체 시 3단계 검증:
 
@@ -93,11 +132,16 @@ def champion_to_strategy_params(shadow: ShadowParams) -> dict:
 
 3단계 모두 통과 시 config.yaml에 쓰기. 핫 리로드로 다음 사이클에 반영.
 
-### 3-3. Auto-Optimize와의 관계
+### 3-2. Auto-Optimize와의 관계
 
 - Darwin 챔피언이 config에 쓰면 핫 리로드로 즉시 반영
 - Auto-Optimize(일요일 02:00) 실행 시, 결과가 **현재 config PF보다 나을 때만** 덮어씀
+- 현재 `_run_auto_optimize()`는 `auto_apply_min_pf` 기준만 사용 → **현재 config PF와 비교하는 로직으로 변경**
 - 결과적으로 항상 더 나은 쪽이 유지됨
+
+### 3-3. 알림
+
+챔피언 교체 + 실전 적용 시 `#시스템` 채널로 알림.
 
 ## 4. 자율 연구 대상 확장
 
@@ -132,7 +176,7 @@ PARAM_BOUNDS = {
 - 최근 30일 거래 성과 (전략별 PF, 승률, 거래수)
 - 현재 시장 국면 분포 (WEAK_DOWN 80%, RANGE 20% 등)
 - Darwin 챔피언 파라미터 vs 현재 config 비교
-- 과거 실패 실험 이력
+- 과거 실패 실험 이력 (experiment_history.db에서 조회)
 
 ### 4-3. 실험 대상 전략 선택
 
@@ -142,28 +186,40 @@ PARAM_BOUNDS = {
 
 ### 5-1. 일일 리뷰 → config 적용
 
+현재 `_apply_rules()` 메서드는 조정을 로그에만 기록하고 config에 쓰지 않음.
+
+**변경:** 새 메서드 `_apply_and_verify_rules()`를 추가.
+
 ```
 일일 리뷰 규칙 발동 (예: 승률 < 40%)
     ↓
 조정 사항 결정 (예: cutoff +5%)
     ↓
-백테스트로 검증 (최근 7일 데이터)
+_apply_and_verify_rules():
+    백테스트로 검증 (최근 7일 데이터)
     ↓
-PF 유지/개선 → config.yaml 적용 + 핫 리로드
-PF 악화 → 적용 안 함, 로그만
+    PF 유지/개선 → _apply_optimized_params()로 config.yaml 적용
+    PF 악화 → 적용 안 함, 로그만
 ```
 
+기존 `_apply_rules()`의 로그/cooldown 로직은 유지. 새 메서드가 백테스트 검증 + config 쓰기를 담당.
+
 ### 5-2. 주간 리뷰 DeepSeek 제안 → 적용
+
+현재 `_validate_suggestions()` 메서드는 구조 검증만 하고 적용하지 않음.
+
+**변경:** 새 메서드 `_apply_verified_suggestions()`를 추가.
 
 ```
 DeepSeek 제안 수신
     ↓
-_validate_suggestions() 구조 검증
+_validate_suggestions(): 기존 구조 검증 (유지)
     ↓
-백테스트 성과 검증 (최근 30일)
+_apply_verified_suggestions():
+    검증 통과한 제안으로 백테스트 실행 (최근 30일)
     ↓
-PF 개선 + MDD ≤ 15% → config.yaml 적용
-미달 → 적용 안 함
+    PF 개선 + MDD ≤ 15% → _apply_optimized_params()로 config.yaml 적용
+    미달 → 적용 안 함
 ```
 
 ### 5-3. 공통 적용 기준
@@ -202,6 +258,8 @@ PF 개선 + MDD ≤ 15% → config.yaml 적용
 - 변경 후 거래수 ≥ 20 && PF ≥ baseline_pf → **confirmed**
 - 7일 경과 && 거래수 < 10 → **confirmed** (데이터 부족, 유지)
 
+**롤백 체크 위치:** `app/main.py`에서 포지션 청산 후(거래 완료 시점) 체크. 거래 기반 판단이므로 시간 기반 daemon보다 main loop가 적합.
+
 롤백 시 `#시스템` 채널 알림.
 
 ### 6-2. 점진적 적용
@@ -212,10 +270,11 @@ PF 개선 + MDD ≤ 15% → config.yaml 적용
 - `position_manager`가 사이징 시 multiplier 적용
 - 20건 소진 후 자동으로 1.0 복귀
 - 롤백 발생 시 즉시 pilot 해제
+- **영속화:** `app/storage.py`의 `StateStorage`에 pilot 상태 저장하여 봇 재시작 후에도 유지
 
 ### 6-3. 실패 기억
 
-실패한 파라미터 조합을 `data/experiment_history.db`에 기록.
+실패한 파라미터 조합을 `data/experiment_history.db`에 기록. 기존 `data/research_log.tsv`와 통합하여 하나의 저장소로 관리.
 
 ```sql
 CREATE TABLE experiments (
@@ -261,40 +320,54 @@ strategy_params:
         tp_pct: 0.025
 ```
 
-`rule_engine`이 시그널 생성 시 현재 국면에 맞는 파라미터를 선택.
+`rule_engine`이 시그널 생성 시 파라미터 병합 우선순위: **base < tier < regime** (regime이 최우선).
+
+```python
+# rule_engine.py generate_signals() 내 파라미터 병합
+sp = self._strategy_params.get(strategy_name, {})
+tier_sp = sp.get(f"tier{tier}", {})
+regime_sp = sp.get("regime_override", {}).get(regime.value, {})
+merged_sp = {**sp, **tier_sp, **regime_sp}  # regime이 최우선
+```
+
 Darwin/Auto-Optimize/Auto-Research도 국면별로 독립 진화.
 
 ## 변경 파일 목록
 
 | 파일 | 변경 |
 |------|------|
-| `strategy/darwin_engine.py` | 30일 롤링 윈도우, 하위 멸종, 동적 변이율, 강제 다양성, champion_to_strategy_params() |
-| `strategy/auto_researcher.py` | PARAM_BOUNDS 확장 (mean_reversion, dca), 프롬프트 개선 |
-| `strategy/review_engine.py` | 일일 리뷰 → 백테스트 검증 → config 적용, 주간 리뷰 제안 적용 |
-| `strategy/rule_engine.py` | 국면별 regime_override 파라미터 읽기 |
+| `strategy/darwin_engine.py` | ShadowParams 재설계, 30일 롤링 윈도우(+영속화), 하위 멸종, 동적 변이율(market_regime 인자), 강제 다양성, champion_to_strategy_params() |
+| `strategy/auto_researcher.py` | PARAM_BOUNDS 확장 (mean_reversion, dca), 프롬프트 개선, 실패 이력 조회 |
+| `strategy/review_engine.py` | `_apply_and_verify_rules()` 신규 — 일일 리뷰 백테스트 검증 + config 적용. `_apply_verified_suggestions()` 신규 — 주간 리뷰 제안 백테스트 검증 + config 적용 |
+| `strategy/rule_engine.py` | 국면별 regime_override 파라미터 병합 (base < tier < regime) |
 | `strategy/position_manager.py` | pilot_size_mult 적용 |
-| `backtesting/daemon.py` | auto_optimize PF 비교 로직, 자동 롤백 모니터링 |
-| `app/main.py` | Darwin 챔피언 적용 연결, 롤백 체크 (config 핫 리로드는 완료) |
+| `backtesting/daemon.py` | auto_optimize: 현재 config PF와 비교 로직 추가 |
+| `app/main.py` | Darwin 챔피언 적용 연결 (get_market_regime → run_tournament → champion_to_strategy_params → config 쓰기), 롤백 체크 (청산 후) |
+| `app/config.py` | regime_override 파싱 지원 |
+| `app/storage.py` | pilot 상태 영속화 |
 | `configs/config.yaml` | regime_override 섹션 추가 |
-| `data/param_change_log.json` | **신규** — 파라미터 변경 이력 |
-| `data/experiment_history.db` | **신규** — 실패 기억 DB |
+| `data/param_change_log.json` | **신규** — 파라미터 변경 이력 + 롤백 모니터링 |
+| `data/experiment_history.db` | **신규** — 실패 기억 DB (research_log.tsv 통합) |
+| `data/shadow_trades.db` | **신규** — Shadow 거래 기록 영속화 |
 
 ## 피드백 루프 완성 후 데이터 흐름
 
 ```
 매매 → 성과 측정 (journal)
   ↓
-일일 리뷰 → 백테스트 검증 → config 적용
-주간 리뷰 → DeepSeek 제안 → 백테스트 검증 → config 적용
-Auto-Optimize → 그리드 탐색 → 백테스트 → config 적용 (PF 비교)
+일일 리뷰 → _apply_and_verify_rules() → 백테스트 검증 → config 적용
+주간 리뷰 → DeepSeek 제안 → _apply_verified_suggestions() → 백테스트 검증 → config 적용
+Auto-Optimize → 그리드 탐색 → 백테스트 → config PF 비교 → config 적용
 Auto-Research → DeepSeek 실험 → 백테스트 → config 적용
-Darwin → 가상 매매 경쟁 → 챔피언 선정 → 검증 → config 적용
+Darwin → 가상 매매 경쟁 → 챔피언 선정 → 3단계 검증 → config 적용
   ↓
-핫 리로드 → rule_engine 파라미터 갱신
+핫 리로드 → rule_engine 파라미터 갱신 (regime_override 포함)
   ↓
-다음 사이클 매매에 반영
+다음 사이클 매매에 반영 (점진적 적용: 첫 20건 50% 사이즈)
   ↓
-자동 롤백 모니터링 (7일)
+자동 롤백 모니터링 (7일, 청산 시 체크)
   ↓
 성과 악화 → 롤백 / 성과 유지 → confirmed
+  ↓
+실패 기억 DB에 기록 → 향후 동일 방향 변경 방지
 ```
