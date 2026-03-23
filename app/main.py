@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 
-from app.config import AppConfig
+from app.config import PROJECT_ROOT, AppConfig, load_config
 from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
 from app.journal import Journal
 from app.notify import DiscordNotifier
@@ -209,8 +209,28 @@ class TradingBot:
         self._data_failure_alert_threshold = 2  # 연속 2회 실패 시 알림
         self._data_failure_alerted = False
 
+        # config 핫 리로드
+        self._config_path = PROJECT_ROOT / "configs" / "config.yaml"
+        self._config_mtime: float = self._config_path.stat().st_mtime
+
         # 상태 복원
         self._restore_state()
+
+    def _check_config_reload(self) -> None:
+        """config.yaml 변경 시 strategy_params를 리로드한다."""
+        try:
+            mtime = self._config_path.stat().st_mtime
+        except OSError:
+            return
+        if mtime <= self._config_mtime:
+            return
+        try:
+            new_config = load_config(self._config_path)
+            self._rule_engine._strategy_params = new_config.strategy_params
+            self._config_mtime = mtime
+            logger.info("config 핫 리로드 완료: strategy_params 갱신")
+        except Exception:
+            logger.exception("config 리로드 실패 — 기존 설정 유지")
 
     def _restore_state(self) -> None:
         """저장된 상태를 복원한다."""
@@ -361,6 +381,7 @@ class TradingBot:
 
     async def run_cycle(self) -> None:
         """한 사이클을 실행한다."""
+        self._check_config_reload()
         self._cycle_count += 1
         cycle_start = time.time()
         logger.info("=" * 40)
