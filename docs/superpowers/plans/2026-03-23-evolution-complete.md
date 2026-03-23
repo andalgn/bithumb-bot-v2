@@ -173,12 +173,18 @@ class ExperimentStore:
         mdd: float,
         trades: int,
         verdict: str,
+        old_params: dict | None = None,
     ) -> None:
         """실험 결과를 기록한다."""
         self._conn.execute(
-            "INSERT INTO experiments (timestamp, source, strategy, params, pf, mdd, trades, verdict) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (int(time.time()), source, strategy, json.dumps(params), pf, mdd, trades, verdict),
+            "INSERT INTO experiments (timestamp, source, strategy, params, old_params, pf, mdd, trades, verdict) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                int(time.time()), source, strategy,
+                json.dumps(params),
+                json.dumps(old_params) if old_params else None,
+                pf, mdd, trades, verdict,
+            ),
         )
         self._conn.commit()
 
