@@ -12,6 +12,8 @@
 
 **Dev worktree:** `/home/bythejune/projects/bithumb-bot-v2-dev/` (branch: feature/evolution-complete)
 
+**Note:** `app/config.py`는 수정 불필요. `strategy_params`는 이미 plain dict로 로드되므로 `regime_override` 같은 중첩 dict도 자동 파싱됨.
+
 ---
 
 ### Task 1: 실패 기억 DB + 파라미터 변경 로그
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     source TEXT NOT NULL,
     strategy TEXT NOT NULL,
     params TEXT NOT NULL,
+    old_params TEXT,
     pf REAL NOT NULL,
     mdd REAL NOT NULL,
     trades INTEGER NOT NULL,
@@ -190,15 +193,34 @@ class ExperimentStore:
     def count_similar_failures(
         self, strategy: str, param_key: str, direction: str,
     ) -> int:
-        """유사한 방향의 실패 횟수를 조회한다."""
+        """유사한 방향의 실패 횟수를 조회한다.
+
+        Args:
+            strategy: 전략 이름.
+            param_key: 파라미터 키 (예: "sl_mult").
+            direction: "increase" 또는 "decrease".
+        """
         rows = self._conn.execute(
-            "SELECT params FROM experiments WHERE strategy = ? AND verdict IN ('revert', 'rolled_back')",
+            "SELECT params, old_params FROM experiments "
+            "WHERE strategy = ? AND verdict IN ('revert', 'rolled_back')",
             (strategy,),
         ).fetchall()
         count = 0
         for row in rows:
             params = json.loads(row["params"])
-            if param_key in params:
+            if param_key not in params:
+                continue
+            # old_params가 없으면 방향 판단 불가 → 카운트
+            old_raw = row["old_params"] if "old_params" in row.keys() else None
+            if old_raw is None:
+                count += 1
+                continue
+            old_params = json.loads(old_raw)
+            old_val = old_params.get(param_key, 0)
+            new_val = params[param_key]
+            if direction == "increase" and new_val > old_val:
+                count += 1
+            elif direction == "decrease" and new_val < old_val:
                 count += 1
         return count
 
@@ -342,7 +364,11 @@ def _merge_strategy_params(
     return {**base, **tier_sp, **regime_sp}
 ```
 
-`generate_signals()` 내에서 기존 `merged_sp = {**sp, **tier_sp}` 로직을 `_merge_strategy_params()` 호출로 교체.
+`generate_signals()` 내에서 기존 `merged_sp = {**sp, **tier_sp}` 로직을 `_merge_strategy_params()` 호출로 교체. 호출 시 `regime` 인자는 `regime.value` (문자열, 예: `"WEAK_DOWN"`)로 전달:
+
+```python
+merged_sp = _merge_strategy_params(sp, tier=tier_params.tier.value, regime=regime.value)
+```
 
 - [ ] **Step 3: Run tests + Commit**
 
@@ -466,7 +492,10 @@ extinct_count = len(self._shadows) - survive_count
 
 - [ ] **Step 3: 동적 변이율**
 
-`run_tournament()` 시그니처 변경: `run_tournament(self, market_regime: Regime | None = None)`
+`run_tournament()` 시그니처에 `market_regime` 파라미터 추가 (기존 `top_survive` 제거, 70% 생존으로 대체):
+`run_tournament(self, market_regime: Regime | None = None) -> list[CompositeScore]`
+
+`Regime` import 추가: `from app.data_types import Regime` (기존 import에 추가)
 
 ```python
 def _get_mutation_rate(self, market_regime: Regime | None) -> float:
@@ -525,6 +554,7 @@ git commit -m "feat: Darwin 30-day rolling window, extinction, dynamic mutation,
 
 **Files:**
 - Modify: `app/main.py` — Darwin 챔피언 적용, 롤백 체크
+- Modify: `app/journal.py` — `get_trades_since()` 메서드 추가
 - Modify: `backtesting/daemon.py` — auto_optimize PF 비교 로직
 
 - [ ] **Step 1: Darwin 챔피언 적용 로직 in main.py**
@@ -561,57 +591,87 @@ if new_champion:
         self._pilot_size_mult = 0.5
 ```
 
-- [ ] **Step 2: 롤백 체크 in _close_position()**
+- [ ] **Step 2: Journal에 get_trades_since() 추가**
+
+`app/journal.py`에 메서드 추가:
+
+```python
+def get_trades_since(self, timestamp_sec: int) -> list[dict]:
+    """지정 시각 이후의 거래를 조회한다.
+
+    Args:
+        timestamp_sec: 유닉스 타임스탬프 (초).
+
+    Returns:
+        거래 목록.
+    """
+    timestamp_ms = timestamp_sec * 1000
+    rows = self._conn.execute(
+        "SELECT * FROM trades WHERE exit_time >= ?",
+        (timestamp_ms,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+```
+
+- [ ] **Step 3: main.py에 _calc_pf() 헬퍼 추가**
+
+```python
+@staticmethod
+def _calc_pf(trades: list[dict]) -> float:
+    """거래 목록에서 Profit Factor를 계산한다."""
+    gross_profit = sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) > 0)
+    gross_loss = abs(sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) < 0))
+    if gross_loss == 0:
+        return 99.0 if gross_profit > 0 else 0.0
+    return gross_profit / gross_loss
+```
+
+- [ ] **Step 4: 롤백 체크 in _close_position()**
 
 `_close_position()` 끝부분에 롤백 체크 추가:
 
 ```python
 # 롤백 모니터링 체크
-self._check_rollback()
+await self._check_rollback()
 ```
 
+`_check_rollback`은 **async** 메서드로 정의:
+
 ```python
-def _check_rollback(self) -> None:
+async def _check_rollback(self) -> None:
     """파라미터 변경 모니터링 + 자동 롤백."""
     active = self._experiment_store.get_active_changes()
     for change in active:
         change_time = change["timestamp"]
-        # 변경 후 거래 조회
         trades = self._journal.get_trades_since(change_time)
         if len(trades) >= 20:
             pf = self._calc_pf(trades)
             if pf >= change["baseline_pf"]:
                 self._experiment_store.update_change_status(change["id"], "confirmed")
             else:
-                # PF 악화 → 자동 롤백
-                self._experiment_store.update_change_status(change["id"], "rolled_back")
-                # 백업 복원
-                backup = Path(change["backup_path"])
-                if backup.exists():
-                    import shutil
-                    shutil.copy2(backup, self._config_path)
-                    self._pilot_remaining = 0
-                    self._pilot_size_mult = 1.0
-                    await self._notifier.send(
-                        f"<b>⚠ 파라미터 자동 롤백</b>\n"
-                        f"source: {change['source']} | strategy: {change['strategy']}\n"
-                        f"변경 후 PF: {pf:.2f} (기준: {change['baseline_pf']:.2f})",
-                        channel="system",
-                    )
+                await self._rollback_params(change, pf)
         elif len(trades) >= 10:
             pf = self._calc_pf(trades)
             if pf < change["baseline_pf"] * 0.9:
-                # 조기 롤백
-                self._experiment_store.update_change_status(change["id"], "rolled_back")
-                backup = Path(change["backup_path"])
-                if backup.exists():
-                    import shutil
-                    shutil.copy2(backup, self._config_path)
-                    self._pilot_remaining = 0
-                    self._pilot_size_mult = 1.0
+                await self._rollback_params(change, pf)
         elif int(time.time()) > change["monitoring_until"]:
-            # 7일 경과, 데이터 부족 → confirmed
             self._experiment_store.update_change_status(change["id"], "confirmed")
+
+async def _rollback_params(self, change: dict, current_pf: float) -> None:
+    """파라미터를 이전 값으로 롤백한다."""
+    import shutil
+    self._experiment_store.update_change_status(change["id"], "rolled_back")
+    backup = Path(change["backup_path"])
+    if backup.exists():
+        shutil.copy2(backup, self._config_path)
+    self._pilot_remaining = 0
+    self._pilot_size_mult = 1.0
+    await self._notifier.send(
+        f"<b>⚠ 파라미터 자동 롤백</b>\n"
+        f"source: {change['source']} | strategy: {change['strategy']}\n"
+        f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})",
+        channel="system",
+    )
 ```
 
 - [ ] **Step 3: Auto-Optimize PF 비교**
@@ -663,9 +723,19 @@ sizing = self._position_manager.calculate_size(
 )
 ```
 
-- [ ] **Step 3: storage에 pilot 상태 저장**
+- [ ] **Step 3: pilot 상태 영속화**
 
-`_save_state()`에 pilot 상태 추가, `_load_state()`에서 복원.
+`app/main.py`의 `_save_state()` 메서드 (line 324)에 pilot 상태 추가:
+```python
+"pilot_remaining": self._pilot_remaining,
+"pilot_size_mult": self._pilot_size_mult,
+```
+
+`_restore_state()` 메서드 (line 235)에서 복원:
+```python
+self._pilot_remaining = state.get("pilot_remaining", 0)
+self._pilot_size_mult = state.get("pilot_size_mult", 1.0)
+```
 
 - [ ] **Step 4: Commit**
 
@@ -814,7 +884,7 @@ git commit -m "feat: connect weekly review DeepSeek suggestions to config via ba
 
 - [ ] **Step 1: Shadow 거래 DB 테이블 추가**
 
-`ExperimentStore` 또는 별도 저장소에 shadow_trades 테이블:
+`ExperimentStore`의 `experiment_history.db`에 shadow_trades 테이블 추가 (별도 DB 파일 불필요):
 
 ```sql
 CREATE TABLE IF NOT EXISTS shadow_trades (
@@ -904,7 +974,9 @@ Run: `pytest tests/ -v --ignore=tests/test_bithumb_api.py`
 
 - [ ] **Step 4: 필요시 수정 + Commit**
 
+수정한 파일만 개별적으로 staging:
+
 ```bash
-git add -A
+git add strategy/ app/ backtesting/ configs/ tests/
 git commit -m "fix: resolve integration issues from evolution-complete"
 ```
