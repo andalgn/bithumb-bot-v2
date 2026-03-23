@@ -349,16 +349,20 @@ class BacktestDaemon:
                 best.trades,
             )
 
-        # 기준 충족 시 자동 적용
+        # 기준 충족 시 자동 적용 (현재 config 대비 개선된 경우만)
         config_path = Path("configs/config.yaml")
         applied = []
+        # 현재 config로 baseline PF 계산
+        current_trades = self._journal.get_recent_trades(limit=100)
+        current_pf = self._calc_pf(current_trades) if current_trades else 0.0
         for strategy, r in results.items():
             if (
                 r["pf"] >= self._config.auto_apply_min_pf
                 and r["trades"] >= self._config.auto_apply_min_trades
+                and r["pf"] > current_pf
             ):
                 self._apply_optimized_params(strategy, r["params"], config_path)
-                applied.append(f"{strategy}: PF={r['pf']:.2f}")
+                applied.append(f"{strategy}: PF={r['pf']:.2f} (현재={current_pf:.2f})")
 
         # 디스코드 알림
         if self._notifier:
@@ -507,6 +511,19 @@ class BacktestDaemon:
         await self._run_walk_forward()
         await self._run_monte_carlo()
         await self._run_sensitivity()
+
+    @staticmethod
+    def _calc_pf(trades: list[dict]) -> float:
+        """거래 목록에서 Profit Factor를 계산한다."""
+        gross_profit = sum(
+            t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) > 0
+        )
+        gross_loss = abs(
+            sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) < 0)
+        )
+        if gross_loss == 0:
+            return 99.0 if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
 
     @staticmethod
     def _parse_time(time_str: str) -> tuple[int, int]:

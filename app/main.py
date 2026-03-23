@@ -32,6 +32,7 @@ from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
 from strategy.correlation_monitor import CorrelationMonitor
 from strategy.darwin_engine import DarwinEngine
+from strategy.experiment_store import ExperimentStore
 from strategy.indicators import compute_indicators
 from strategy.pool_manager import PoolManager
 from strategy.position_manager import PositionManager, SizingResult
@@ -191,6 +192,11 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
         self._review_engine._risk_gate = self._risk_gate
+
+        # ExperimentStore + 파일럿 사이징
+        self._experiment_store = ExperimentStore()
+        self._pilot_remaining: int = 0
+        self._pilot_size_mult: float = 1.0
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
@@ -379,6 +385,19 @@ class TradingBot:
 
         self._storage.save()
 
+    @staticmethod
+    def _calc_pf(trades: list[dict]) -> float:
+        """거래 목록에서 Profit Factor를 계산한다."""
+        gross_profit = sum(
+            t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) > 0
+        )
+        gross_loss = abs(
+            sum(t.get("net_pnl_krw", 0) for t in trades if (t.get("net_pnl_krw") or 0) < 0)
+        )
+        if gross_loss == 0:
+            return 99.0 if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
+
     def _get_market_regime(self) -> Regime | None:
         """10개 코인의 국면 최빈값을 반환한다."""
         from collections import Counter
@@ -564,6 +583,51 @@ class TradingBot:
         shadow_count = self._darwin.record_cycle(snapshots, signals)
         if shadow_count > 0 and self._cycle_count % 12 == 0:
             logger.info("Darwin Shadow 기록: %d건", shadow_count)
+
+        # 7.6 주간 토너먼트 + 챔피언 적용 (일요일, 매시간 체크)
+        import datetime as _dt
+
+        _now_kst = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9)))
+        if _now_kst.weekday() == 6 and self._cycle_count % 12 == 0:
+            market_regime = self._get_market_regime()
+            self._darwin.run_tournament(market_regime=market_regime)
+
+            new_champion = self._darwin.check_champion_replacement()
+            if new_champion:
+                self._darwin.replace_champion(new_champion)
+                champ_params = self._darwin.champion_to_strategy_params()
+                champ_perf = self._darwin._performances.get("champion")
+                if champ_perf and (
+                    champ_perf.trade_count >= 30
+                    and champ_perf.profit_factor > 1.0
+                    and champ_perf.max_drawdown <= 0.15
+                ):
+                    config_path = self._config_path
+                    self._backtest_daemon._apply_optimized_params(
+                        "mean_reversion",
+                        champ_params["mean_reversion"],
+                        config_path,
+                    )
+                    self._backtest_daemon._apply_optimized_params(
+                        "dca",
+                        champ_params["dca"],
+                        config_path,
+                    )
+                    self._experiment_store.log_param_change(
+                        source="darwin",
+                        strategy="mean_reversion",
+                        old_params=self._rule_engine._strategy_params.get("mean_reversion", {}),
+                        new_params=champ_params["mean_reversion"],
+                        backup_path=str(
+                            config_path.with_suffix(
+                                f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
+                            )
+                        ),
+                        baseline_pf=1.0,
+                    )
+                    self._pilot_remaining = 20
+                    self._pilot_size_mult = 0.5
+                    logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
 
         # 8. 신호 평가 + Pool 사이징 + 주문
         for signal in signals:
@@ -944,6 +1008,43 @@ class TradingBot:
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
 
+    async def _check_rollback(self) -> None:
+        """파라미터 변경 모니터링 + 자동 롤백."""
+        active = self._experiment_store.get_active_changes()
+        for change in active:
+            change_time = change["timestamp"]
+            trades = self._journal.get_trades_since(change_time)
+            if len(trades) >= 20:
+                pf = self._calc_pf(trades)
+                if pf >= change["baseline_pf"]:
+                    self._experiment_store.update_change_status(change["id"], "confirmed")
+                else:
+                    await self._rollback_params(change, pf)
+            elif len(trades) >= 10:
+                pf = self._calc_pf(trades)
+                if pf < change["baseline_pf"] * 0.9:
+                    await self._rollback_params(change, pf)
+            elif int(time.time()) > change["monitoring_until"]:
+                self._experiment_store.update_change_status(change["id"], "confirmed")
+
+    async def _rollback_params(self, change: dict, current_pf: float) -> None:
+        """파라미터를 이전 값으로 롤백한다."""
+        import shutil
+        from pathlib import Path
+
+        self._experiment_store.update_change_status(change["id"], "rolled_back")
+        backup = Path(change["backup_path"])
+        if backup.exists():
+            shutil.copy2(backup, self._config_path)
+        self._pilot_remaining = 0
+        self._pilot_size_mult = 1.0
+        await self._notifier.send(
+            f"<b>파라미터 자동 롤백</b>\n"
+            f"source: {change['source']} | strategy: {change['strategy']}\n"
+            f"변경 후 PF: {current_pf:.2f} (기준: {change['baseline_pf']:.2f})",
+            channel="system",
+        )
+
     async def _close_position(self, symbol: str, exit_price: float, exit_reason: str) -> None:
         """포지션을 청산한다.
 
@@ -1015,6 +1116,9 @@ class TradingBot:
             net_pnl,
             exit_reason,
         )
+
+        # 파라미터 변경 모니터링 + 자동 롤백
+        await self._check_rollback()
 
         # 청산 알림 (실패해도 청산 로직에 영향 없음)
         try:

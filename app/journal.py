@@ -233,9 +233,15 @@ class Journal:
             """INSERT INTO shadow_trades
                (shadow_id, symbol, strategy, params_json, would_enter, signal_score, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (data["shadow_id"], data["symbol"], data["strategy"],
-             data.get("params_json", ""), data.get("would_enter", 0),
-             data.get("signal_score", 0), now),
+            (
+                data["shadow_id"],
+                data["symbol"],
+                data["strategy"],
+                data.get("params_json", ""),
+                data.get("would_enter", 0),
+                data.get("signal_score", 0),
+                now,
+            ),
         )
         self._conn.commit()
 
@@ -268,9 +274,7 @@ class Journal:
         row = self._conn.execute("SELECT COUNT(*) FROM trades").fetchone()
         return row[0] if row else 0
 
-    def get_recent_trades(
-        self, strategy: str = "", limit: int = 50
-    ) -> list[dict]:
+    def get_recent_trades(self, strategy: str = "", limit: int = 50) -> list[dict]:
         """최근 거래를 조회한다."""
         if strategy:
             rows = self._conn.execute(
@@ -283,6 +287,15 @@ class Journal:
                 "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_trades_since(self, timestamp_sec: int) -> list[dict]:
+        """지정 시각 이후의 거래를 조회한다."""
+        timestamp_ms = timestamp_sec * 1000
+        rows = self._conn.execute(
+            "SELECT * FROM trades WHERE exit_time >= ?",
+            (timestamp_ms,),
+        ).fetchall()
         return [dict(r) for r in rows]
 
     def get_consecutive_losses(self) -> int:
