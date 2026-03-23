@@ -24,6 +24,17 @@ CREATE TABLE IF NOT EXISTS experiments (
     verdict TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS shadow_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shadow_id TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    would_enter INTEGER NOT NULL,
+    signal_score REAL NOT NULL,
+    virtual_pnl REAL NOT NULL DEFAULT 0.0
+);
+
 CREATE TABLE IF NOT EXISTS param_changes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp INTEGER NOT NULL,
@@ -170,6 +181,51 @@ class ExperimentStore:
             (status, change_id),
         )
         self._conn.commit()
+
+    def record_shadow_trade(
+        self,
+        shadow_id: str,
+        symbol: str,
+        strategy: str,
+        would_enter: bool,
+        signal_score: float,
+        virtual_pnl: float,
+    ) -> None:
+        """Shadow 가상 거래를 기록한다."""
+        self._conn.execute(
+            "INSERT INTO shadow_trades "
+            "(shadow_id, timestamp, symbol, strategy, would_enter, signal_score, virtual_pnl) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                shadow_id,
+                int(time.time()),
+                symbol,
+                strategy,
+                int(would_enter),
+                signal_score,
+                virtual_pnl,
+            ),
+        )
+        self._conn.commit()
+
+    def get_shadow_trades(self, shadow_id: str, days: int = 30) -> list[dict]:
+        """Shadow의 최근 N일 거래를 조회한다."""
+        cutoff = int(time.time()) - days * 86400
+        rows = self._conn.execute(
+            "SELECT * FROM shadow_trades WHERE shadow_id = ? AND timestamp >= ? ORDER BY timestamp",
+            (shadow_id, cutoff),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def cleanup_old_shadow_trades(self, days: int = 30) -> int:
+        """N일 이전 Shadow 거래를 삭제한다."""
+        cutoff = int(time.time()) - days * 86400
+        cursor = self._conn.execute(
+            "DELETE FROM shadow_trades WHERE timestamp < ?",
+            (cutoff,),
+        )
+        self._conn.commit()
+        return cursor.rowcount
 
     def close(self) -> None:
         """연결을 닫는다."""

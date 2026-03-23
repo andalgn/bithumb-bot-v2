@@ -22,6 +22,7 @@ from app.data_types import MarketSnapshot, Regime, Signal, Strategy, Tier
 if TYPE_CHECKING:
     from app.journal import Journal
     from strategy.coin_profiler import CoinProfiler
+    from strategy.experiment_store import ExperimentStore
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,7 @@ class DarwinEngine:
         champion_params: ShadowParams | None = None,
         journal: Journal | None = None,
         profiler: CoinProfiler | None = None,
+        experiment_store: ExperimentStore | None = None,
     ) -> None:
         """초기화.
 
@@ -147,11 +149,13 @@ class DarwinEngine:
             champion_params: 챔피언 파라미터. None이면 기본값.
             journal: 거래 기록 저장소. Shadow 거래 기록용.
             profiler: 코인 프로파일러. Tier별 슬리피지 적용용.
+            experiment_store: 실험 저장소. Shadow 거래 영속화용.
         """
         self._pop_size = population_size
         self._champion = champion_params or ShadowParams(shadow_id="champion")
         self._journal = journal
         self._profiler = profiler
+        self._experiment_store = experiment_store
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
@@ -161,6 +165,7 @@ class DarwinEngine:
         self._last_champion_change: float = 0.0
         self._champion_cooldown_days = 14
         self._initialize_population()
+        self._restore_shadow_trades()
 
     def _initialize_population(self) -> None:
         """초기 Shadow 인구를 생성한다."""
@@ -184,6 +189,29 @@ class DarwinEngine:
 
         self._performances["champion"] = ShadowPerformance(shadow_id="champion")
         logger.info("Darwin 인구 초기화: %d shadows", len(self._shadows))
+
+    def _restore_shadow_trades(self) -> None:
+        """ExperimentStore에서 Shadow 거래를 복원한다."""
+        if not self._experiment_store:
+            return
+        restored = 0
+        all_ids = [s.shadow_id for s in self._shadows] + ["champion"]
+        for sid in all_ids:
+            rows = self._experiment_store.get_shadow_trades(sid, days=30)
+            for row in rows:
+                trade = ShadowTrade(
+                    shadow_id=row["shadow_id"],
+                    symbol=row["symbol"],
+                    strategy=row["strategy"],
+                    would_enter=bool(row["would_enter"]),
+                    signal_score=row["signal_score"],
+                    virtual_pnl=row["virtual_pnl"],
+                    timestamp=row["timestamp"] * 1000,  # s -> ms
+                )
+                self._trades.append(trade)
+                restored += 1
+        if restored:
+            logger.info("Shadow 거래 복원: %d건", restored)
 
     def _mutate(self, base: ShadowParams, variation: float, group: str) -> ShadowParams:
         """파라미터를 돌연변이시킨다."""
@@ -280,6 +308,17 @@ class DarwinEngine:
                     timestamp=now,
                 )
                 self._trades.append(trade)
+
+                # Shadow 거래를 DB에 영속화
+                if self._experiment_store:
+                    self._experiment_store.record_shadow_trade(
+                        shadow_id=sid,
+                        symbol=signal.symbol,
+                        strategy=signal.strategy.value,
+                        would_enter=would_enter,
+                        signal_score=signal.score,
+                        virtual_pnl=0.0,
+                    )
 
                 if would_enter and signal.entry_price > 0:
                     sl, tp = self._compute_shadow_sl_tp(shadow, signal)
