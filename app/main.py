@@ -498,12 +498,33 @@ class TradingBot:
         if recon_result["synced"] > 0:
             logger.info("주문 동기화: %d건", recon_result["synced"])
 
-        # 5. 리스크 상태 업데이트 (Pool 합계를 실제 equity로 사용)
-        equity = (
-            self._pool_manager.get_balance(Pool.CORE)
-            + self._pool_manager.get_balance(Pool.ACTIVE)
-            + self._pool_manager.get_balance(Pool.RESERVE)
-        )
+        # 5. 리스크 상태 업데이트
+        # LIVE: 거래소 실잔고(이자 반영) + 보유 코인 시가 = 실제 equity
+        # DRY/PAPER: Pool 장부 합계 사용
+        if self._run_mode == RunMode.LIVE:
+            try:
+                bal = await self._client.get_balance("ALL")
+                krw_available = float(bal.get("available_krw", 0))
+                krw_locked = float(bal.get("locked_krw", 0))
+                # 보유 포지션 시가 합산
+                position_value = sum(
+                    current_prices.get(sym, pos.entry_price) * pos.qty
+                    for sym, pos in self._positions.items()
+                )
+                equity = krw_available + krw_locked + position_value
+            except Exception:
+                logger.debug("잔고 조회 실패 — Pool 장부 사용")
+                equity = (
+                    self._pool_manager.get_balance(Pool.CORE)
+                    + self._pool_manager.get_balance(Pool.ACTIVE)
+                    + self._pool_manager.get_balance(Pool.RESERVE)
+                )
+        else:
+            equity = (
+                self._pool_manager.get_balance(Pool.CORE)
+                + self._pool_manager.get_balance(Pool.ACTIVE)
+                + self._pool_manager.get_balance(Pool.RESERVE)
+            )
         self._dd_limits.update_equity(equity)
         self._pool_manager.update_equity(equity)
         self._risk_gate.update_state(self._pool_manager.total_exposure, equity)
@@ -778,13 +799,16 @@ class TradingBot:
                 if ticket.status == OrderStatus.FILLED:
                     self._risk_gate.record_entry(signal.symbol)
 
+                    # 실제 체결가 사용 (LIVE: 거래소 체결가, DRY/PAPER: 신호가)
+                    actual_price = ticket.filled_price if ticket.filled_price > 0 else signal.entry_price
+
                     # 포지션 기록
                     self._positions[signal.symbol] = Position(
                         symbol=signal.symbol,
-                        entry_price=signal.entry_price,
+                        entry_price=actual_price,
                         entry_time=int(time.time() * 1000),
                         size_krw=sizing.size_krw,
-                        qty=qty,
+                        qty=ticket.filled_qty if ticket.filled_qty > 0 else qty,
                         stop_loss=signal.stop_loss,
                         take_profit=signal.take_profit,
                         strategy=signal.strategy,
@@ -804,12 +828,25 @@ class TradingBot:
                             logger.info("Pilot 기간 종료: 포지션 사이즈 100% 복원")
 
                     # 체결 알림
+                    sim_tag = "" if self._run_mode == RunMode.LIVE else f" [시뮬레이션/{self._run_mode.value}]"
+                    filled_qty = ticket.filled_qty if ticket.filled_qty > 0 else qty
+                    slippage_pct = (actual_price - signal.entry_price) / signal.entry_price * 100 if signal.entry_price > 0 else 0
+                    sl_pct = (signal.stop_loss - actual_price) / actual_price * 100 if actual_price > 0 else 0
+                    tp_pct = (signal.take_profit - actual_price) / actual_price * 100 if actual_price > 0 else 0
+                    pool_after = self._pool_manager.get_available(alloc_pool)
+                    util = self._pool_manager.utilization_pct
                     await self._notifier.send(
-                        f"<b>📈 {signal.symbol} 매수 체결</b>\n"
+                        f"📈 **{signal.symbol} 매수 체결{sim_tag}**\n"
+                        f"━━━━━━━━━━━━━━━\n"
                         f"전략: {signal.strategy.value} | {signal.score:.0f}점\n"
-                        f"가격: {signal.entry_price:,.0f}원\n"
-                        f"수량: {qty:.6f} | {sizing.size_krw:,.0f}원\n"
-                        f"SL: {signal.stop_loss:,.0f} | TP: {signal.take_profit:,.0f}",
+                        f"국면: {signal.regime.value} | Tier {signal.tier.value}\n"
+                        f"가격: {actual_price:,.0f}원"
+                        f"{f' (신호가 {signal.entry_price:,.0f} → {slippage_pct:+.2f}%)' if abs(slippage_pct) > 0.001 else ''}\n"
+                        f"수량: {filled_qty:.4f}개 | {sizing.size_krw:,.0f}원\n"
+                        f"SL: {signal.stop_loss:,.0f} ({sl_pct:+.1f}%) | TP: {signal.take_profit:,.0f} ({tp_pct:+.1f}%)\n"
+                        f"━━━━━━━━━━━━━━━\n"
+                        f"Pool: {alloc_pool.value.capitalize()} → {pool_after:,.0f}원\n"
+                        f"포지션: {len(self._positions)}/{len(self._coins)} | 활용률 {util * 100:.1f}%",
                         channel="trade",
                     )
                 else:
@@ -1204,13 +1241,33 @@ class TradingBot:
         # 청산 알림 (실패해도 청산 로직에 영향 없음)
         try:
             pnl_pct = net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0
-            pnl_emoji = "+" if net_pnl >= 0 else "-"
+            pnl_emoji = "📈" if net_pnl >= 0 else "📉"
+            sim_tag = "" if self._run_mode == RunMode.LIVE else f" [시뮬레이션/{self._run_mode.value}]"
+            exit_value = exit_price * pos.qty
+            hold_h, hold_m = divmod(hold_sec // 60, 60)
+            hold_str = f"{hold_h}시간 {hold_m}분" if hold_h > 0 else f"{hold_m}분"
+            # 당일 누적 PnL
+            from datetime import datetime, timedelta, timezone as tz
+            today_start_kst = datetime.now(tz(timedelta(hours=9))).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start_sec = int(today_start_kst.timestamp())
+            today_trades = self._journal.get_trades_since(today_start_sec)
+            today_pnl = sum(t.get("net_pnl_krw", 0) for t in today_trades)
+            today_wins = sum(1 for t in today_trades if t.get("net_pnl_krw", 0) >= 0)
+            today_losses = len(today_trades) - today_wins
+            pool_available = self._pool_manager.get_available(pos.pool)
+            total_equity = self._pool_manager._total_equity
             await self._notifier.send(
-                f"<b>[{pnl_emoji}] {symbol} 청산</b>\n"
-                f"사유: {exit_reason}\n"
+                f"{pnl_emoji} **{symbol} 청산 — {exit_reason}{sim_tag}**\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"전략: {pos.strategy.value} | Tier {pos.tier.value}\n"
                 f"진입: {pos.entry_price:,.0f} → 청산: {exit_price:,.0f}\n"
-                f"PnL: {net_pnl:,.0f}원 ({pnl_pct:+.2f}%)\n"
-                f"보유: {hold_sec // 60}분",
+                f"수량: {pos.qty:.4f}개 | {exit_value:,.0f}원\n"
+                f"PnL: {net_pnl:,.0f}원 ({pnl_pct:+.2f}%) | 수수료 {total_fee:,.0f}원\n"
+                f"보유: {hold_str}\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"당일: {today_pnl:+,.0f}원 ({today_wins}승 {today_losses}패)\n"
+                f"Pool: {pos.pool.value.capitalize()} → {pool_available:,.0f}원\n"
+                f"총 자산: {total_equity:,.0f}원",
                 channel="trade",
             )
         except Exception:

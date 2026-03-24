@@ -13,9 +13,10 @@ Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
 
-# 로그
-StandardOutput=append:/home/bythejune/projects/bithumb-bot-v2/data/bot_stdout.log
-StandardError=append:/home/bythejune/projects/bithumb-bot-v2/data/bot_stderr.log
+# 로그 (journald 자동 로테이션)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bithumb-bot
 
 # 리소스 제한
 MemoryMax=2G
