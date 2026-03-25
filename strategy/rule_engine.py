@@ -27,6 +27,7 @@ from strategy.indicators import IndicatorPack, compute_indicators
 from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
 from strategy.regime_classifier import RegimeClassifier
 from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
+from strategy.size_decider import SizeDecider
 from strategy.strategy_scorer import ScoreResult as ScoreResult  # re-export for backward compat
 from strategy.strategy_scorer import StrategyScorer
 
@@ -115,6 +116,7 @@ class RuleEngine:
         self._regime_classifier = RegimeClassifier()
         self._environment_filter = EnvironmentFilter()
         self._strategy_scorer = StrategyScorer(strategy_params=self._strategy_params)
+        self._size_decider = SizeDecider(score_cutoff=self._score_cutoff)
 
     def _get_regime_state(self, symbol: str) -> RegimeState:
         """코인별 국면 상태를 가져온다."""
@@ -227,32 +229,8 @@ class RuleEngine:
     # ═══════════════════════════════════════════
 
     def _decide_size(self, strategy: Strategy, score: float) -> str:
-        """3그룹 컷오프 판정."""
-        group = STRATEGY_GROUP.get(strategy, 1)
-
-        if self._score_cutoff:
-            if group == 1:
-                g = self._score_cutoff.group1
-            elif group == 2:
-                g = self._score_cutoff.group2
-            else:
-                g = self._score_cutoff.group3
-            full = g.full
-            probe_min = g.probe_min
-        else:
-            # 기본값 (config.yaml과 동일)
-            if group == 1:
-                full, probe_min = 75, 60
-            elif group == 2:
-                full, probe_min = 80, 65
-            else:
-                full, probe_min = 75, 68
-
-        if score >= full:
-            return SizeDecision.FULL
-        if score >= probe_min:
-            return SizeDecision.PROBE
-        return SizeDecision.HOLD
+        """3그룹 컷오프 판정. SizeDecider에 위임한다."""
+        return self._size_decider.decide(strategy, score)
 
     # ═══════════════════════════════════════════
     # 메인 신호 생성
