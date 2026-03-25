@@ -424,13 +424,17 @@ class TradingBot:
         counts = Counter(rs.current for rs in states.values())
         return counts.most_common(1)[0][0]
 
-    async def run_cycle(self) -> None:
-        """한 사이클을 실행한다."""
-        self._check_config_reload()
-        self._cycle_count += 1
-        cycle_start = time.time()
-        logger.info("=" * 40)
-        logger.info("사이클 #%d 시작 [%s]", self._cycle_count, self._run_mode.value)
+    async def _fetch_market_data(self) -> "MarketData":
+        """시장 데이터 수집, 저장, 리스크 상태 갱신 후 MarketData를 반환한다.
+
+        수행 작업:
+        - 10코인 캔들/오더북/현재가 수집
+        - MarketStore에 저장 (5m/15m/1h/orderbook)
+        - 코인 프로파일러·상관관계 24시간마다 갱신
+        - 거래소↔로컬 주문 동기화
+        - equity 계산 → DDLimits, PoolManager, RiskGate 갱신
+        """
+        from app.cycle_data import MarketData
 
         # 1. 시장 데이터 수집
         snapshots = await self._datafeed.get_all_snapshots()
@@ -499,7 +503,17 @@ class TradingBot:
         if recon_result["synced"] > 0:
             logger.info("주문 동기화: %d건", recon_result["synced"])
 
-        # 5. 리스크 상태 업데이트
+        # 5. 현재가 + 지표 계산
+        current_prices: dict[str, float] = {}
+        indicators_1h: dict = {}
+        regimes: dict[str, Regime] = {}
+        for symbol, snap in snapshots.items():
+            current_prices[symbol] = snap.current_price
+            if snap.candles_1h and len(snap.candles_1h) >= 30:
+                indicators_1h[symbol] = compute_indicators(snap.candles_1h)
+                regimes[symbol] = self._rule_engine.get_regime(symbol)
+
+        # 6. 리스크 상태 업데이트
         # LIVE: 거래소 실잔고(이자 반영) + 보유 코인 시가 = 실제 equity
         # DRY/PAPER: Pool 장부 합계 사용
         if self._run_mode == RunMode.LIVE:
@@ -530,31 +544,40 @@ class TradingBot:
         self._pool_manager.update_equity(equity)
         self._risk_gate.update_state(self._pool_manager.total_exposure, equity)
 
-        # 6. 승격/강등 확인 (기존 포지션)
-        indicators_1h: dict[str, object] = {}
-        regimes: dict[str, Regime] = {}
-        current_prices: dict[str, float] = {}
+        return MarketData(
+            snapshots=snapshots,
+            current_prices=current_prices,
+            indicators_1h=indicators_1h,
+            regimes=regimes,
+        )
 
-        for symbol, snap in snapshots.items():
-            current_prices[symbol] = snap.current_price
-            if snap.candles_1h and len(snap.candles_1h) >= 30:
-                ind_1h = compute_indicators(snap.candles_1h)
-                indicators_1h[symbol] = ind_1h
-                regimes[symbol] = self._rule_engine.get_regime(symbol)
+    def _evaluate_signals(self, data: "MarketData") -> list:
+        """국면 판정 기반 승격/강등 체크 + 전략 신호 생성 + Darwin shadow 기록.
+
+        Args:
+            data: _fetch_market_data()가 반환한 시장 데이터.
+
+        Returns:
+            Signal 리스트.
+        """
+        current_prices = data.current_prices
+        indicators_1h = data.indicators_1h
+        regimes = data.regimes
+        snapshots = data.snapshots
 
         # 국면/Tier 요약 로깅 (4사이클마다)
         if self._cycle_count % 4 == 1 and regimes:
-            regime_summary = {}
+            regime_summary: dict[str, list] = {}
             for sym, reg in regimes.items():
                 regime_summary.setdefault(reg.value, []).append(sym)
-            tier_summary = {}
+            tier_summary: dict[str, list] = {}
             for sym in self._coins:
                 t = self._profiler.get_tier(sym)
                 tier_summary.setdefault(f"T{t.tier.value}", []).append(sym)
             logger.info("국면: %s", {k: v for k, v in regime_summary.items()})
             logger.info("Tier: %s", {k: v for k, v in tier_summary.items()})
 
-        # Core 포지션 업데이트 (강등 체크)
+        # Core 포지션 강등 체크
         demoted = self._promotion_manager.update_core_positions(
             current_prices,
             indicators_1h,
@@ -578,21 +601,7 @@ class TradingBot:
                 if core_pos:
                     self._positions[symbol] = core_pos.position
 
-        # 6.5 CRISIS 전량 청산 (개별 실패 시 다음 사이클 재시도)
-        crisis_failed: set[str] = set()
-        for symbol in list(self._positions.keys()):
-            regime = regimes.get(symbol, Regime.RANGE)
-            if regime == Regime.CRISIS:
-                price = current_prices.get(symbol, 0)
-                if price > 0:
-                    try:
-                        logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
-                        await self._close_position(symbol, price, "crisis")
-                    except Exception:
-                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s", symbol)
-                        crisis_failed.add(symbol)
-
-        # 7. 신호 생성
+        # 신호 생성
         if self._paused:
             logger.info("봇 일시 중지 중 — 신규 진입 스킵")
             signals = []
@@ -601,6 +610,7 @@ class TradingBot:
                 snapshots,
                 paper_test=self._paper_test,
             )
+
         if signals:
             for sig in signals:
                 logger.info(
@@ -616,64 +626,83 @@ class TradingBot:
         elif self._cycle_count % 4 == 0:
             logger.info("시그널 없음 (조건 미충족)")
 
-        # 7.5 Darwin Shadow 기록
+        # Darwin Shadow 기록
         sl_mult = self._rule_engine.strategy_params.get("mean_reversion", {}).get("sl_mult", 7.0)
         shadow_count = self._darwin.record_cycle(snapshots, signals, live_sl_mult=sl_mult)
         if shadow_count > 0 and self._cycle_count % 12 == 0:
             logger.info("Darwin Shadow 기록: %d건", shadow_count)
 
-        # 7.6 주간 토너먼트 + 챔피언 적용 (일요일, 매시간 체크)
+        return signals
+
+    async def _run_darwin_cycle(self) -> None:
+        """Darwin 토너먼트 + 챔피언 적용 + 파라미터 롤백.
+
+        일요일 04:00 KST 이후 12사이클마다 토너먼트 실행.
+        챔피언 교체 조건: trade_count >= 30, PF > 현행, MDD <= 15%.
+        """
         import datetime as _dt
 
         _now_kst = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9)))
-        if _now_kst.weekday() == 6 and _now_kst.hour >= 4 and self._cycle_count % 12 == 0:
-            market_regime = self._get_market_regime()
-            self._darwin.run_tournament(market_regime=market_regime)
+        if not (_now_kst.weekday() == 6 and _now_kst.hour >= 4 and self._cycle_count % 12 == 0):
+            return
 
-            new_champion = self._darwin.check_champion_replacement()
-            if new_champion:
-                # C1 fix: 성능 데이터를 replace 전에 캡처 (replace 후 리셋됨)
-                shadow_perf = self._darwin._performances.get(new_champion.shadow_id)
-                if shadow_perf and shadow_perf.trade_count >= 30:
-                    pf = shadow_perf.profit_factor
-                    mdd = shadow_perf.max_drawdown
-                    # 현재 config PF와 비교
-                    recent_trades = self._journal.get_trades_since(int(time.time()) - 30 * 86400)
-                    current_pf = (
-                        self._backtest_daemon._calc_pf(recent_trades) if recent_trades else 1.0
-                    )
-                    if pf > current_pf and mdd <= 0.15:
-                        self._darwin.replace_champion(new_champion)
-                        champ_params = self._darwin.champion_to_strategy_params()
-                        config_path = self._config_path
+        market_regime = self._get_market_regime()
+        self._darwin.run_tournament(market_regime=market_regime)
+        new_champion = self._darwin.check_champion_replacement()
+        if not new_champion:
+            return
 
-                        # 단일 백업 생성
-                        import shutil as _shutil
+        # C1 fix: 성능 데이터를 replace 전에 캡처 (replace 후 리셋됨)
+        shadow_perf = self._darwin._performances.get(new_champion.shadow_id)
+        if not (shadow_perf and shadow_perf.trade_count >= 30):
+            return
 
-                        backup_path = config_path.with_suffix(
-                            f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
-                        )
-                        _shutil.copy2(config_path, backup_path)
+        pf = shadow_perf.profit_factor
+        mdd = shadow_perf.max_drawdown
+        recent_trades = self._journal.get_trades_since(int(time.time()) - 30 * 86400)
+        current_pf = (
+            self._backtest_daemon._calc_pf(recent_trades) if recent_trades else 1.0
+        )
+        if not (pf > current_pf and mdd <= 0.15):
+            return
 
-                        # 두 전략 모두 일괄 적용 (개별 백업 없이)
-                        self._apply_champion_params(champ_params, config_path)
+        self._darwin.replace_champion(new_champion)
+        champ_params = self._darwin.champion_to_strategy_params()
+        config_path = self._config_path
 
-                        # 롤백 모니터링 등록 (두 전략 모두 포함)
-                        old_mr = self._rule_engine.strategy_params.get("mean_reversion", {})
-                        old_dca = self._rule_engine.strategy_params.get("dca", {})
-                        self._experiment_store.log_param_change(
-                            source="darwin",
-                            strategy="mean_reversion+dca",
-                            old_params={"mean_reversion": old_mr, "dca": old_dca},
-                            new_params=champ_params,
-                            backup_path=str(backup_path),
-                            baseline_pf=current_pf,
-                        )
-                        self._pilot_remaining = 20
-                        self._pilot_size_mult = 0.5
-                        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+        # 단일 백업 생성
+        import shutil as _shutil
 
-        # 8. 신호 평가 + Pool 사이징 + 주문
+        backup_path = config_path.with_suffix(
+            f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
+        )
+        _shutil.copy2(config_path, backup_path)
+
+        # 두 전략 모두 일괄 적용 (개별 백업 없이)
+        self._apply_champion_params(champ_params, config_path)
+
+        # 롤백 모니터링 등록 (두 전략 모두 포함)
+        old_mr = self._rule_engine.strategy_params.get("mean_reversion", {})
+        old_dca = self._rule_engine.strategy_params.get("dca", {})
+        self._experiment_store.log_param_change(
+            source="darwin",
+            strategy="mean_reversion+dca",
+            old_params={"mean_reversion": old_mr, "dca": old_dca},
+            new_params=champ_params,
+            backup_path=str(backup_path),
+            baseline_pf=current_pf,
+        )
+        self._pilot_remaining = 20
+        self._pilot_size_mult = 0.5
+        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+
+    async def _execute_entries(self, signals: list, data: "MarketData") -> None:
+        """RiskGate 통과 신호만 Pool 사이징 → 주문 실행 → 포지션 등록.
+
+        Args:
+            signals: _evaluate_signals()가 반환한 Signal 리스트.
+            data: 현재 사이클 시장 데이터 (orderbook, snapshots 참조용).
+        """
         for signal in signals:
             # 이미 포지션 있으면 스킵
             if signal.symbol in self._positions:
@@ -688,7 +717,7 @@ class TradingBot:
             # 리스크 체크
             check = self._risk_gate.check(
                 signal,
-                orderbook=snapshots[signal.symbol].orderbook,
+                orderbook=data.snapshots[signal.symbol].orderbook,
                 order_krw=self._config.sizing.active_min_krw,
             )
 
@@ -738,7 +767,7 @@ class TradingBot:
                     size_decision=size_decision,
                     active_positions=active_coins,
                     weekly_dd_pct=weekly_dd,
-                    candles_1h=snapshots[signal.symbol].candles_1h,
+                    candles_1h=data.snapshots[signal.symbol].candles_1h,
                     pilot_mult=self._pilot_size_mult,
                 )
 
@@ -866,7 +895,31 @@ class TradingBot:
                         channel="system",
                     )
 
-        # 9. 포지션 관리: 부분청산/트레일링/시간 제한
+    async def _manage_open_positions(self, data: "MarketData") -> None:
+        """CRISIS 긴급 청산 + 트레일링 스톱/부분청산/시간 제한 청산.
+
+        Args:
+            data: 현재 사이클 시장 데이터 (current_prices, indicators_1h 참조).
+        """
+        current_prices = data.current_prices
+        indicators_1h = data.indicators_1h
+        regimes = data.regimes
+
+        # CRISIS 전량 청산 (개별 실패 시 다음 사이클 재시도)
+        crisis_failed: set[str] = set()
+        for symbol in list(self._positions.keys()):
+            regime = regimes.get(symbol, Regime.RANGE)
+            if regime == Regime.CRISIS:
+                price = current_prices.get(symbol, 0)
+                if price > 0:
+                    try:
+                        logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
+                        await self._close_position(symbol, price, "crisis")
+                    except Exception:
+                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s", symbol)
+                        crisis_failed.add(symbol)
+
+        # 트레일링 스톱, 부분청산, 시간 제한 청산
         now_ms = int(time.time() * 1000)
         for symbol in list(self._positions.keys()):
             # CRISIS 청산 실패한 포지션은 일반 exit 스킵 (exit_reason 왜곡 방지)
@@ -931,7 +984,16 @@ class TradingBot:
                     decision.reason.value,
                 )
 
-        # 10. 로그: 활용률
+    async def _finalize_cycle(self, data: "MarketData", cycle_start: float) -> None:
+        """활용률 로깅, 일/주/월 리뷰 트리거, 롤백 모니터링, 상태 저장.
+
+        Args:
+            data: 현재 사이클 시장 데이터 (활용률 계산용).
+            cycle_start: 사이클 시작 시각 (time.time()).
+        """
+        from datetime import datetime, timedelta
+        from datetime import timezone as tz
+
         util = self._pool_manager.utilization_pct
         if self._cycle_count % 4 == 0:
             logger.info(
@@ -939,10 +1001,6 @@ class TradingBot:
                 util * 100,
                 len(self._positions),
             )
-
-        # 11. 일일/주간 리뷰 트리거 (KST 00:00~00:15 사이에)
-        from datetime import datetime, timedelta
-        from datetime import timezone as tz
 
         now_kst = datetime.now(tz(timedelta(hours=9)))
         if now_kst.hour == 0 and now_kst.minute < 15:
@@ -988,6 +1046,7 @@ class TradingBot:
                     ),
                 )
                 await self._notifier.send(gate.format_report(gate_result), channel="livegate")
+
             if now_kst.weekday() == 6:  # 일요일
                 shadow_top3 = self._darwin.get_top_shadows(3)
                 bd = self._backtest_daemon
@@ -1005,11 +1064,26 @@ class TradingBot:
         # 롤백 모니터링 (매 사이클)
         await self._check_rollback()
 
-        # 12. 상태 저장
+        # 상태 저장
         self._save_state()
 
         elapsed = time.time() - cycle_start
         logger.info("사이클 #%d 완료 (%.1f초)", self._cycle_count, elapsed)
+
+    async def run_cycle(self) -> None:
+        """한 사이클을 실행한다. 각 단계를 위임만 한다."""
+        self._check_config_reload()
+        self._cycle_count += 1
+        cycle_start = time.time()
+        logger.info("=" * 40)
+        logger.info("사이클 #%d 시작 [%s]", self._cycle_count, self._run_mode.value)
+
+        data = await self._fetch_market_data()
+        signals = self._evaluate_signals(data)
+        await self._manage_open_positions(data)
+        await self._run_darwin_cycle()
+        await self._execute_entries(signals, data)
+        await self._finalize_cycle(data, cycle_start)
 
     async def _partial_close_position(
         self,

@@ -45,6 +45,7 @@ bithumb_auto_v2/
 ├── tasks/                       ← 단계별 작업 명세
 ├── app/
 │   ├── config.py                   ← 설정 로딩 모듈.
+│   ├── cycle_data.py               ← 사이클 내 공유 데이터 컨테이너.
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
 │   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
