@@ -12,7 +12,7 @@ import pytest
 
 from app.data_types import Candle, MarketSnapshot, Orderbook, Ticker
 from app.errors import DataFetchError
-from market.bithumb_api import BithumbClient
+from market.bithumb_api import BithumbAPIError, BithumbClient
 from market.datafeed import CACHE_TTL_SEC, MAX_CANDLES, DataFeed, _CacheEntry
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ class TestGetCandles:
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
         """API 에러 시 DataFetchError를 발생시킨다."""
-        mock_client.get_candlestick.side_effect = Exception("network error")
+        mock_client.get_candlestick.side_effect = BithumbAPIError("NETWORK", "network error")
         with pytest.raises(DataFetchError) as exc_info:
             await feed.get_candles("BTC", "5m")
         assert exc_info.value.symbol == "BTC"
@@ -286,7 +286,7 @@ class TestGetTicker:
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
         """API 에러 시 DataFetchError를 발생시킨다."""
-        mock_client.get_ticker.side_effect = Exception("fail")
+        mock_client.get_ticker.side_effect = BithumbAPIError("NETWORK", "fail")
         with pytest.raises(DataFetchError) as exc_info:
             await feed.get_ticker("BTC")
         assert exc_info.value.symbol == "BTC"
@@ -318,7 +318,7 @@ class TestGetOrderbook:
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
         """API 에러 시 DataFetchError를 발생시킨다."""
-        mock_client.get_orderbook.side_effect = Exception("fail")
+        mock_client.get_orderbook.side_effect = BithumbAPIError("NETWORK", "fail")
         with pytest.raises(DataFetchError) as exc_info:
             await feed.get_orderbook("BTC")
         assert exc_info.value.symbol == "BTC"
@@ -372,9 +372,9 @@ class TestGetSnapshot:
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
         """ticker 실패 시 DataFetchError가 발생한다."""
-        mock_client.get_ticker.side_effect = Exception("fail")
+        mock_client.get_ticker.side_effect = BithumbAPIError("NETWORK", "fail")
         mock_client.get_candlestick.return_value = []
-        mock_client.get_orderbook.side_effect = Exception("fail")
+        mock_client.get_orderbook.side_effect = BithumbAPIError("NETWORK", "fail")
 
         with pytest.raises(DataFetchError) as exc_info:
             await feed.get_snapshot("BTC")

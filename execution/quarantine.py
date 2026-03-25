@@ -87,8 +87,8 @@ class QuarantineManager:
                     global_last_failure=data.get("global_last_failure", 0.0),
                     auth_until=data.get("auth_until", 0.0),
                 )
-            except Exception:
-                logger.exception("격리 상태 로딩 실패, 초기화")
+            except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                logger.exception("격리 상태 로딩 실패, 초기화: %s", exc)
 
     def _save_state(self) -> None:
         """상태를 파일에 저장한다."""
@@ -109,7 +109,7 @@ class QuarantineManager:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             os.replace(tmp_path, self._state_path)
-        except Exception:
+        except OSError:
             try:
                 os.unlink(tmp_path)
             except OSError:

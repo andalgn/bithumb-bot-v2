@@ -47,8 +47,8 @@ class StateStorage:
                     logger.info("StateStorage: bot.db 위임 모드")
                 else:
                     store.close()
-        except Exception:
-            logger.debug("StateStore 초기화 실패 — JSON fallback")
+        except (OSError, ValueError) as exc:
+            logger.debug("StateStore 초기화 실패 — JSON fallback: %s", exc)
 
     def load(self) -> dict[str, Any]:
         """저장된 상태를 로딩한다.
@@ -73,8 +73,8 @@ class StateStorage:
                 with open(self._path, encoding="utf-8") as f:
                     self._state = json.load(f)
                 logger.info("상태 복원: %s", self._path)
-            except Exception:
-                logger.exception("상태 로딩 실패, 초기화")
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                logger.exception("상태 로딩 실패, 초기화: %s", exc)
                 self._state = {}
         return self._state
 
@@ -95,8 +95,8 @@ class StateStorage:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self._state, f, indent=2, ensure_ascii=False)
             os.replace(tmp, str(self._path))
-        except Exception:
-            logger.exception("상태 저장 실패")
+        except OSError as exc:
+            logger.exception("상태 저장 실패: %s", exc)
             # 임시파일 정리
             if tmp:
                 try:

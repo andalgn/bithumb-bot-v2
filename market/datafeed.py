@@ -18,7 +18,7 @@ from app.data_types import (
     parse_raw_candles,
 )
 from app.errors import DataFetchError
-from market.bithumb_api import BithumbClient
+from market.bithumb_api import BithumbAPIError, BithumbClient
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ class DataFeed:
             candles = self._parse_candles(raw)
             self._set_cached(cache_key, candles)
             return candles
-        except Exception as exc:
+        except (BithumbAPIError, ValueError) as exc:
             raise DataFetchError(coin, f"{interval} 캔들 조회: {exc}") from exc
 
     async def get_ticker(self, coin: str) -> Ticker | None:
@@ -152,7 +152,7 @@ class DataFeed:
             ticker = self._parse_ticker(coin, raw)
             self._set_cached(cache_key, ticker)
             return ticker
-        except Exception as exc:
+        except (BithumbAPIError, ValueError) as exc:
             raise DataFetchError(coin, f"현재가 조회: {exc}") from exc
 
     async def get_orderbook(self, coin: str) -> Orderbook | None:
@@ -174,7 +174,7 @@ class DataFeed:
             ob = self._parse_orderbook(raw)
             self._set_cached(cache_key, ob)
             return ob
-        except Exception as exc:
+        except (BithumbAPIError, ValueError) as exc:
             raise DataFetchError(coin, f"호가창 조회: {exc}") from exc
 
     async def get_snapshot(self, coin: str) -> MarketSnapshot:

@@ -95,5 +95,5 @@ class StateStore:
         """GC 시 연결을 자동으로 닫는다."""
         try:
             self._conn.close()
-        except Exception:
+        except sqlite3.Error:
             pass
