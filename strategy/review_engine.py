@@ -485,7 +485,7 @@ class ReviewEngine:
                 # JSON 파싱 시도
                 return self._parse_suggestions(content)
 
-        except Exception:
+        except Exception:  # noqa: BLE001 — DeepSeek API 호출, 의도적 광역 포착
             logger.exception("DeepSeek API 호출 실패")
             return []
 

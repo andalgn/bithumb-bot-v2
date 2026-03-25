@@ -243,11 +243,10 @@ class TradingBot:
             return
         try:
             new_config = load_config(self._config_path)
-            self._rule_engine.strategy_params.clear()
-            self._rule_engine.strategy_params.update(new_config.strategy_params)
+            self._rule_engine._strategy_params = dict(new_config.strategy_params)
             self._config_mtime = mtime
             logger.info("config 핫 리로드 완료: strategy_params 갱신")
-        except (OSError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001 — config 파싱 오류 시 기존 설정 유지
             logger.exception("config 리로드 실패 — 기존 설정 유지: %s", exc)
 
     def _restore_state(self) -> None:

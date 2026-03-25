@@ -389,7 +389,7 @@ class AutoResearcher:
                 content = data["choices"][0]["message"]["content"]
                 return self._parse_proposal(content)
 
-        except Exception:
+        except Exception:  # noqa: BLE001 — DeepSeek API 호출, 의도적 광역 포착
             logger.exception("DeepSeek API 호출 실패")
             return None
 
