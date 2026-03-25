@@ -1046,8 +1046,8 @@ class RuleEngine:
         return self._strategy_params
 
     def get_regime_state(self, symbol: str) -> "RegimeState":
-        """코인별 국면 상태를 반환한다."""
-        return self._regime_states.get(symbol)
+        """코인별 국면 상태를 반환한다. 없으면 초기화하여 반환한다."""
+        return self._get_regime_state(symbol)
 
     @property
     def regime_states(self) -> dict:

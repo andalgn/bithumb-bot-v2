@@ -239,7 +239,8 @@ class TradingBot:
             return
         try:
             new_config = load_config(self._config_path)
-            self._rule_engine._strategy_params = new_config.strategy_params
+            self._rule_engine.strategy_params.clear()
+            self._rule_engine.strategy_params.update(new_config.strategy_params)
             self._config_mtime = mtime
             logger.info("config 핫 리로드 완료: strategy_params 갱신")
         except Exception:
@@ -300,7 +301,7 @@ class TradingBot:
         regime_data = self._storage.get("regime_states", {})
         for sym, rd in regime_data.items():
             try:
-                rs = self._rule_engine._get_regime_state(sym)
+                rs = self._rule_engine.get_regime_state(sym)
                 rs.current = Regime(rd["current"])
                 rs.pending = Regime(rd["pending"]) if rd.get("pending") else None
                 rs.confirm_count = rd.get("confirm_count", 0)
@@ -369,7 +370,7 @@ class TradingBot:
 
         # RegimeState 영속화
         regime_data = {}
-        for sym, rs in self._rule_engine._regime_states.items():
+        for sym, rs in self._rule_engine.regime_states.items():
             regime_data[sym] = {
                 "current": rs.current.value,
                 "pending": rs.pending.value if rs.pending else None,
@@ -417,7 +418,7 @@ class TradingBot:
         """10개 코인의 국면 최빈값을 반환한다."""
         from collections import Counter
 
-        states = self._rule_engine._regime_states
+        states = self._rule_engine.regime_states
         if not states:
             return None
         counts = Counter(rs.current for rs in states.values())
@@ -616,7 +617,7 @@ class TradingBot:
             logger.info("시그널 없음 (조건 미충족)")
 
         # 7.5 Darwin Shadow 기록
-        sl_mult = self._rule_engine._strategy_params.get("mean_reversion", {}).get("sl_mult", 7.0)
+        sl_mult = self._rule_engine.strategy_params.get("mean_reversion", {}).get("sl_mult", 7.0)
         shadow_count = self._darwin.record_cycle(snapshots, signals, live_sl_mult=sl_mult)
         if shadow_count > 0 and self._cycle_count % 12 == 0:
             logger.info("Darwin Shadow 기록: %d건", shadow_count)
@@ -658,8 +659,8 @@ class TradingBot:
                         self._apply_champion_params(champ_params, config_path)
 
                         # 롤백 모니터링 등록 (두 전략 모두 포함)
-                        old_mr = self._rule_engine._strategy_params.get("mean_reversion", {})
-                        old_dca = self._rule_engine._strategy_params.get("dca", {})
+                        old_mr = self._rule_engine.strategy_params.get("mean_reversion", {})
+                        old_dca = self._rule_engine.strategy_params.get("dca", {})
                         self._experiment_store.log_param_change(
                             source="darwin",
                             strategy="mean_reversion+dca",
@@ -729,7 +730,7 @@ class TradingBot:
                 )
             else:
                 tier_params = self._profiler.get_tier(signal.symbol)
-                size_decision = self._rule_engine._decide_size(signal.strategy, signal.score)
+                size_decision = self._rule_engine.decide_size_public(signal.strategy, signal.score)
                 weekly_dd = self._dd_limits._calc_dd(self._dd_limits.state.weekly_base)
                 sizing = self._position_manager.calculate_size(
                     signal=signal,
