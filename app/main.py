@@ -13,8 +13,11 @@ from pathlib import Path
 
 import numpy as np
 
+import aiohttp
+
 from app.config import PROJECT_ROOT, AppConfig, load_config
 from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
+from app.errors import APIAuthError, BotError
 from app.journal import Journal
 from app.notify import DiscordNotifier
 from app.storage import StateStorage
@@ -244,8 +247,8 @@ class TradingBot:
             self._rule_engine.strategy_params.update(new_config.strategy_params)
             self._config_mtime = mtime
             logger.info("config 핫 리로드 완료: strategy_params 갱신")
-        except Exception:
-            logger.exception("config 리로드 실패 — 기존 설정 유지")
+        except (OSError, ValueError) as exc:
+            logger.exception("config 리로드 실패 — 기존 설정 유지: %s", exc)
 
     def _restore_state(self) -> None:
         """저장된 상태를 복원한다."""
@@ -528,8 +531,8 @@ class TradingBot:
                     for sym, pos in self._positions.items()
                 )
                 equity = krw_available + krw_locked + position_value
-            except Exception:
-                logger.debug("잔고 조회 실패 — Pool 장부 사용")
+            except (aiohttp.ClientError, asyncio.TimeoutError, BotError) as exc:
+                logger.debug("잔고 조회 실패 — Pool 장부 사용: %s", exc)
                 equity = (
                     self._pool_manager.get_balance(Pool.CORE)
                     + self._pool_manager.get_balance(Pool.ACTIVE)
@@ -916,8 +919,8 @@ class TradingBot:
                     try:
                         logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
                         await self._close_position(symbol, price, "crisis")
-                    except Exception:
-                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s", symbol)
+                    except (aiohttp.ClientError, asyncio.TimeoutError, BotError) as exc:
+                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s — %s", symbol, exc)
                         crisis_failed.add(symbol)
 
         # 트레일링 스톱, 부분청산, 시간 제한 청산
@@ -1185,7 +1188,7 @@ class TradingBot:
                             sort_keys=False,
                         )
                     os.replace(tmp_path, str(config_path))
-                except Exception:
+                except OSError:
                     os.unlink(tmp_path)
                     raise
             finally:
@@ -1222,8 +1225,8 @@ class TradingBot:
                 self._experiment_store.update_change_status(change["id"], "rolled_back")
                 self._check_config_reload()  # 롤백 후 즉시 config 재로딩
                 rolled_back = True
-            except Exception:
-                logger.exception("롤백 파일 복원 실패: %s", backup)
+            except OSError as exc:
+                logger.exception("롤백 파일 복원 실패: %s — %s", backup, exc)
                 self._experiment_store.update_change_status(change["id"], "rollback_failed")
         else:
             logger.error("롤백 실패: 백업 파일 없음 %s", backup)
@@ -1346,8 +1349,8 @@ class TradingBot:
                 f"총 자산: {total_equity:,.0f}원",
                 channel="trade",
             )
-        except Exception:
-            logger.exception("청산 알림 전송 실패: %s", symbol)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            logger.warning("청산 알림 전송 실패: %s — %s", symbol, exc)
 
     async def run(self) -> None:
         """메인 루프를 시작한다."""
@@ -1388,7 +1391,7 @@ class TradingBot:
         while self._running:
             try:
                 await self.run_cycle()
-            except Exception:
+            except Exception:  # noqa: BLE001 — top-level guard, intentional
                 logger.exception("사이클 실행 중 오류")
                 await self._notifier.send(
                     f"<b>사이클 #{self._cycle_count} 오류</b>\n상세 내용은 로그 확인",
