@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -23,7 +22,15 @@ from app.data_types import (
     Tier,
 )
 from strategy.coin_profiler import CoinProfiler, TierParams
+from strategy.environment_filter import EnvironmentFilter
 from strategy.indicators import IndicatorPack, compute_indicators
+from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
+from strategy.regime_classifier import RegimeClassifier
+from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
+from strategy.size_decider import SizeDecider, SizeDecision, STRATEGY_GROUP
+from strategy.strategy_scorer import DEFAULT_WEIGHTS as DEFAULT_WEIGHTS  # re-export for backward compat
+from strategy.strategy_scorer import ScoreResult as ScoreResult  # re-export for backward compat
+from strategy.strategy_scorer import StrategyScorer
 
 logger = logging.getLogger(__name__)
 
@@ -46,66 +53,6 @@ REGIME_POSITION_MULT: dict[Regime, float] = {
     Regime.WEAK_DOWN: 0.6,
     Regime.CRISIS: 0.0,
 }
-
-# 전략 → 점수 그룹 매핑
-STRATEGY_GROUP: dict[Strategy, int] = {
-    Strategy.TREND_FOLLOW: 1,
-    Strategy.MEAN_REVERSION: 1,
-    Strategy.BREAKOUT: 2,
-    Strategy.SCALPING: 2,
-    Strategy.DCA: 3,
-}
-
-# ─── 전략별 기본 가중치 ───
-DEFAULT_WEIGHTS: dict[str, dict[str, float]] = {
-    "trend_follow": {
-        "trend_align": 30,
-        "macd": 25,
-        "volume": 20,
-        "rsi_pullback": 15,
-        "supertrend": 10,
-    },
-}
-
-
-# ─── 보조 플래그 ───
-@dataclass
-class AuxFlags:
-    """보조 플래그."""
-
-    range_volatile: bool = False
-    down_accel: bool = False
-
-
-# ─── 히스테리시스 상태 ───
-@dataclass
-class RegimeState:
-    """코인별 국면 상태 (히스테리시스)."""
-
-    current: Regime = Regime.RANGE
-    pending: Regime | None = None
-    confirm_count: int = 0
-    cooldown_remaining: int = 0
-    crisis_release_count: int = 0
-
-
-# ─── 점수 결과 ───
-@dataclass
-class ScoreResult:
-    """전략 점수 결과."""
-
-    strategy: Strategy
-    score: float
-    detail: dict[str, float] = field(default_factory=dict)
-
-
-# ─── 컷오프 판정 ───
-class SizeDecision:
-    """Full / Probe / HOLD 판정."""
-
-    FULL = "FULL"
-    PROBE = "PROBE"
-    HOLD = "HOLD"
 
 
 _NON_PARAM_KEYS = {"regime_override", "enabled"}
@@ -150,23 +97,18 @@ class RuleEngine:
         self._regime_config = regime_config
         self._exec_config = execution_config
         self._strategy_params = strategy_params or {}
-        self._regime_states: dict[str, RegimeState] = {}
+        self._regime_classifier = RegimeClassifier()
+        self._environment_filter = EnvironmentFilter()
+        self._strategy_scorer = StrategyScorer(strategy_params=self._strategy_params)
+        self._size_decider = SizeDecider(score_cutoff=self._score_cutoff)
 
     def _get_regime_state(self, symbol: str) -> RegimeState:
         """코인별 국면 상태를 가져온다."""
-        if symbol not in self._regime_states:
-            self._regime_states[symbol] = RegimeState()
-        return self._regime_states[symbol]
+        return self._regime_classifier.get_state(symbol)
 
     def _get_weights(self, strategy: str) -> dict[str, float]:
-        """전략의 점수 가중치를 반환한다. config에 w_ 접두사 항목이 있으면 사용."""
-        defaults = DEFAULT_WEIGHTS.get(strategy, {}).copy()
-        sp = self._strategy_params.get(strategy, {})
-        for key in defaults:
-            config_key = f"w_{key}"
-            if config_key in sp:
-                defaults[key] = float(sp[config_key])
-        return defaults
+        """전략의 점수 가중치를 반환한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.get_weights(strategy)
 
     # ═══════════════════════════════════════════
     # 국면 분류
@@ -185,117 +127,15 @@ class RuleEngine:
         Returns:
             (Regime, AuxFlags) 튜플.
         """
-        state = self._get_regime_state(symbol)
-        raw_regime = self._raw_classify(ind_1h, candles_1h_close)
-        aux = self._detect_aux_flags(ind_1h, candles_1h_close)
-
-        # CRISIS 즉시 진입
-        if raw_regime == Regime.CRISIS:
-            state.current = Regime.CRISIS
-            state.pending = None
-            state.confirm_count = 0
-            state.cooldown_remaining = 0
-            state.crisis_release_count = 0
-            return state.current, aux
-
-        # CRISIS 해제: 6봉 연속 정상 확인
-        if state.current == Regime.CRISIS:
-            if raw_regime != Regime.CRISIS:
-                state.crisis_release_count += 1
-                if state.crisis_release_count >= 6:
-                    state.current = raw_regime
-                    state.crisis_release_count = 0
-                    state.cooldown_remaining = 6
-            else:
-                state.crisis_release_count = 0
-            return state.current, aux
-
-        # 쿨다운 중이면 전환 안 함
-        if state.cooldown_remaining > 0:
-            state.cooldown_remaining -= 1
-            return state.current, aux
-
-        # 같은 국면이면 리셋
-        if raw_regime == state.current:
-            state.pending = None
-            state.confirm_count = 0
-            return state.current, aux
-
-        # 히스테리시스: 3봉 확인
-        if raw_regime == state.pending:
-            state.confirm_count += 1
-            if state.confirm_count >= 3:
-                state.current = raw_regime
-                state.pending = None
-                state.confirm_count = 0
-                state.cooldown_remaining = 6  # 재전환 금지
-        else:
-            state.pending = raw_regime
-            state.confirm_count = 1
-
-        return state.current, aux
+        return self._regime_classifier.classify(symbol, ind_1h, candles_1h_close)  # type: ignore[return-value]
 
     def _raw_classify(self, ind: IndicatorPack, close: np.ndarray) -> Regime:
         """히스테리시스 없이 순수 국면을 판정한다."""
-        n = len(close)
-        if n < 25:
-            return Regime.RANGE
-
-        # 필요 지표 최신값
-        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
-        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
-        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
-        ema20 = self._last_valid(ind.ema20)
-        ema50 = self._last_valid(ind.ema50)
-        ema200 = self._last_valid(ind.ema200)
-        atr_now = self._last_valid(ind.atr)
-
-        # ATR 20일 평균 (480봉 = 20일 × 24봉)
-        valid_atr = ind.atr[~np.isnan(ind.atr)]
-        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
-
-        # 24H 가격변동률
-        if n >= 24:
-            price_change_24h = (close[-1] - close[-24]) / close[-24]
-        else:
-            price_change_24h = 0.0
-
-        # 1. CRISIS
-        if atr_20d_avg > 0 and atr_now > atr_20d_avg * 2.5 and price_change_24h < -0.10:
-            return Regime.CRISIS
-
-        # 2. STRONG_UP
-        if ema20 > ema50 > ema200 and adx_val > 25 and plus_di > minus_di:
-            return Regime.STRONG_UP
-
-        # 3. WEAK_UP
-        if ema20 > ema50 and 20 <= adx_val <= 25 and plus_di > minus_di:
-            return Regime.WEAK_UP
-
-        # 4. WEAK_DOWN
-        if ema20 < ema50 and minus_di > plus_di:
-            return Regime.WEAK_DOWN
-
-        # 5. RANGE
-        return Regime.RANGE
+        return self._regime_classifier.raw_classify(ind, close)
 
     def _detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> AuxFlags:
         """보조 플래그를 감지한다."""
-        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
-        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
-        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
-        ema20 = self._last_valid(ind.ema20)
-        ema50 = self._last_valid(ind.ema50)
-        ema200 = self._last_valid(ind.ema200)
-        atr_now = self._last_valid(ind.atr)
-
-        valid_atr = ind.atr[~np.isnan(ind.atr)]
-        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
-
-        range_volatile = adx_val < 20 and atr_20d_avg > 0 and atr_now > atr_20d_avg * 1.2
-        down_accel = ema20 < ema50 < ema200 and adx_val > 22 and minus_di > plus_di
-
-        return AuxFlags(range_volatile=range_volatile, down_accel=down_accel)
+        return self._regime_classifier.detect_aux_flags(ind, close)
 
     # ═══════════════════════════════════════════
     # Layer 1: 환경 필터
@@ -313,31 +153,7 @@ class RuleEngine:
         Returns:
             (통과 여부, 거부 사유).
         """
-        # 1. 국면 != CRISIS
-        if regime == Regime.CRISIS:
-            return False, "L1: CRISIS 국면"
-
-        # 2. 거래량 >= 20봉 평균 × 0.8 (마지막 완성봉 기준)
-        if snap.candles_15m and len(snap.candles_15m) >= 22:
-            volumes = np.array([c.volume for c in snap.candles_15m])
-            # 마지막 봉은 미완성일 수 있으므로 -2번째 사용
-            avg_vol = float(np.mean(volumes[-22:-2]))
-            current_vol = float(volumes[-2])
-            if avg_vol > 0 and current_vol < avg_vol * 0.8:
-                return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
-
-        # 3. 스프레드 < Tier별 한도
-        if snap.orderbook:
-            spread = snap.orderbook.spread_pct
-            if spread > tier_params.spread_limit:
-                return False, f"L1: 스프레드 초과 ({spread:.4f} > {tier_params.spread_limit})"
-
-        # 4. 시간대 필터 (00:00~06:00 KST → Tier 3 스킵)
-        now_kst = datetime.now(KST)
-        if 0 <= now_kst.hour < 6 and tier_params.tier == Tier.TIER3:
-            return False, "L1: 심야 시간대 Tier 3 거래 중단"
-
-        return True, ""
+        return self._environment_filter.check(regime, snap, ind_15m, tier_params)
 
     # ═══════════════════════════════════════════
     # 전략 점수 계산 (Layer 2)
@@ -349,282 +165,28 @@ class RuleEngine:
         ind_1h: IndicatorPack,
         candles_15m: list | None = None,
     ) -> ScoreResult:
-        """전략 A 추세추종 점수를 계산한다."""
-        detail: dict[str, float] = {}
-        score = 0.0
-        w = self._get_weights("trend_follow")
-
-        # 1H 추세 일치: 15M 방향과 1H EMA 방향 일치
-        ema20_1h = self._last_valid(ind_1h.ema20)
-        ema50_1h = self._last_valid(ind_1h.ema50)
-        ema20_15m = self._last_valid(ind_15m.ema20)
-        ema50_15m = self._last_valid(ind_15m.ema50)
-        if ema20_1h > ema50_1h and ema20_15m > ema50_15m:
-            detail["trend_align"] = w["trend_align"]
-            score += w["trend_align"]
-        elif ema20_1h > ema50_1h:
-            detail["trend_align"] = w["trend_align"] * 0.5
-            score += w["trend_align"] * 0.5
-        else:
-            detail["trend_align"] = 0.0
-
-        # MACD 상태: 골든크로스 + 히스토그램 양수
-        if ind_15m.macd:
-            macd_line = self._last_valid(ind_15m.macd.macd_line)
-            signal_line = self._last_valid(ind_15m.macd.signal_line)
-            histogram = self._last_valid(ind_15m.macd.histogram)
-            if macd_line > signal_line and histogram > 0:
-                detail["macd"] = w["macd"]
-                score += w["macd"]
-            elif macd_line > signal_line:
-                detail["macd"] = w["macd"] * 0.5
-                score += w["macd"] * 0.5
-            else:
-                detail["macd"] = 0.0
-        else:
-            detail["macd"] = 0.0
-
-        # 거래량: 20봉 평균의 1.5배 이상 (실제 캔들 volume)
-        if candles_15m:
-            detail["volume"] = self._score_volume_direct(
-                candles_15m,
-                threshold=1.5,
-                max_pts=w["volume"],
-            )
-        else:
-            detail["volume"] = self._score_volume(
-                ind_15m,
-                threshold=1.5,
-                max_pts=w["volume"],
-            )
-        score += detail["volume"]
-
-        # RSI 위치: 40~60 범위 (풀백 구간)
-        rsi = self._last_valid(ind_15m.rsi)
-        if 40 <= rsi <= 60:
-            detail["rsi_pullback"] = w["rsi_pullback"]
-            score += w["rsi_pullback"]
-        elif 35 <= rsi <= 65:
-            detail["rsi_pullback"] = w["rsi_pullback"] * 0.5
-            score += w["rsi_pullback"] * 0.5
-        else:
-            detail["rsi_pullback"] = 0.0
-
-        # SuperTrend: BULLISH 상태
-        if ind_15m.supertrend and len(ind_15m.supertrend.direction) > 0:
-            if ind_15m.supertrend.direction[-1] == 1:
-                detail["supertrend"] = w["supertrend"]
-                score += w["supertrend"]
-            else:
-                detail["supertrend"] = 0.0
-        else:
-            detail["supertrend"] = 0.0
-
-        return ScoreResult(strategy=Strategy.TREND_FOLLOW, score=score, detail=detail)
+        """전략 A 추세추종 점수를 계산한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.score_strategy_a(ind_15m, ind_1h, candles_15m)
 
     def _score_strategy_b(
         self,
         ind_15m: IndicatorPack,
         candles_15m: list | None = None,
     ) -> ScoreResult:
-        """전략 B 반전포착 점수를 계산한다."""
-        detail: dict[str, float] = {}
-        score = 0.0
-
-        # RSI 반등 (30점): RSI 35 이하에서 40 이상으로 복귀
-        rsi_arr = ind_15m.rsi
-        valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
-        if len(valid_rsi) >= 3:
-            prev_rsi = valid_rsi[-3]
-            curr_rsi = valid_rsi[-1]
-            if prev_rsi <= 35 and curr_rsi >= 40:
-                detail["rsi_bounce"] = 30.0
-                score += 30.0
-            elif curr_rsi <= 40:
-                detail["rsi_bounce"] = 15.0
-                score += 15.0
-            else:
-                detail["rsi_bounce"] = 0.0
-        else:
-            detail["rsi_bounce"] = 0.0
-
-        # BB 위치 (25점): 하단밴드 이탈 후 복귀 (실제 close vs BB lower)
-        if ind_15m.bb and candles_15m and len(candles_15m) >= 5:
-            lower = ind_15m.bb.lower
-            n = min(len(candles_15m), len(lower))
-            if n >= 5:
-                closes = np.array([c.close for c in candles_15m[-n:]])
-                bb_lower = lower[-n:]
-                # 최근 5봉 내 close < BB lower 이탈 확인
-                valid_mask = ~np.isnan(bb_lower[-5:])
-                if np.any(valid_mask):
-                    was_below = (
-                        bool(
-                            np.any(
-                                closes[-5:-1][valid_mask[:-1]] < bb_lower[-5:-1][valid_mask[:-1]]
-                            )
-                        )
-                        if np.any(valid_mask[:-1])
-                        else False
-                    )
-                    curr_above = not np.isnan(bb_lower[-1]) and closes[-1] >= bb_lower[-1]
-                    if was_below and curr_above:
-                        detail["bb_position"] = 25.0
-                        score += 25.0
-                    elif was_below:
-                        detail["bb_position"] = 12.0
-                        score += 12.0
-                    else:
-                        detail["bb_position"] = 0.0
-                else:
-                    detail["bb_position"] = 0.0
-            else:
-                detail["bb_position"] = 0.0
-        else:
-            detail["bb_position"] = 0.0
-
-        # 거래량 급증 (25점): 20봉 평균의 2배 이상
-        detail["volume"] = self._score_volume(ind_15m, threshold=2.0, max_pts=25.0)
-        score += detail["volume"]
-
-        # Z-score (20점): -2.0 이하
-        zscore = self._last_valid(ind_15m.zscore)
-        if zscore <= -2.0:
-            detail["zscore"] = 20.0
-            score += 20.0
-        elif zscore <= -1.5:
-            detail["zscore"] = 10.0
-            score += 10.0
-        else:
-            detail["zscore"] = 0.0
-
-        return ScoreResult(strategy=Strategy.MEAN_REVERSION, score=score, detail=detail)
+        """전략 B 반전포착 점수를 계산한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.score_strategy_b(ind_15m, candles_15m)
 
     def _score_strategy_c(
         self, ind_15m: IndicatorPack, ind_1h: IndicatorPack, candles_15m: list
     ) -> ScoreResult:
-        """전략 C 브레이크아웃 점수를 계산한다."""
-        detail: dict[str, float] = {}
-        score = 0.0
-
-        # 돌파 확인 (35점): 20봉 고점 돌파 + 1봉 확인봉
-        if len(candles_15m) >= 22:
-            highs = np.array([c.high for c in candles_15m])
-            close_curr = candles_15m[-1].close
-            high_20 = float(np.max(highs[-22:-2]))  # 2봉 전까지의 20봉 고점
-            close_prev = candles_15m[-2].close
-
-            if close_prev > high_20 and close_curr > high_20:
-                detail["breakout"] = 35.0
-                score += 35.0
-            elif close_curr > high_20:
-                detail["breakout"] = 18.0
-                score += 18.0
-            else:
-                detail["breakout"] = 0.0
-        else:
-            detail["breakout"] = 0.0
-
-        # 거래량 (30점): 돌파봉 거래량 > 평균 2배 (실제 캔들 volume)
-        detail["volume"] = self._score_volume_direct(
-            candles_15m,
-            threshold=2.0,
-            max_pts=30.0,
-        )
-        score += detail["volume"]
-
-        # ATR 확대 (20점): 현재 ATR > 14봉 ATR 평균 × 1.3
-        atr_now = self._last_valid(ind_15m.atr)
-        valid_atr = ind_15m.atr[~np.isnan(ind_15m.atr)]
-        atr_avg = float(np.mean(valid_atr[-14:])) if len(valid_atr) >= 14 else atr_now
-        if atr_avg > 0 and atr_now > atr_avg * 1.3:
-            detail["atr_expand"] = 20.0
-            score += 20.0
-        elif atr_avg > 0 and atr_now > atr_avg:
-            detail["atr_expand"] = 10.0
-            score += 10.0
-        else:
-            detail["atr_expand"] = 0.0
-
-        # 1H 추세 (15점): 돌파 방향과 1H EMA 방향 일치
-        ema20_1h = self._last_valid(ind_1h.ema20)
-        ema50_1h = self._last_valid(ind_1h.ema50)
-        if ema20_1h > ema50_1h:
-            detail["trend_1h"] = 15.0
-            score += 15.0
-        else:
-            detail["trend_1h"] = 0.0
-
-        # ADX 필터: ADX < 20이면 추세 부재 → 가짜 돌파 위험 (점수 50% 감소)
-        adx_val = self._last_valid(ind_1h.adx.adx) if ind_1h.adx else 0.0
-        if adx_val < 20:
-            detail["adx_filter"] = -score * 0.5
-            score *= 0.5
-
-        return ScoreResult(strategy=Strategy.BREAKOUT, score=score, detail=detail)
+        """전략 C 브레이크아웃 점수를 계산한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.score_strategy_c(ind_15m, ind_1h, candles_15m)
 
     def _score_strategy_d(
         self, ind_15m: IndicatorPack, ind_1h: IndicatorPack, snap: MarketSnapshot
     ) -> ScoreResult:
-        """전략 D 스캘핑 점수를 계산한다."""
-        detail: dict[str, float] = {}
-        score = 0.0
-
-        # RSI 바운스 (30점): 15M RSI 30이하에서 반등 시작
-        rsi_arr = ind_15m.rsi
-        valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
-        if len(valid_rsi) >= 2:
-            prev_rsi = valid_rsi[-2]
-            curr_rsi = valid_rsi[-1]
-            if prev_rsi <= 30 and curr_rsi > prev_rsi:
-                detail["rsi_bounce"] = 30.0
-                score += 30.0
-            elif curr_rsi <= 35:
-                detail["rsi_bounce"] = 15.0
-                score += 15.0
-            else:
-                detail["rsi_bounce"] = 0.0
-        else:
-            detail["rsi_bounce"] = 0.0
-
-        # 1H 추세 일치 (30점): 상위 TF 추세 방향과 일치
-        ema20_1h = self._last_valid(ind_1h.ema20)
-        ema50_1h = self._last_valid(ind_1h.ema50)
-        if ema20_1h > ema50_1h:
-            detail["trend_1h"] = 30.0
-            score += 30.0
-        else:
-            detail["trend_1h"] = 0.0
-
-        # 스프레드 (20점): Bid-Ask 스프레드 < 0.15%
-        if snap.orderbook and snap.orderbook.spread_pct < 0.0015:
-            detail["spread"] = 20.0
-            score += 20.0
-        elif snap.orderbook and snap.orderbook.spread_pct < 0.003:
-            detail["spread"] = 10.0
-            score += 10.0
-        else:
-            detail["spread"] = 0.0
-
-        # 거래량 (20점): 현재 거래량 > 평균 1.5배
-        detail["volume"] = self._score_volume(ind_15m, threshold=1.5, max_pts=20.0)
-        score += detail["volume"]
-
-        return ScoreResult(strategy=Strategy.SCALPING, score=score, detail=detail)
-
-    def _score_volume(self, ind: IndicatorPack, threshold: float, max_pts: float) -> float:
-        """거래량 점수를 계산한다 (OBV 증분 기반 간접)."""
-        obv = ind.obv
-        if len(obv) < 20:
-            return 0.0
-        # OBV 변화율로 거래량 급증 판단
-        obv_diff = obv[-1] - obv[-2] if len(obv) >= 2 else 0
-        avg_diff = float(np.mean(np.abs(np.diff(obv[-20:])))) if len(obv) >= 20 else 1
-        if avg_diff > 0 and abs(obv_diff) > avg_diff * threshold:
-            return max_pts
-        if avg_diff > 0 and abs(obv_diff) > avg_diff:
-            return max_pts * 0.5
-        return 0.0
+        """전략 D 스캘핑 점수를 계산한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.score_strategy_d(ind_15m, ind_1h, snap)
 
     def _score_strategy_e(
         self,
@@ -632,109 +194,27 @@ class RuleEngine:
         symbol: str,
         current_price: float = 0.0,
     ) -> ScoreResult:
-        """전략 E DCA 매집 점수를 계산한다.
+        """전략 E DCA 매집 점수를 계산한다. StrategyScorer에 위임한다."""
+        return self._strategy_scorer.score_strategy_e(ind_1h, symbol, current_price)
 
-        Tier 1 코인(BTC, ETH)만 대상. CRISIS/WEAK_DOWN 국면.
-        """
-        detail: dict[str, float] = {}
-        score = 0.0
-
-        # DCA 대상 확인 (30점): BTC 또는 ETH만 허용
-        dca_eligible = symbol in ("BTC", "ETH")
-        if dca_eligible:
-            detail["tier1"] = 30.0
-            score += 30.0
-        else:
-            detail["tier1"] = 0.0
-            return ScoreResult(strategy=Strategy.DCA, score=0, detail=detail)
-
-        # RSI 위치 (25점): RSI < 35 (과매도 매집 적기)
-        rsi = self._last_valid(ind_1h.rsi)
-        if rsi < 30:
-            detail["rsi_oversold"] = 25.0
-            score += 25.0
-        elif rsi < 35:
-            detail["rsi_oversold"] = 15.0
-            score += 15.0
-        else:
-            detail["rsi_oversold"] = 0.0
-
-        # 장기 EMA 관계 (25점): 가격이 EMA200 이하 (저평가)
-        ema200 = self._last_valid(ind_1h.ema200)
-        if ema200 > 0:
-            close = current_price if current_price > 0 else self._last_valid(ind_1h.ema20)
-            if close > 0 and close < ema200 * 0.95:
-                detail["below_ema200"] = 25.0
-                score += 25.0
-            elif close > 0 and close < ema200:
-                detail["below_ema200"] = 12.0
-                score += 12.0
-            else:
-                detail["below_ema200"] = 0.0
-        else:
-            detail["below_ema200"] = 0.0
-
-        # Z-score (20점): -1.5 이하
-        zscore = self._last_valid(ind_1h.zscore)
-        if zscore <= -2.0:
-            detail["zscore"] = 20.0
-            score += 20.0
-        elif zscore <= -1.5:
-            detail["zscore"] = 10.0
-            score += 10.0
-        else:
-            detail["zscore"] = 0.0
-
-        return ScoreResult(strategy=Strategy.DCA, score=score, detail=detail)
+    def _score_volume(self, ind: IndicatorPack, threshold: float, max_pts: float) -> float:
+        """거래량 점수를 계산한다 (OBV 증분 기반 간접). StrategyScorer 모듈 함수에 위임한다."""
+        from strategy.strategy_scorer import _score_volume as _sv
+        return _sv(ind, threshold, max_pts)
 
     @staticmethod
     def _score_volume_direct(candles: list, threshold: float, max_pts: float) -> float:
-        """실제 캔들 거래량을 직접 비교하여 점수를 계산한다.
-
-        마지막 완성봉(-2)을 기준으로 평가한다.
-        """
-        if len(candles) < 22:
-            return 0.0
-        volumes = np.array([c.volume for c in candles])
-        avg_vol = float(np.mean(volumes[-22:-2]))
-        curr_vol = float(volumes[-2])  # 마지막 완성봉
-        if avg_vol > 0 and curr_vol > avg_vol * threshold:
-            return max_pts
-        if avg_vol > 0 and curr_vol > avg_vol:
-            return max_pts * 0.5
-        return 0.0
+        """실제 캔들 거래량을 직접 비교하여 점수를 계산한다. StrategyScorer 모듈 함수에 위임한다."""
+        from strategy.strategy_scorer import _score_volume_direct as _svd
+        return _svd(candles, threshold, max_pts)
 
     # ═══════════════════════════════════════════
     # 컷오프 판정
     # ═══════════════════════════════════════════
 
     def _decide_size(self, strategy: Strategy, score: float) -> str:
-        """3그룹 컷오프 판정."""
-        group = STRATEGY_GROUP.get(strategy, 1)
-
-        if self._score_cutoff:
-            if group == 1:
-                g = self._score_cutoff.group1
-            elif group == 2:
-                g = self._score_cutoff.group2
-            else:
-                g = self._score_cutoff.group3
-            full = g.full
-            probe_min = g.probe_min
-        else:
-            # 기본값 (config.yaml과 동일)
-            if group == 1:
-                full, probe_min = 75, 60
-            elif group == 2:
-                full, probe_min = 80, 65
-            else:
-                full, probe_min = 75, 68
-
-        if score >= full:
-            return SizeDecision.FULL
-        if score >= probe_min:
-            return SizeDecision.PROBE
-        return SizeDecision.HOLD
+        """3그룹 컷오프 판정. SizeDecider에 위임한다."""
+        return self._size_decider.decide(strategy, score)
 
     # ═══════════════════════════════════════════
     # 메인 신호 생성
@@ -967,16 +447,11 @@ class RuleEngine:
     @staticmethod
     def _last_valid(arr: np.ndarray) -> float:
         """배열에서 마지막 유효값을 반환한다."""
-        if arr is None or len(arr) == 0:
-            return 0.0
-        for i in range(len(arr) - 1, -1, -1):
-            if not np.isnan(arr[i]):
-                return float(arr[i])
-        return 0.0
+        return RegimeClassifier._last_valid(arr)
 
     def get_regime(self, symbol: str) -> Regime:
         """코인의 현재 국면을 반환한다."""
-        state = self._regime_states.get(symbol)
+        state = self._regime_classifier.get_state(symbol)
         return state.current if state else Regime.RANGE
 
     # ═══════════════════════════════════════════
@@ -1035,3 +510,30 @@ class RuleEngine:
         # RSI 낮은 순으로 최대 3개
         candidates.sort(key=lambda x: x[0])
         return [sig for _, sig in candidates[:3]]
+
+    # ═══════════════════════════════════════════
+    # Public accessors (Phase 2 리팩토링용)
+    # ═══════════════════════════════════════════
+
+    @property
+    def strategy_params(self) -> dict:
+        """현재 전략 파라미터를 반환한다."""
+        return self._strategy_params
+
+    def get_regime_state(self, symbol: str) -> "RegimeState":
+        """코인별 국면 상태를 반환한다. 없으면 초기화하여 반환한다."""
+        return self._get_regime_state(symbol)
+
+    @property
+    def regime_states(self) -> dict:
+        """전체 국면 상태 dict를 반환한다."""
+        return self._regime_classifier.states
+
+    @property
+    def _regime_states(self) -> dict:
+        """_regime_states 하위 호환 프로퍼티 — regime_classifier.states를 반환한다."""
+        return self._regime_classifier.states
+
+    def decide_size_public(self, strategy: "Strategy", score: float) -> str:
+        """사이즈 결정을 public으로 위임한다."""
+        return self._decide_size(strategy, score)

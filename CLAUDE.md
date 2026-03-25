@@ -50,19 +50,24 @@ bithumb_auto_v2/
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
+│   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
 │   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
 │   ├── coin_profiler.py            ← 코인 프로파일러 — 자동 Tier 분류.
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
+│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
 │   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
 │   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
 │   ├── promotion_manager.py        ← 승격/강등 시스템.
+│   ├── regime_classifier.py        ← 국면 분류기 — 히스테리시스 적용 국면 판정.
 │   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
-│   └── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
+│   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
+│   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
+│   └── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
 ├── market/
 │   ├── bithumb_api.py              ← 빗썸 REST API 클라이언트.
 │   ├── datafeed.py                 ← 데이터 수집 모듈.
