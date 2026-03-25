@@ -52,6 +52,7 @@ bithumb_auto_v2/
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
+│   ├── state_store.py              ← SQLite 기반 단일 상태 저장소.
 │   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
@@ -95,6 +96,7 @@ bithumb_auto_v2/
 └── scripts/
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
+    ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
     └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
 ├── configs/
