@@ -57,6 +57,7 @@ bithumb_auto_v2/
 │   ├── coin_profiler.py            ← 코인 프로파일러 — 자동 Tier 분류.
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
+│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
 │   ├── pool_manager.py             ← 3풀 자금 관리 모듈.

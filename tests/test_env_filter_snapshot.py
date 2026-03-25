@@ -76,7 +76,7 @@ def test_l1_pass_normal(engine, tier1_params):
     ind = compute_indicators(candles)
     # 심야가 아닌 시간대로 고정
     day_kst = datetime(2026, 3, 25, 14, 0, 0, tzinfo=KST)
-    with patch("strategy.rule_engine.datetime") as mock_dt:
+    with patch("strategy.environment_filter.datetime") as mock_dt:
         mock_dt.now.return_value = day_kst
         passed, reason = engine._check_layer1(Regime.RANGE, snap, ind, tier1_params)
     assert passed, f"정상 조건인데 거부됨: {reason}"
@@ -110,7 +110,7 @@ def test_l1_reject_low_volume(engine, tier1_params):
     ind = compute_indicators(patched)
 
     day_kst = datetime(2026, 3, 25, 14, 0, 0, tzinfo=KST)
-    with patch("strategy.rule_engine.datetime") as mock_dt:
+    with patch("strategy.environment_filter.datetime") as mock_dt:
         mock_dt.now.return_value = day_kst
         passed, reason = engine._check_layer1(Regime.RANGE, snap, ind, tier1_params)
     assert not passed
@@ -123,7 +123,7 @@ def test_l1_reject_high_spread(engine, tier1_params):
     snap = _make_snap(candles, spread_pct=0.005)  # 0.5% >> 0.18%
     ind = compute_indicators(candles)
     day_kst = datetime(2026, 3, 25, 14, 0, 0, tzinfo=KST)
-    with patch("strategy.rule_engine.datetime") as mock_dt:
+    with patch("strategy.environment_filter.datetime") as mock_dt:
         mock_dt.now.return_value = day_kst
         passed, reason = engine._check_layer1(Regime.RANGE, snap, ind, tier1_params)
     assert not passed
@@ -136,7 +136,7 @@ def test_l1_reject_nighttime_tier3(engine, tier3_params):
     snap = _make_snap(candles)
     ind = compute_indicators(candles)
     night_kst = datetime(2026, 3, 25, 3, 0, 0, tzinfo=KST)
-    with patch("strategy.rule_engine.datetime") as mock_dt:
+    with patch("strategy.environment_filter.datetime") as mock_dt:
         mock_dt.now.return_value = night_kst
         passed, reason = engine._check_layer1(Regime.RANGE, snap, ind, tier3_params)
     assert not passed
