@@ -534,6 +534,11 @@ class RuleEngine:
         """_regime_states 하위 호환 프로퍼티 — regime_classifier.states를 반환한다."""
         return self._regime_classifier.states
 
+    def update_strategy_params(self, params: dict) -> None:
+        """전략 파라미터를 인플레이스로 갱신한다 (hot-reload용)."""
+        self._strategy_params.clear()
+        self._strategy_params.update(params)
+
     def decide_size_public(self, strategy: "Strategy", score: float) -> str:
         """사이즈 결정을 public으로 위임한다."""
         return self._decide_size(strategy, score)

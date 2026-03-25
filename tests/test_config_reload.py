@@ -70,7 +70,9 @@ class TestConfigReload:
             TradingBot._check_config_reload(bot)
 
             mock_load.assert_called_once()
-            assert bot._rule_engine._strategy_params == {"mean_reversion": {"sl_mult": 5.0}}
+            bot._rule_engine.update_strategy_params.assert_called_once_with(
+                {"mean_reversion": {"sl_mult": 5.0}}
+            )
 
     def test_keeps_old_config_on_parse_error(self, tmp_path: Path) -> None:
         """파싱 실패 시 기존 설정을 유지한다."""
@@ -87,4 +89,4 @@ class TestConfigReload:
         with patch("app.main.load_config", side_effect=Exception("parse error")):
             TradingBot._check_config_reload(bot)
 
-        assert bot._rule_engine._strategy_params == old_params
+        bot._rule_engine.update_strategy_params.assert_not_called()
