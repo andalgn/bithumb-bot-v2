@@ -17,6 +17,7 @@ from app.config import PROJECT_ROOT, AppConfig, load_config
 from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
 from app.journal import Journal
 from app.notify import DiscordNotifier
+from app.state_store import StateStore
 from app.storage import StateStorage
 from backtesting.daemon import BacktestDaemon
 from bot_discord.bot import DiscordBot
@@ -90,6 +91,7 @@ class TradingBot:
         self._datafeed = DataFeed(self._client, self._coins)
         self._market_store = MarketStore(db_path="data/market_data.db")
         self._journal = Journal(db_path="data/journal.db")
+        self._state_store = StateStore(db_path="data/bot.db")
         self._storage = StateStorage(path="data/app_state.json")
 
         self._quarantine = QuarantineManager(
