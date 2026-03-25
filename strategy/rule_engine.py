@@ -24,6 +24,7 @@ from app.data_types import (
 )
 from strategy.coin_profiler import CoinProfiler, TierParams
 from strategy.indicators import IndicatorPack, compute_indicators
+from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
 from strategy.regime_classifier import RegimeClassifier
 from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
 
@@ -68,15 +69,6 @@ DEFAULT_WEIGHTS: dict[str, dict[str, float]] = {
         "supertrend": 10,
     },
 }
-
-
-# ─── 보조 플래그 ───
-@dataclass
-class AuxFlags:
-    """보조 플래그."""
-
-    range_volatile: bool = False
-    down_accel: bool = False
 
 
 # ─── 점수 결과 ───
@@ -144,7 +136,7 @@ class RuleEngine:
 
     def _get_regime_state(self, symbol: str) -> RegimeState:
         """코인별 국면 상태를 가져온다."""
-        return self._regime_classifier._get_state(symbol)
+        return self._regime_classifier.get_state(symbol)
 
     def _get_weights(self, strategy: str) -> dict[str, float]:
         """전략의 점수 가중치를 반환한다. config에 w_ 접두사 항목이 있으면 사용."""
@@ -181,7 +173,7 @@ class RuleEngine:
 
     def _detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> AuxFlags:
         """보조 플래그를 감지한다."""
-        return self._regime_classifier._detect_aux_flags(ind, close)  # type: ignore[return-value]
+        return self._regime_classifier.detect_aux_flags(ind, close)
 
     # ═══════════════════════════════════════════
     # Layer 1: 환경 필터
@@ -853,12 +845,7 @@ class RuleEngine:
     @staticmethod
     def _last_valid(arr: np.ndarray) -> float:
         """배열에서 마지막 유효값을 반환한다."""
-        if arr is None or len(arr) == 0:
-            return 0.0
-        for i in range(len(arr) - 1, -1, -1):
-            if not np.isnan(arr[i]):
-                return float(arr[i])
-        return 0.0
+        return RegimeClassifier._last_valid(arr)
 
     def get_regime(self, symbol: str) -> Regime:
         """코인의 현재 국면을 반환한다."""

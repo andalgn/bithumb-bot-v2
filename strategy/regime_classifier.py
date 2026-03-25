@@ -14,6 +14,14 @@ from strategy.indicators import IndicatorPack
 
 
 @dataclass
+class AuxFlags:
+    """보조 플래그."""
+
+    range_volatile: bool = False
+    down_accel: bool = False
+
+
+@dataclass
 class RegimeState:
     """코인별 국면 상태 (히스테리시스)."""
 
@@ -37,7 +45,7 @@ class RegimeClassifier:
             self._regime_states[symbol] = RegimeState()
         return self._regime_states[symbol]
 
-    def classify(self, symbol: str, ind: IndicatorPack, close: np.ndarray) -> tuple[Regime, object]:
+    def classify(self, symbol: str, ind: IndicatorPack, close: np.ndarray) -> tuple[Regime, AuxFlags]:
         """히스테리시스 적용 최종 국면을 반환한다.
 
         Args:
@@ -48,11 +56,9 @@ class RegimeClassifier:
         Returns:
             (Regime, AuxFlags) 튜플.
         """
-        from strategy.rule_engine import AuxFlags
-
         state = self._get_state(symbol)
         raw_regime = self.raw_classify(ind, close)
-        aux = self._detect_aux_flags(ind, close)
+        aux = self.detect_aux_flags(ind, close)
 
         # CRISIS 즉시 진입
         if raw_regime == Regime.CRISIS:
@@ -152,10 +158,8 @@ class RegimeClassifier:
         # 5. RANGE
         return Regime.RANGE
 
-    def _detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> object:
+    def detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> AuxFlags:
         """보조 플래그를 감지한다."""
-        from strategy.rule_engine import AuxFlags
-
         adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
         plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
         minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
@@ -172,16 +176,16 @@ class RegimeClassifier:
 
         return AuxFlags(range_volatile=range_volatile, down_accel=down_accel)
 
-    def get_state(self, symbol: str) -> RegimeState | None:
-        """코인별 국면 상태를 반환한다.
+    def get_state(self, symbol: str) -> RegimeState:
+        """코인별 국면 상태를 반환한다. 없으면 초기화하여 반환한다.
 
         Args:
             symbol: 코인 심볼.
 
         Returns:
-            RegimeState 또는 None.
+            RegimeState (없으면 새로 생성).
         """
-        return self._regime_states.get(symbol)
+        return self._get_state(symbol)
 
     @property
     def states(self) -> dict:
