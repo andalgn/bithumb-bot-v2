@@ -881,7 +881,7 @@ async def _finalize_cycle(self, data: MarketData) -> None:
         if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
             await self._review_engine.run_monthly_review()
 
-    await self._check_rollback()
+    await self._check_rollback()  # async def _check_rollback() — main.py:1118
     self._save_state()
 ```
 
