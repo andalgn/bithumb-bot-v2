@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.data_types import Candle, MarketSnapshot, Orderbook, Ticker
+from app.errors import DataFetchError
 from market.bithumb_api import BithumbClient
 from market.datafeed import CACHE_TTL_SEC, MAX_CANDLES, DataFeed, _CacheEntry
 
@@ -242,13 +243,14 @@ class TestGetCandles:
         mock_client.get_candlestick.assert_called_once()  # 추가 호출 없음
 
     @pytest.mark.asyncio
-    async def test_api_error_returns_empty(
+    async def test_api_error_raises_data_fetch_error(
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
-        """API 에러 시 빈 리스트를 반환한다."""
+        """API 에러 시 DataFetchError를 발생시킨다."""
         mock_client.get_candlestick.side_effect = Exception("network error")
-        result = await feed.get_candles("BTC", "5m")
-        assert result == []
+        with pytest.raises(DataFetchError) as exc_info:
+            await feed.get_candles("BTC", "5m")
+        assert exc_info.value.symbol == "BTC"
 
 
 # ---------------------------------------------------------------------------
@@ -280,12 +282,14 @@ class TestGetTicker:
         assert result.closing_price == 50000000.0
 
     @pytest.mark.asyncio
-    async def test_api_error_returns_none(
+    async def test_api_error_raises_data_fetch_error(
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
-        """API 에러 시 None을 반환한다."""
+        """API 에러 시 DataFetchError를 발생시킨다."""
         mock_client.get_ticker.side_effect = Exception("fail")
-        assert await feed.get_ticker("BTC") is None
+        with pytest.raises(DataFetchError) as exc_info:
+            await feed.get_ticker("BTC")
+        assert exc_info.value.symbol == "BTC"
 
 
 # ---------------------------------------------------------------------------
@@ -310,12 +314,14 @@ class TestGetOrderbook:
         assert len(result.bids) == 1
 
     @pytest.mark.asyncio
-    async def test_api_error_returns_none(
+    async def test_api_error_raises_data_fetch_error(
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
-        """API 에러 시 None을 반환한다."""
+        """API 에러 시 DataFetchError를 발생시킨다."""
         mock_client.get_orderbook.side_effect = Exception("fail")
-        assert await feed.get_orderbook("BTC") is None
+        with pytest.raises(DataFetchError) as exc_info:
+            await feed.get_orderbook("BTC")
+        assert exc_info.value.symbol == "BTC"
 
 
 # ---------------------------------------------------------------------------
@@ -362,14 +368,14 @@ class TestGetSnapshot:
         assert snapshot.ticker is not None
 
     @pytest.mark.asyncio
-    async def test_snapshot_with_ticker_failure(
+    async def test_snapshot_with_ticker_failure_raises(
         self, feed: DataFeed, mock_client: MagicMock
     ) -> None:
-        """ticker 실패 시 current_price가 0이다."""
+        """ticker 실패 시 DataFetchError가 발생한다."""
         mock_client.get_ticker.side_effect = Exception("fail")
         mock_client.get_candlestick.return_value = []
         mock_client.get_orderbook.side_effect = Exception("fail")
 
-        snapshot = await feed.get_snapshot("BTC")
-        assert snapshot.current_price == 0.0
-        assert snapshot.ticker is None
+        with pytest.raises(DataFetchError) as exc_info:
+            await feed.get_snapshot("BTC")
+        assert exc_info.value.symbol == "BTC"

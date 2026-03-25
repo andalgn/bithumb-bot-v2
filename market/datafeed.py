@@ -17,6 +17,7 @@ from app.data_types import (
     Ticker,
     parse_raw_candles,
 )
+from app.errors import DataFetchError
 from market.bithumb_api import BithumbClient
 
 logger = logging.getLogger(__name__)
@@ -129,9 +130,8 @@ class DataFeed:
             candles = self._parse_candles(raw)
             self._set_cached(cache_key, candles)
             return candles
-        except Exception:
-            logger.exception("캔들 조회 실패: %s %s", coin, interval)
-            return []
+        except Exception as exc:
+            raise DataFetchError(coin, f"{interval} 캔들 조회: {exc}") from exc
 
     async def get_ticker(self, coin: str) -> Ticker | None:
         """현재가를 조회한다 (캐시 적용).
@@ -152,9 +152,8 @@ class DataFeed:
             ticker = self._parse_ticker(coin, raw)
             self._set_cached(cache_key, ticker)
             return ticker
-        except Exception:
-            logger.exception("현재가 조회 실패: %s", coin)
-            return None
+        except Exception as exc:
+            raise DataFetchError(coin, f"현재가 조회: {exc}") from exc
 
     async def get_orderbook(self, coin: str) -> Orderbook | None:
         """호가창을 조회한다 (캐시 적용).
@@ -175,9 +174,8 @@ class DataFeed:
             ob = self._parse_orderbook(raw)
             self._set_cached(cache_key, ob)
             return ob
-        except Exception:
-            logger.exception("호가창 조회 실패: %s", coin)
-            return None
+        except Exception as exc:
+            raise DataFetchError(coin, f"호가창 조회: {exc}") from exc
 
     async def get_snapshot(self, coin: str) -> MarketSnapshot:
         """코인의 전체 시장 스냅샷을 가져온다.
@@ -228,7 +226,7 @@ class DataFeed:
         for coin, task in tasks.items():
             try:
                 results[coin] = await task
-            except Exception:
-                logger.exception("스냅샷 수집 실패: %s", coin)
+            except DataFetchError as exc:
+                logger.warning("데이터 조회 실패: %s — %s", coin, exc)
                 results[coin] = MarketSnapshot(symbol=coin, current_price=0.0)
         return results
