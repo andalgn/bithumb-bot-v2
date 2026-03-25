@@ -24,6 +24,8 @@ from app.data_types import (
 )
 from strategy.coin_profiler import CoinProfiler, TierParams
 from strategy.indicators import IndicatorPack, compute_indicators
+from strategy.regime_classifier import RegimeClassifier
+from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +77,6 @@ class AuxFlags:
 
     range_volatile: bool = False
     down_accel: bool = False
-
-
-# ─── 히스테리시스 상태 ───
-@dataclass
-class RegimeState:
-    """코인별 국면 상태 (히스테리시스)."""
-
-    current: Regime = Regime.RANGE
-    pending: Regime | None = None
-    confirm_count: int = 0
-    cooldown_remaining: int = 0
-    crisis_release_count: int = 0
 
 
 # ─── 점수 결과 ───
@@ -150,13 +140,11 @@ class RuleEngine:
         self._regime_config = regime_config
         self._exec_config = execution_config
         self._strategy_params = strategy_params or {}
-        self._regime_states: dict[str, RegimeState] = {}
+        self._regime_classifier = RegimeClassifier()
 
     def _get_regime_state(self, symbol: str) -> RegimeState:
         """코인별 국면 상태를 가져온다."""
-        if symbol not in self._regime_states:
-            self._regime_states[symbol] = RegimeState()
-        return self._regime_states[symbol]
+        return self._regime_classifier._get_state(symbol)
 
     def _get_weights(self, strategy: str) -> dict[str, float]:
         """전략의 점수 가중치를 반환한다. config에 w_ 접두사 항목이 있으면 사용."""
@@ -185,117 +173,15 @@ class RuleEngine:
         Returns:
             (Regime, AuxFlags) 튜플.
         """
-        state = self._get_regime_state(symbol)
-        raw_regime = self._raw_classify(ind_1h, candles_1h_close)
-        aux = self._detect_aux_flags(ind_1h, candles_1h_close)
-
-        # CRISIS 즉시 진입
-        if raw_regime == Regime.CRISIS:
-            state.current = Regime.CRISIS
-            state.pending = None
-            state.confirm_count = 0
-            state.cooldown_remaining = 0
-            state.crisis_release_count = 0
-            return state.current, aux
-
-        # CRISIS 해제: 6봉 연속 정상 확인
-        if state.current == Regime.CRISIS:
-            if raw_regime != Regime.CRISIS:
-                state.crisis_release_count += 1
-                if state.crisis_release_count >= 6:
-                    state.current = raw_regime
-                    state.crisis_release_count = 0
-                    state.cooldown_remaining = 6
-            else:
-                state.crisis_release_count = 0
-            return state.current, aux
-
-        # 쿨다운 중이면 전환 안 함
-        if state.cooldown_remaining > 0:
-            state.cooldown_remaining -= 1
-            return state.current, aux
-
-        # 같은 국면이면 리셋
-        if raw_regime == state.current:
-            state.pending = None
-            state.confirm_count = 0
-            return state.current, aux
-
-        # 히스테리시스: 3봉 확인
-        if raw_regime == state.pending:
-            state.confirm_count += 1
-            if state.confirm_count >= 3:
-                state.current = raw_regime
-                state.pending = None
-                state.confirm_count = 0
-                state.cooldown_remaining = 6  # 재전환 금지
-        else:
-            state.pending = raw_regime
-            state.confirm_count = 1
-
-        return state.current, aux
+        return self._regime_classifier.classify(symbol, ind_1h, candles_1h_close)  # type: ignore[return-value]
 
     def _raw_classify(self, ind: IndicatorPack, close: np.ndarray) -> Regime:
         """히스테리시스 없이 순수 국면을 판정한다."""
-        n = len(close)
-        if n < 25:
-            return Regime.RANGE
-
-        # 필요 지표 최신값
-        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
-        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
-        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
-        ema20 = self._last_valid(ind.ema20)
-        ema50 = self._last_valid(ind.ema50)
-        ema200 = self._last_valid(ind.ema200)
-        atr_now = self._last_valid(ind.atr)
-
-        # ATR 20일 평균 (480봉 = 20일 × 24봉)
-        valid_atr = ind.atr[~np.isnan(ind.atr)]
-        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
-
-        # 24H 가격변동률
-        if n >= 24:
-            price_change_24h = (close[-1] - close[-24]) / close[-24]
-        else:
-            price_change_24h = 0.0
-
-        # 1. CRISIS
-        if atr_20d_avg > 0 and atr_now > atr_20d_avg * 2.5 and price_change_24h < -0.10:
-            return Regime.CRISIS
-
-        # 2. STRONG_UP
-        if ema20 > ema50 > ema200 and adx_val > 25 and plus_di > minus_di:
-            return Regime.STRONG_UP
-
-        # 3. WEAK_UP
-        if ema20 > ema50 and 20 <= adx_val <= 25 and plus_di > minus_di:
-            return Regime.WEAK_UP
-
-        # 4. WEAK_DOWN
-        if ema20 < ema50 and minus_di > plus_di:
-            return Regime.WEAK_DOWN
-
-        # 5. RANGE
-        return Regime.RANGE
+        return self._regime_classifier.raw_classify(ind, close)
 
     def _detect_aux_flags(self, ind: IndicatorPack, close: np.ndarray) -> AuxFlags:
         """보조 플래그를 감지한다."""
-        adx_val = self._last_valid(ind.adx.adx) if ind.adx else 0.0
-        plus_di = self._last_valid(ind.adx.plus_di) if ind.adx else 0.0
-        minus_di = self._last_valid(ind.adx.minus_di) if ind.adx else 0.0
-        ema20 = self._last_valid(ind.ema20)
-        ema50 = self._last_valid(ind.ema50)
-        ema200 = self._last_valid(ind.ema200)
-        atr_now = self._last_valid(ind.atr)
-
-        valid_atr = ind.atr[~np.isnan(ind.atr)]
-        atr_20d_avg = float(np.mean(valid_atr[-480:])) if len(valid_atr) > 0 else atr_now
-
-        range_volatile = adx_val < 20 and atr_20d_avg > 0 and atr_now > atr_20d_avg * 1.2
-        down_accel = ema20 < ema50 < ema200 and adx_val > 22 and minus_di > plus_di
-
-        return AuxFlags(range_volatile=range_volatile, down_accel=down_accel)
+        return self._regime_classifier._detect_aux_flags(ind, close)  # type: ignore[return-value]
 
     # ═══════════════════════════════════════════
     # Layer 1: 환경 필터
@@ -976,7 +862,7 @@ class RuleEngine:
 
     def get_regime(self, symbol: str) -> Regime:
         """코인의 현재 국면을 반환한다."""
-        state = self._regime_states.get(symbol)
+        state = self._regime_classifier.get_state(symbol)
         return state.current if state else Regime.RANGE
 
     # ═══════════════════════════════════════════
@@ -1052,7 +938,12 @@ class RuleEngine:
     @property
     def regime_states(self) -> dict:
         """전체 국면 상태 dict를 반환한다."""
-        return self._regime_states
+        return self._regime_classifier.states
+
+    @property
+    def _regime_states(self) -> dict:
+        """_regime_states 하위 호환 프로퍼티 — regime_classifier.states를 반환한다."""
+        return self._regime_classifier.states
 
     def decide_size_public(self, strategy: "Strategy", score: float) -> str:
         """사이즈 결정을 public으로 위임한다."""

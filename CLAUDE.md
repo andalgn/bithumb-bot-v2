@@ -62,6 +62,7 @@ bithumb_auto_v2/
 │   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
 │   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
 │   ├── promotion_manager.py        ← 승격/강등 시스템.
+│   ├── regime_classifier.py        ← 국면 분류기 — 히스테리시스 적용 국면 판정.
 │   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
 │   └── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 ├── market/
