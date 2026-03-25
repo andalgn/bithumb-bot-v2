@@ -2,6 +2,7 @@
 
 data/app_state.json 읽기/쓰기. 재시작 시 상태 복원.
 DD 상태, Pool 잔액, 포지션, 런타임 플래그 저장.
+migration_complete 플래그가 True이면 StateStore(bot.db)로 위임한다.
 """
 
 from __future__ import annotations
@@ -13,13 +14,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from app.state_store import StateStore
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_PATH = "data/app_state.json"
 
 
 class StateStorage:
-    """JSON 상태 영속화."""
+    """JSON 상태 영속화. migration_complete 이후 StateStore로 위임."""
 
     def __init__(self, path: str | Path = DEFAULT_STATE_PATH) -> None:
         """초기화.
@@ -29,7 +32,23 @@ class StateStorage:
         """
         self._path = Path(path)
         self._state: dict[str, Any] = {}
+        self._store: StateStore | None = None
+        self._try_init_store()
         self.load()
+
+    def _try_init_store(self) -> None:
+        """bot.db가 존재하고 migration_complete이면 StateStore를 초기화한다."""
+        try:
+            bot_db = Path("data/bot.db")
+            if bot_db.exists():
+                store = StateStore(db_path=bot_db)
+                if store.is_migration_complete():
+                    self._store = store
+                    logger.info("StateStorage: bot.db 위임 모드")
+                else:
+                    store.close()
+        except Exception:
+            logger.debug("StateStore 초기화 실패 — JSON fallback")
 
     def load(self) -> dict[str, Any]:
         """저장된 상태를 로딩한다.
@@ -37,6 +56,18 @@ class StateStorage:
         Returns:
             상태 딕셔너리.
         """
+        if self._store is not None:
+            # bot.db에서 모든 키를 로딩
+            for key in self._store.all_keys():
+                if key.startswith("__"):
+                    continue
+                val = self._store.get(key)
+                if val is not None:
+                    self._state[key] = val
+            logger.info("상태 복원 (bot.db): %d키", len(self._state))
+            return self._state
+
+        # 기존 JSON fallback
         if self._path.exists():
             try:
                 with open(self._path, encoding="utf-8") as f:
@@ -48,7 +79,13 @@ class StateStorage:
         return self._state
 
     def save(self) -> None:
-        """상태를 파일에 저장한다 (atomic write)."""
+        """상태를 저장한다. migration_complete이면 bot.db, 아니면 JSON atomic write."""
+        if self._store is not None:
+            for key, value in self._state.items():
+                self._store.set(key, value)
+            return
+
+        # 기존 JSON atomic write
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = None
         try:
