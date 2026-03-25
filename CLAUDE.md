@@ -50,6 +50,7 @@ bithumb_auto_v2/
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
+│   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
 │   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
