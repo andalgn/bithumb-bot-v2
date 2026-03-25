@@ -11,7 +11,7 @@ from app.data_types import MarketSnapshot, Regime, Strategy
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
 from tests.fixtures.candles import strong_up_candles, range_candles, weak_down_candles
-from tests.fixtures.snapshots import FrozenStrategyInput, _make_orderbook
+from tests.fixtures.snapshots import _make_orderbook
 
 
 @pytest.fixture

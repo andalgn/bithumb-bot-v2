@@ -141,21 +141,3 @@ def test_hysteresis_crisis_release_requires_6_bars(engine):
     assert state is not None
     assert state.current == Regime.CRISIS, "5봉 후에는 아직 CRISIS여야 함"
 
-
-# ─── 헬퍼 ────────────────────────────────────────────────
-
-
-def _make_snapshot(symbol: str, candles: list) -> MarketSnapshot:
-    price = candles[-1].close
-    ob = Orderbook(
-        timestamp=0,
-        bids=[OrderbookEntry(price=price * 0.999, quantity=100.0)],
-        asks=[OrderbookEntry(price=price * 1.001, quantity=100.0)],
-    )
-    return MarketSnapshot(
-        symbol=symbol,
-        current_price=price,
-        candles_15m=candles,
-        candles_1h=candles,
-        orderbook=ob,
-    )
