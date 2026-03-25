@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import math
+
 from app.data_types import Candle
 
 
@@ -52,7 +54,6 @@ def range_candles(count: int = 250) -> list[Candle]:
 
     횡보: 가격이 좁은 범위에서 진동, ADX < 20.
     """
-    import math
     candles = []
     base = 50_000_000.0
     for i in range(count):
@@ -81,7 +82,6 @@ def crisis_candles(count: int = 250) -> list[Candle]:
     정상 횡보 후 마지막 24봉에서 급락 (-12%).
     ATR > ATR_avg × 2.5, 24h 변화 < -10% 조건 충족.
     """
-    import math
     candles = []
     base = 50_000_000.0
     normal_count = count - 24
