@@ -38,13 +38,16 @@ def strong_up_candles(count: int = 250) -> list[Candle]:
 def weak_up_candles(count: int = 250) -> list[Candle]:
     """WEAK_UP 국면 캔들.
 
-    약한 상승 추세: 매봉 0.08% 상승, 보통 거래량.
+    8봉마다 0.5% 소폭 조정 + 나머지는 0.11% 상승.
     EMA20 > EMA50, 20 ≤ ADX ≤ 25 조건 충족.
     """
     candles = []
     price = 50_000_000.0
     for i in range(count):
-        price *= 1.0008
+        if i % 8 == 0:
+            price *= 0.995  # 소폭 조정
+        else:
+            price *= 1.0011  # 약한 상승
         candles.append(_make_candle(i * 900_000, price, volume=2000.0))
     return candles
 
@@ -52,12 +55,13 @@ def weak_up_candles(count: int = 250) -> list[Candle]:
 def range_candles(count: int = 250) -> list[Candle]:
     """RANGE 국면 캔들.
 
-    횡보: 가격이 좁은 범위에서 진동, ADX < 20.
+    빠른 사인파 진동 (freq=1.5): ADX < 20, EMA 정렬 중립.
+    STRONG_UP / WEAK_UP / WEAK_DOWN 조건 미충족 → RANGE.
     """
     candles = []
     base = 50_000_000.0
     for i in range(count):
-        price = base + base * 0.01 * math.sin(i * 0.3)
+        price = base + base * 0.01 * math.sin(i * 1.5)
         candles.append(_make_candle(i * 900_000, price, volume=1500.0))
     return candles
 
