@@ -45,7 +45,7 @@ class StrategyScorer:
         """
         self._strategy_params = strategy_params or {}
 
-    def _get_weights(self, strategy: str) -> dict[str, float]:
+    def get_weights(self, strategy: str) -> dict[str, float]:
         """전략의 점수 가중치를 반환한다. config에 w_ 접두사 항목이 있으면 사용."""
         defaults = DEFAULT_WEIGHTS.get(strategy, {}).copy()
         sp = self._strategy_params.get(strategy, {})
@@ -64,7 +64,7 @@ class StrategyScorer:
         """전략 A 추세추종 점수를 계산한다."""
         detail: dict[str, float] = {}
         score = 0.0
-        w = self._get_weights("trend_follow")
+        w = self.get_weights("trend_follow")
 
         # 1H 추세 일치: 15M 방향과 1H EMA 방향 일치
         ema20_1h = _last_valid(ind_1h.ema20)

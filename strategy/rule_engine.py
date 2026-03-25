@@ -27,7 +27,7 @@ from strategy.indicators import IndicatorPack, compute_indicators
 from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
 from strategy.regime_classifier import RegimeClassifier
 from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
-from strategy.size_decider import SizeDecider
+from strategy.size_decider import SizeDecider, SizeDecision, STRATEGY_GROUP
 from strategy.strategy_scorer import DEFAULT_WEIGHTS as DEFAULT_WEIGHTS  # re-export for backward compat
 from strategy.strategy_scorer import ScoreResult as ScoreResult  # re-export for backward compat
 from strategy.strategy_scorer import StrategyScorer
@@ -53,23 +53,6 @@ REGIME_POSITION_MULT: dict[Regime, float] = {
     Regime.WEAK_DOWN: 0.6,
     Regime.CRISIS: 0.0,
 }
-
-# 전략 → 점수 그룹 매핑
-STRATEGY_GROUP: dict[Strategy, int] = {
-    Strategy.TREND_FOLLOW: 1,
-    Strategy.MEAN_REVERSION: 1,
-    Strategy.BREAKOUT: 2,
-    Strategy.SCALPING: 2,
-    Strategy.DCA: 3,
-}
-
-# ─── 컷오프 판정 ───
-class SizeDecision:
-    """Full / Probe / HOLD 판정."""
-
-    FULL = "FULL"
-    PROBE = "PROBE"
-    HOLD = "HOLD"
 
 
 _NON_PARAM_KEYS = {"regime_override", "enabled"}
@@ -125,7 +108,7 @@ class RuleEngine:
 
     def _get_weights(self, strategy: str) -> dict[str, float]:
         """전략의 점수 가중치를 반환한다. StrategyScorer에 위임한다."""
-        return self._strategy_scorer._get_weights(strategy)
+        return self._strategy_scorer.get_weights(strategy)
 
     # ═══════════════════════════════════════════
     # 국면 분류

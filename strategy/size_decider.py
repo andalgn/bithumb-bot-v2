@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from app.data_types import Strategy
 
-# 전략 → 점수 그룹 매핑 (rule_engine.py STRATEGY_GROUP 과 동일)
+# 전략 → 점수 그룹 매핑
 STRATEGY_GROUP: dict[Strategy, int] = {
     Strategy.TREND_FOLLOW: 1,
     Strategy.MEAN_REVERSION: 1,
