@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 
 from app.data_types import OrderStatus, RunMode
+from app.errors import DataFetchError
 from execution.order_manager import TERMINAL_STATES, OrderManager
-from market.bithumb_api import BithumbClient
+from market.bithumb_api import BithumbAPIError, BithumbClient
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +86,8 @@ class Reconciler:
                     ticket.status = OrderStatus.CANCELED
                     synced += 1
                 # PARTIAL 등 다른 상태는 유지
-            except Exception:
-                logger.debug("동기화 실패: %s/%s", ticket.symbol, ticket.ticket_id)
+            except (BithumbAPIError, DataFetchError) as exc:
+                logger.debug("동기화 실패: %s/%s — %s", ticket.symbol, ticket.ticket_id, exc)
 
         # 미지의 주문 감지는 LIVE에서만
         if self._run_mode == RunMode.LIVE:
@@ -109,8 +110,8 @@ class Reconciler:
                             logger.warning(
                                 "미지의 주문 발견: %s — %s", coin, unknown_ids
                             )
-                except Exception:
-                    pass  # orders 조회 실패는 무시
+                except (BithumbAPIError, DataFetchError) as exc:
+                    logger.debug("미체결 주문 조회 실패: %s — %s", coin, exc)
 
         if unknown > 0:
             self.manual_intervention_needed = True

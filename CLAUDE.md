@@ -47,6 +47,7 @@ bithumb_auto_v2/
 │   ├── config.py                   ← 설정 로딩 모듈.
 │   ├── cycle_data.py               ← 사이클 내 공유 데이터 컨테이너.
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
+│   ├── errors.py                   ← 커스텀 예외 계층.
 │   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.

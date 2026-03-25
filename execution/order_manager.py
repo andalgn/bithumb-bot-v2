@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from app.data_types import OrderSide, OrderStatus, OrderTicket, RunMode
+from app.errors import OrderTimeoutError
 from market.bithumb_api import BithumbAPIError, BithumbClient
 from market.normalizer import validate_order
 
@@ -88,8 +89,8 @@ class OrderManager:
                     error_msg=item.get("error_msg", ""),
                 )
                 self._tickets[ticket.ticket_id] = ticket
-        except Exception:
-            logger.exception("주문 티켓 로딩 실패")
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.exception("주문 티켓 로딩 실패: %s", exc)
 
     def _save_state(self) -> None:
         """티켓을 파일에 저장한다."""
@@ -118,7 +119,7 @@ class OrderManager:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(items, f, indent=2)
             os.replace(tmp_path, self._state_path)
-        except Exception:
+        except OSError:
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -349,8 +350,8 @@ class OrderManager:
                     ticket.status = OrderStatus.PARTIAL
                     ticket.filled_qty = executed_vol
 
-            except Exception:
-                logger.debug("주문 폴링 오류 (재시도 중)")
+            except BithumbAPIError as exc:
+                logger.debug("주문 폴링 오류 (재시도 중): %s", exc)
 
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
@@ -360,8 +361,8 @@ class OrderManager:
             await self._client.cancel_order(
                 ticket.symbol, ticket.exchange_order_id, ticket.side.value
             )
-        except Exception:
-            logger.debug("주문 취소 실패 (이미 체결된 경우)")
+        except BithumbAPIError as exc:
+            logger.debug("주문 취소 실패 (이미 체결된 경우): %s", exc)
 
         # 취소 후 최종 상태 확인
         try:
@@ -380,7 +381,7 @@ class OrderManager:
                     ticket.filled_price = ticket.price
             else:
                 ticket.status = OrderStatus.EXPIRED
-        except Exception:
+        except Exception:  # noqa: BLE001 — 상태 보호용
             ticket.status = OrderStatus.EXPIRED
 
         ticket.updated_at = int(time.time() * 1000)
@@ -410,7 +411,7 @@ class OrderManager:
                 ticket.symbol, ticket.exchange_order_id, ticket.side.value
             )
             ticket.status = OrderStatus.CANCELED
-        except Exception:
+        except BithumbAPIError as exc:
             logger.exception("주문 취소 실패: %s", ticket.ticket_id)
             ticket.status = OrderStatus.FAILED
 

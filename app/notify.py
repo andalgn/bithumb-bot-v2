@@ -167,7 +167,7 @@ class DiscordNotifier:
             if self._session:
                 try:
                     await self._session.close()
-                except Exception:
+                except aiohttp.ClientError:
                     pass
             self._session = None
             self._consecutive_failures = 0
@@ -191,7 +191,7 @@ class DiscordNotifier:
                     try:
                         data = await resp.json()
                         retry_after = data.get("retry_after", retry_after)
-                    except Exception:
+                    except (aiohttp.ContentTypeError, ValueError):
                         pass
                     logger.warning(
                         "디스코드 rate limit, %.1f초 대기",
@@ -222,8 +222,8 @@ class DiscordNotifier:
                 )
                 await self._handle_failure()
                 return False
-        except Exception:
-            logger.exception("디스코드 전송 중 예외 발생")
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+            logger.exception("디스코드 전송 중 예외 발생: %s", exc)
             await self._handle_failure()
         return False
 
