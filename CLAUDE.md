@@ -96,6 +96,7 @@ bithumb_auto_v2/
 └── scripts/
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
+    ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
     └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
 ├── configs/
