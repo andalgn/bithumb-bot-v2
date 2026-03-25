@@ -295,7 +295,7 @@ class DiscordBot:
                     wf_total=4,
                     mc_p5_pnl=(bd.mc_result.pnl_percentile_5 if bd.mc_result else 0),
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — Discord 커맨드 핸들러, 봇 유지를 위한 의도적 광역 포착
                 await interaction.followup.send("LiveGate 검증 중 오류 발생. LIVE 전환 취소.")
                 return
 
@@ -345,7 +345,7 @@ class DiscordBot:
                 ticker_sym = matched_sym.replace("_KRW", "")
                 ticker = await self._bot._client.get_ticker(ticker_sym)
                 exit_price = float(ticker.get("closing_price", 0))
-            except Exception:
+            except Exception:  # noqa: BLE001 — Discord 커맨드 핸들러, 봇 유지를 위한 의도적 광역 포착
                 exit_price = 0
             if exit_price <= 0:
                 exit_price = pos.entry_price

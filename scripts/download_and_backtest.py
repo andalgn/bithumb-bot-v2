@@ -67,7 +67,7 @@ async def download_candles(
                     len(candles),
                     stored,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — 스크립트 최상위 가드
                 logger.exception("%s %s 다운로드 실패", coin, interval)
                 result[coin][interval] = 0
 

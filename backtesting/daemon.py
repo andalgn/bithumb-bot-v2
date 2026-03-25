@@ -175,7 +175,7 @@ class BacktestDaemon:
                         self._last_research = week_key
                         await self._run_auto_research()
 
-            except Exception:
+            except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
                 logger.exception("BacktestDaemon 오류")
 
             await asyncio.sleep(60)
@@ -203,7 +203,7 @@ class BacktestDaemon:
                     candles = parse_raw_candles(raw)
                     stored = self._store.store_candles(coin, interval, candles)
                     total += stored
-                except Exception:
+                except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
                     logger.exception("캔들 수집 실패: %s %s", coin, interval)
                 await asyncio.sleep(0.15)
 
@@ -468,7 +468,7 @@ class BacktestDaemon:
                             sort_keys=False,
                         )
                     os.replace(tmp_path, str(config_path))
-                except Exception:
+                except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
                     os.unlink(tmp_path)
                     raise
             finally:

@@ -45,7 +45,7 @@ def _check_inflight_orders() -> list[str]:
             if t.get("status") in ("PLACED", "WAIT", "placed", "wait")
         ]
         return inflight
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
         print(f"[ERROR] order_tickets.json 읽기 실패: {e}")
         return []
 
@@ -56,7 +56,7 @@ def _read_app_state() -> dict:
         return {}
     try:
         return json.loads(APP_STATE_JSON.read_text(encoding="utf-8"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
         print(f"[WARN] app_state.json 읽기 실패: {e}")
         return {}
 
@@ -67,7 +67,7 @@ def _read_order_tickets() -> list:
         return []
     try:
         return json.loads(ORDER_TICKETS_JSON.read_text(encoding="utf-8"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
         print(f"[WARN] order_tickets.json 읽기 실패: {e}")
         return []
 

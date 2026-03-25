@@ -154,7 +154,7 @@ def get_journal_summary() -> dict:
         summary["active_positions"] = row[0] if row else 0
 
         conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 — 스크립트 최상위 가드
         pass
 
     return summary

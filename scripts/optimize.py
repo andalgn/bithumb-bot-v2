@@ -58,7 +58,7 @@ async def ensure_data(
                 raw = await client.get_candlestick(coin, interval)
                 candles = parse_raw_candles(raw)
                 store.store_candles(coin, interval, candles)
-            except Exception:
+            except Exception:  # noqa: BLE001 — 스크립트 최상위 가드
                 logger.exception("%s %s 다운로드 실패", coin, interval)
             await asyncio.sleep(0.15)
 
