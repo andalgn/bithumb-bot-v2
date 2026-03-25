@@ -1,3 +1,6 @@
+from unittest.mock import AsyncMock, MagicMock
+
+import aiohttp
 import pytest
 
 from app.errors import (
@@ -60,3 +63,56 @@ def test_api_auth_error_caught_separately_from_data_fetch():
         except DataFetchError:
             errors.append("data")
     assert errors == ["data", "auth"]
+
+
+# ─── Raise-site tests ───
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_bithumb_client_raises_api_auth_error_on_auth_failure(status_code: int) -> None:
+    """_private_get이 401/403 응답 시 APIAuthError를 발생시킨다."""
+    from market.bithumb_api import BithumbClient
+
+    client = BithumbClient(api_key="dummy_key", api_secret="dummy_secret")
+
+    mock_resp = MagicMock()
+    mock_resp.status = status_code
+    mock_resp.json = AsyncMock(return_value={"error": {"name": "unauthorized", "message": "인증 실패"}})
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_resp)
+    mock_session.closed = False
+    client._session = mock_session
+
+    with pytest.raises(APIAuthError) as exc_info:
+        await client._private_get("/v1/accounts")
+
+    assert str(status_code) in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_bithumb_client_post_raises_api_auth_error_on_auth_failure(status_code: int) -> None:
+    """_private_post이 401/403 응답 시 APIAuthError를 발생시킨다."""
+    from market.bithumb_api import BithumbClient
+
+    client = BithumbClient(api_key="dummy_key", api_secret="dummy_secret")
+
+    mock_resp = MagicMock()
+    mock_resp.status = status_code
+    mock_resp.json = AsyncMock(return_value={"error": {"name": "unauthorized", "message": "인증 실패"}})
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(return_value=mock_resp)
+    mock_session.closed = False
+    client._session = mock_session
+
+    with pytest.raises(APIAuthError) as exc_info:
+        await client._private_post("/v1/orders", {"market": "KRW-BTC"})
+
+    assert str(status_code) in str(exc_info.value)

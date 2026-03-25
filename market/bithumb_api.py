@@ -19,6 +19,8 @@ from typing import Any
 import aiohttp
 import jwt
 
+from app.errors import APIAuthError
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,6 +188,8 @@ class BithumbClient:
                 proxy=self._proxy or None,
             ) as resp:
                 data = await resp.json(content_type=None)
+                if resp.status in (401, 403):
+                    raise APIAuthError(f"빗썸 API 인증 실패: HTTP {resp.status}")
                 if resp.status != 200:
                     err = data.get("error", {})
                     raise BithumbAPIError(
@@ -229,6 +233,8 @@ class BithumbClient:
                 proxy=self._proxy or None,
             ) as resp:
                 data = await resp.json(content_type=None)
+                if resp.status in (401, 403):
+                    raise APIAuthError(f"빗썸 API 인증 실패: HTTP {resp.status}")
                 if resp.status not in (200, 201):
                     err = data.get("error", {})
                     raise BithumbAPIError(
@@ -272,6 +278,8 @@ class BithumbClient:
                 proxy=self._proxy or None,
             ) as resp:
                 data = await resp.json(content_type=None)
+                if resp.status in (401, 403):
+                    raise APIAuthError(f"빗썸 API 인증 실패: HTTP {resp.status}")
                 if resp.status != 200:
                     err = data.get("error", {})
                     raise BithumbAPIError(
