@@ -52,6 +52,7 @@ bithumb_auto_v2/
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
+│   ├── state_store.py              ← SQLite 기반 단일 상태 저장소.
 │   └── storage.py                  ← 상태 영속화 모듈.
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
