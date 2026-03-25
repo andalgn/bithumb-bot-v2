@@ -28,6 +28,7 @@ from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for bac
 from strategy.regime_classifier import RegimeClassifier
 from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
 from strategy.size_decider import SizeDecider
+from strategy.strategy_scorer import DEFAULT_WEIGHTS as DEFAULT_WEIGHTS  # re-export for backward compat
 from strategy.strategy_scorer import ScoreResult as ScoreResult  # re-export for backward compat
 from strategy.strategy_scorer import StrategyScorer
 
