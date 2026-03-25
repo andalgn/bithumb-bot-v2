@@ -1035,3 +1035,25 @@ class RuleEngine:
         # RSI 낮은 순으로 최대 3개
         candidates.sort(key=lambda x: x[0])
         return [sig for _, sig in candidates[:3]]
+
+    # ═══════════════════════════════════════════
+    # Public accessors (Phase 2 리팩토링용)
+    # ═══════════════════════════════════════════
+
+    @property
+    def strategy_params(self) -> dict:
+        """현재 전략 파라미터를 반환한다."""
+        return self._strategy_params
+
+    def get_regime_state(self, symbol: str) -> "RegimeState":
+        """코인별 국면 상태를 반환한다."""
+        return self._regime_states.get(symbol)
+
+    @property
+    def regime_states(self) -> dict:
+        """전체 국면 상태 dict를 반환한다."""
+        return self._regime_states
+
+    def decide_size_public(self, strategy: "Strategy", score: float) -> str:
+        """사이즈 결정을 public으로 위임한다."""
+        return self._decide_size(strategy, score)
