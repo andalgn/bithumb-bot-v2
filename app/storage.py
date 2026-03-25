@@ -120,3 +120,8 @@ class StateStorage:
     def state(self) -> dict[str, Any]:
         """전체 상태를 반환한다."""
         return self._state
+
+    @property
+    def state_store(self) -> "StateStore | None":
+        """내부 StateStore 인스턴스를 반환한다. 마이그레이션 미완료 시 None."""
+        return self._store
