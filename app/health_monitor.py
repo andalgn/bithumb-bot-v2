@@ -224,14 +224,17 @@ class HealthMonitor:
         self._running = False
 
     async def _run_all_checks(self) -> list[CheckResult]:
-        """8개 점검을 실행한다 (현재는 4개 구현)."""
-        checks = [
+        """8개 점검을 실행한다."""
+        return [
             self._check_heartbeat(),
             await self._check_event_loop_lag(),
             await self._check_api(),
             self._check_data_freshness(),
+            await self._check_reconciliation(),
+            self._check_system_resources(),
+            self._check_trading_metrics(),
+            await self._check_discord(),
         ]
-        return checks
 
     # ─── Check 1: 메인 루프 심장박동 ───
 
@@ -320,3 +323,170 @@ class HealthMonitor:
                                message=f"데이터 {age_min:.0f}분 경과", value=age_min)
         return CheckResult(name="data_freshness", status="ok",
                            message=f"정상 ({age_min:.0f}분 전)", value=age_min)
+
+    # ─── Check 5: 포지션 정합성 ───
+
+    async def _check_reconciliation(self) -> CheckResult:
+        """봇 포지션과 거래소 잔고를 비교한다."""
+        if not self._get_positions or not self._get_exchange_balances:
+            return CheckResult(name="reconciliation", status="ok", message="정합성 검사 미설정")
+
+        # 주기 제한 (1시간마다)
+        now = time.time()
+        interval = getattr(self._config, "reconciliation_interval_sec", 3600)
+        if not hasattr(self, "_last_reconciliation"):
+            self._last_reconciliation: float = 0.0
+        if now - self._last_reconciliation < interval:
+            return CheckResult(name="reconciliation", status="ok", message="주기 미도래")
+        self._last_reconciliation = now
+
+        try:
+            positions = self._get_positions()
+            balances = await self._get_exchange_balances()
+            drifts = []
+            for symbol, pos in positions.items():
+                exchange_qty = float(balances.get(symbol, {}).get("available", 0))
+                local_qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
+                if local_qty > 0 and abs(exchange_qty - local_qty) / local_qty > 0.05:
+                    drifts.append(f"{symbol}: 봇={local_qty:.4f} 거래소={exchange_qty:.4f}")
+
+            if drifts:
+                msg = "포지션 drift: " + ", ".join(drifts)
+                return CheckResult(name="reconciliation", status="critical", message=msg)
+            return CheckResult(
+                name="reconciliation", status="ok",
+                message=f"정합성 정상 ({len(positions)}종)",
+            )
+        except Exception as e:
+            return CheckResult(name="reconciliation", status="warn",
+                               message=f"정합성 검사 실패: {e}")
+
+    # ─── Check 6: 시스템 리소스 ───
+
+    def _check_system_resources(self) -> CheckResult:
+        """CPU/메모리/디스크/WAL 사용량을 확인한다."""
+        import os
+        import shutil
+
+        try:
+            # 메모리 (psutil 없이 /proc/meminfo 사용)
+            with open("/proc/meminfo") as f:
+                lines = f.readlines()
+            mem_total = int(lines[0].split()[1])
+            mem_avail = int(lines[2].split()[1])
+            mem_pct = (1 - mem_avail / mem_total) * 100 if mem_total > 0 else 0
+
+            # 디스크
+            disk = shutil.disk_usage("/")
+            disk_pct = disk.used / disk.total * 100
+
+            # WAL 파일 크기
+            wal_path = "data/journal.db-wal"
+            wal_mb = os.path.getsize(wal_path) / (1024 * 1024) if os.path.exists(wal_path) else 0
+
+            warn_mem = getattr(self._config, "memory_warn_pct", 70)
+            crit_disk = getattr(self._config, "disk_critical_pct", 90)
+            warn_wal = getattr(self._config, "wal_warn_mb", 100)
+
+            status: Literal["ok", "warn", "critical"] = "ok"
+            issues: list[str] = []
+            severity_order = ["ok", "warn", "critical"]
+
+            if disk_pct > crit_disk:
+                issues.append(f"디스크 {disk_pct:.0f}%")
+                status = "critical"
+            if mem_pct > warn_mem:
+                issues.append(f"메모리 {mem_pct:.0f}%")
+                if severity_order.index("warn") > severity_order.index(status):
+                    status = "warn"
+            if wal_mb > warn_wal:
+                issues.append(f"WAL {wal_mb:.0f}MB")
+                if severity_order.index("warn") > severity_order.index(status):
+                    status = "warn"
+
+            if issues:
+                return CheckResult(name="system_resources", status=status, message=", ".join(issues))
+            return CheckResult(
+                name="system_resources", status="ok",
+                message=f"메모리 {mem_pct:.0f}%, 디스크 {disk_pct:.0f}%",
+            )
+        except Exception as e:
+            return CheckResult(name="system_resources", status="warn",
+                               message=f"리소스 확인 실패: {e}")
+
+    # ─── Check 7: 거래 지표 ───
+
+    def _check_trading_metrics(self) -> CheckResult:
+        """연속 손실, 일일 DD 등을 확인한다."""
+        if not self._journal:
+            return CheckResult(name="trading_metrics", status="ok", message="저널 미설정")
+
+        try:
+            consec = self._journal.get_consecutive_losses()
+            trades = self._journal.get_recent_trades(limit=50)
+            today_start = time.time() - 86400
+            today_trades = [
+                t for t in trades
+                if (t.get("exit_time", 0) or 0) / 1000 > today_start
+            ]
+            daily_pnl = sum(t.get("net_pnl_krw", 0) or 0 for t in today_trades)
+
+            warn_dd = getattr(self._config, "daily_dd_warn_pct", 2.0)
+            crit_dd = getattr(self._config, "daily_dd_critical_pct", 3.0)
+
+            severity_order = ["ok", "warn", "critical"]
+            status: Literal["ok", "warn", "critical"] = "ok"
+            issues: list[str] = []
+
+            if consec >= 3:
+                issues.append(f"연속 {consec}패")
+                status = "critical"
+            elif consec >= 2:
+                issues.append(f"연속 {consec}패")
+                status = "warn"
+
+            if daily_pnl < 0 and today_trades:
+                total_size = sum(abs(t.get("net_pnl_krw", 0) or 0) for t in today_trades)
+                if total_size > 0:
+                    dd_pct = abs(daily_pnl) / total_size * 100
+                    if dd_pct > crit_dd:
+                        issues.append(f"일일 DD {dd_pct:.1f}%")
+                        if severity_order.index("critical") > severity_order.index(status):
+                            status = "critical"
+                    elif dd_pct > warn_dd:
+                        issues.append(f"일일 DD {dd_pct:.1f}%")
+                        if severity_order.index("warn") > severity_order.index(status):
+                            status = "warn"
+
+            if issues:
+                return CheckResult(name="trading_metrics", status=status, message=", ".join(issues))
+            return CheckResult(
+                name="trading_metrics", status="ok",
+                message=f"연속손실 {consec}회, 금일 {len(today_trades)}건",
+            )
+        except Exception as e:
+            return CheckResult(name="trading_metrics", status="warn",
+                               message=f"지표 확인 실패: {e}")
+
+    # ─── Check 8: 디스코드 연결 ───
+
+    async def _check_discord(self) -> CheckResult:
+        """디스코드 webhook 연결을 확인한다."""
+        if not self._notifier:
+            return CheckResult(name="discord", status="ok", message="알림 미설정")
+
+        # 주기 제한 (4시간마다)
+        interval = getattr(self._config, "discord_check_interval_sec", 14400)
+        if not hasattr(self, "_last_discord_check"):
+            self._last_discord_check: float = 0.0
+        if time.time() - self._last_discord_check < interval:
+            return CheckResult(name="discord", status="ok", message="주기 미도래")
+        self._last_discord_check = time.time()
+
+        try:
+            ok = await self._notifier.send("health ping", channel="system")
+            if ok:
+                return CheckResult(name="discord", status="ok", message="연결 정상")
+            return CheckResult(name="discord", status="critical", message="디스코드 전송 실패")
+        except Exception as e:
+            return CheckResult(name="discord", status="critical", message=f"디스코드 오류: {e}")

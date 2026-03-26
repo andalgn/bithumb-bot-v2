@@ -131,3 +131,34 @@ def test_check_data_freshness_no_source():
     hm = HealthMonitor()
     result = hm._check_data_freshness()
     assert result.status == "ok"
+
+
+def test_check_system_resources():
+    """시스템 리소스 점검이 실행된다."""
+    hm = HealthMonitor()
+    result = hm._check_system_resources()
+    assert result.name == "system_resources"
+    assert result.status in ("ok", "warn", "critical")
+
+
+def test_check_trading_metrics_no_journal():
+    """저널 미설정 시 ok를 반환한다."""
+    hm = HealthMonitor()
+    result = hm._check_trading_metrics()
+    assert result.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_check_reconciliation_not_configured():
+    """정합성 미설정 시 ok를 반환한다."""
+    hm = HealthMonitor()
+    result = await hm._check_reconciliation()
+    assert result.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_check_discord_not_configured():
+    """알림 미설정 시 ok를 반환한다."""
+    hm = HealthMonitor()
+    result = await hm._check_discord()
+    assert result.status == "ok"
