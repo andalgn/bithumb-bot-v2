@@ -269,14 +269,14 @@ class TestCompositeScore8Metrics:
         assert cs_no.score > cs_hi.score
 
     def test_record_cycle_updates_max_consecutive_loss(self, engine: DarwinEngine) -> None:
-        """record_cycle 호출 후 max_consecutive_loss가 업데이트된다."""
-        # 손실 거래를 연속으로 발생시킴 (TP 50만, 진입 5000만, SL 4900만 → TP 미달하면 SL 도달)
+        """record_cycle 호출 후 손실 청산 시 max_consecutive_loss가 증가한다."""
+        # 모든 Shadow가 진입하도록 score=100 사용 (cutoff 최대값 90보다 높음)
         signals = [
             Signal(
                 symbol="BTC",
                 direction=OrderSide.BUY,
                 strategy=Strategy.TREND_FOLLOW,
-                score=90.0,
+                score=100.0,
                 regime=Regime.STRONG_UP,
                 tier=Tier.TIER1,
                 entry_price=50_000_000,
@@ -288,10 +288,17 @@ class TestCompositeScore8Metrics:
         engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=50_000_000)}, signals)
         # 사이클2: SL 아래로 가격 하락 → 손실 청산
         engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=48_000_000)}, [])
-        # 어떤 Shadow든 max_consecutive_loss가 int임을 확인
-        for perf in engine.performances.values():
-            if perf.trade_count > 0:
-                assert isinstance(perf.max_consecutive_loss, int)
+        # 손실이 발생한 Shadow는 max_consecutive_loss >= 1이어야 함
+        loss_shadows = [
+            perf for perf in engine.performances.values()
+            if perf.trade_count > 0
+        ]
+        assert loss_shadows, "손실 거래가 발생한 Shadow가 없음"
+        for perf in loss_shadows:
+            assert isinstance(perf.max_consecutive_loss, int)
+            assert perf.max_consecutive_loss >= 1, (
+                f"손실 후 max_consecutive_loss={perf.max_consecutive_loss}이 1 미만"
+            )
 
 
 class TestRegimeAwareMutation:
@@ -367,7 +374,7 @@ class TestDiversityEnforcement:
             )
 
         diversity_before = engine._calc_diversity()
-        injected = engine._enforce_diversity(regime=Regime.RANGE)
+        injected = engine._enforce_diversity()
         diversity_after = engine._calc_diversity()
 
         # 다양성이 낮으면 주입이 발생해야 함

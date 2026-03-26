@@ -168,6 +168,7 @@ class DarwinEngine:
         self._shadows: list[ShadowParams] = []
         self._performances: dict[str, ShadowPerformance] = {}
         self._trades: list[ShadowTrade] = []
+        self._pnl_history: dict[str, list[float]] = {}  # shadow_id -> list of closed trade pnls
         # Shadow별 가상 오픈 포지션: {shadow_id: {symbol: entry_price}}
         self._open_positions: dict[str, dict[str, float]] = {}
         self._last_tournament: float = 0.0
@@ -327,6 +328,8 @@ class DarwinEngine:
                 slippage = SLIPPAGE_BY_TIER.get(coin_tier, 0.001)
                 virtual_pnl = raw_pnl - (FEE_PCT + slippage * 2)
 
+                self._pnl_history.setdefault(sid, []).append(virtual_pnl)
+
                 perf = self._performances[sid]
                 perf.trade_count += 1
                 perf.total_pnl += virtual_pnl
@@ -434,6 +437,9 @@ class DarwinEngine:
         survivor_ids = {s.shadow_id for s in survivors}
 
         new_shadows = []
+        extinct_ids = {s.shadow_id for s in self._shadows} - survivor_ids
+        for shadow_id in extinct_ids:
+            self._pnl_history.pop(shadow_id, None)
         for shadow in self._shadows:
             if shadow.shadow_id in survivor_ids:
                 new_shadows.append(shadow)
@@ -461,7 +467,7 @@ class DarwinEngine:
         self._last_tournament = time.time()
 
         # 강제 다양성 확보
-        diversity_mutations = self._enforce_diversity(regime=market_regime)
+        diversity_mutations = self._enforce_diversity()
 
         logger.info(
             "토너먼트 완료: 생존=%d, 새생성=%d, 다양성변이=%d",
@@ -524,13 +530,10 @@ class DarwinEngine:
         max_possible = math.sqrt(n_params)
         return avg_dist / max_possible if max_possible > 0 else 0.0
 
-    def _enforce_diversity(self, regime: Regime | None = None) -> int:
+    def _enforce_diversity(self) -> int:
         """다양성이 0.15 미만이면 랜덤 파라미터를 주입한다.
 
         집단 전체의 평균 다양성이 임계값 미만일 때 하위 20%를 랜덤 파라미터로 교체한다.
-
-        Args:
-            regime: 현재 시장 국면. 주입 시 변이 범위 결정에 활용.
 
         Returns:
             주입된 Shadow 수.
@@ -576,6 +579,11 @@ class DarwinEngine:
             for name, (_, lo, hi) in MUTATION_RANGES.items():
                 setattr(new_params, name, random.uniform(lo, hi))
             self._shadows[idx] = new_params
+            # 이전 파라미터의 성과 데이터를 초기화 (파라미터 교체 시 오염 방지)
+            self._performances[shadow.shadow_id] = ShadowPerformance(
+                shadow_id=shadow.shadow_id,
+            )
+            self._pnl_history.pop(shadow.shadow_id, None)
             injected += 1
 
         return injected
@@ -690,14 +698,10 @@ class DarwinEngine:
             perf: 업데이트할 ShadowPerformance 객체.
             shadow_id: 해당 Shadow의 ID.
         """
-        # 해당 Shadow의 완결 거래 PnL 목록 수집 (virtual_pnl != 0)
-        closed_pnls = [
-            t.virtual_pnl
-            for t in self._trades
-            if t.shadow_id == shadow_id and t.virtual_pnl != 0.0
-        ]
+        # 해당 Shadow의 완결 거래 PnL 목록을 별도 히스토리에서 수집
+        closed_pnls = self._pnl_history.get(shadow_id, [])
         n = len(closed_pnls)
-        if n < 2:
+        if n < 1:
             return
 
         mean_r = sum(closed_pnls) / n
@@ -742,7 +746,7 @@ class DarwinEngine:
         # 정밀 Sharpe 계산은 개별 거래 PnL 이력이 필요하므로 현재 구조에서는 근사치 사용.
         sharpe = perf.expectancy / 0.02 if perf.trade_count > 5 else 0
         sharpe_norm = min(1.0, max(0.0, (sharpe + 1) / 4))
-        # Sortino: 2.0 이상이면 1.0, 0 이하면 0.0 (Sharpe와 동일 패턴)
+        # Sortino: 3.0 이상이면 1.0, -1.0 이하면 0.0 (Sharpe와 동일 패턴)
         sortino_norm = min(1.0, max(0.0, (perf.sortino_ratio + 1) / 4))
         # Calmar: 1.0 이상이면 1.0, 0 이하면 0.0
         calmar_norm = min(1.0, max(0.0, perf.calmar_ratio / 1.0))
