@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from app.health_monitor import Alert, AlertManager, CheckResult, SCORE_WEIGHTS
+from app.health_monitor import Alert, AlertManager, CheckResult, HealthMonitor, SCORE_WEIGHTS, compute_health_score
 from app.journal import Journal
 
 
@@ -72,3 +72,62 @@ def test_alert_manager_info_goes_to_daily():
     assert len(am._pending) == 0
     buf = am.get_daily_buffer()
     assert len(buf) == 1
+
+
+def test_compute_health_score_all_ok():
+    """모든 점검이 ok이면 100점이다."""
+    results = [
+        CheckResult(name="heartbeat", status="ok", message=""),
+        CheckResult(name="event_loop", status="ok", message=""),
+        CheckResult(name="api", status="ok", message=""),
+        CheckResult(name="data_freshness", status="ok", message=""),
+        CheckResult(name="reconciliation", status="ok", message=""),
+        CheckResult(name="system_resources", status="ok", message=""),
+        CheckResult(name="trading_metrics", status="ok", message=""),
+        CheckResult(name="discord", status="ok", message=""),
+    ]
+    score, verdict = compute_health_score(results)
+    assert score == 100
+    assert verdict == "healthy"
+
+
+def test_compute_health_score_mixed():
+    """warn 항목은 절반 점수를 받는다."""
+    results = [
+        CheckResult(name="heartbeat", status="ok", message=""),
+        CheckResult(name="api", status="warn", message=""),
+        CheckResult(name="data_freshness", status="critical", message=""),
+    ]
+    score, _ = compute_health_score(results)
+    assert score == 20 + 10 + 0  # heartbeat ok(20) + api warn(10) + data critical(0)
+
+
+def test_check_heartbeat_ok():
+    """최근 heartbeat은 ok를 반환한다."""
+    hm = HealthMonitor()
+    hm.record_heartbeat()
+    result = hm._check_heartbeat()
+    assert result.status == "ok"
+
+
+def test_check_heartbeat_critical():
+    """오래된 heartbeat은 critical을 반환한다."""
+    hm = HealthMonitor()
+    hm._last_heartbeat = time.time() - 2000
+    result = hm._check_heartbeat()
+    assert result.status == "critical"
+
+
+@pytest.mark.asyncio
+async def test_check_event_loop_lag_ok():
+    """이벤트 루프 지연이 낮으면 ok를 반환한다."""
+    hm = HealthMonitor()
+    result = await hm._check_event_loop_lag()
+    assert result.status == "ok"
+
+
+def test_check_data_freshness_no_source():
+    """데이터 소스 미설정 시 ok를 반환한다."""
+    hm = HealthMonitor()
+    result = hm._check_data_freshness()
+    assert result.status == "ok"
