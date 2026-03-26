@@ -192,6 +192,30 @@ class EnvSecrets:
     run_mode: str = "DRY"
 
 
+@dataclass(frozen=True)
+class HealthMonitorConfig:
+    """헬스 모니터 설정."""
+
+    enabled: bool = True
+    interval_sec: int = 900
+    reconciliation_interval_sec: int = 3600
+    discord_check_interval_sec: int = 14400
+    heartbeat_warn_sec: int = 1200
+    heartbeat_critical_sec: int = 1800
+    api_timeout_sec: int = 5
+    api_consecutive_fail_critical: int = 3
+    data_freshness_warn_min: int = 20
+    data_freshness_critical_min: int = 40
+    memory_warn_pct: int = 70
+    disk_critical_pct: int = 90
+    wal_warn_mb: int = 100
+    daily_dd_warn_pct: float = 2.0
+    daily_dd_critical_pct: float = 3.0
+    alert_cooldown_critical_min: int = 30
+    alert_cooldown_warning_min: int = 120
+    retention_days: int = 90
+
+
 @dataclass
 class AppConfig:
     """애플리케이션 전체 설정."""
@@ -212,6 +236,7 @@ class AppConfig:
     strategy_params: dict = field(default_factory=dict)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     proxy: str = ""
+    health_monitor: HealthMonitorConfig = field(default_factory=HealthMonitorConfig)
 
 
 def _load_env() -> EnvSecrets:

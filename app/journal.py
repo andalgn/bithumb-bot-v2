@@ -138,6 +138,16 @@ class Journal:
                 created_at INTEGER NOT NULL
             );
         """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS health_checks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                score INTEGER NOT NULL,
+                verdict TEXT NOT NULL,
+                results_json TEXT NOT NULL,
+                alerts_json TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
         self._conn.commit()
 
     def record_trade(self, trade_data: dict[str, Any]) -> str:
@@ -311,6 +321,27 @@ class Journal:
                 break
         return count
 
+    def record_health_check(self, score: int, verdict: str, results: list[dict], alerts: list[dict]) -> None:
+        """헬스 체크 결과를 기록한다."""
+        import json
+        self._conn.execute(
+            "INSERT INTO health_checks (score, verdict, results_json, alerts_json) VALUES (?, ?, ?, ?)",
+            (score, verdict, json.dumps(results, ensure_ascii=False), json.dumps(alerts, ensure_ascii=False)),
+        )
+        self._conn.commit()
+
+    def get_recent_health_checks(self, limit: int = 96) -> list[dict]:
+        """최근 헬스 체크 결과를 반환한다."""
+        import json
+        rows = self._conn.execute(
+            "SELECT score, verdict, results_json, alerts_json, created_at FROM health_checks ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {"score": r[0], "verdict": r[1], "results": json.loads(r[2]), "alerts": json.loads(r[3]), "created_at": r[4]}
+            for r in rows
+        ]
+
     def cleanup(self) -> int:
         """90일 지난 데이터를 정리한다.
 
@@ -333,6 +364,8 @@ class Journal:
             (trades_cutoff,),
         )
         total += cursor.rowcount
+
+        self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
 
         self._conn.commit()
         if total > 0:

@@ -252,3 +252,18 @@ bithumb:
 discord:
   admin_role: "admin"
   timeout_sec: 5
+health_monitor:
+  enabled: true
+  interval_sec: 900
+  heartbeat_warn_sec: 1200
+  heartbeat_critical_sec: 1800
+  api_timeout_sec: 5
+  api_consecutive_fail_critical: 3
+  data_freshness_warn_min: 20
+  data_freshness_critical_min: 40
+  memory_warn_pct: 70
+  disk_critical_pct: 90
+  daily_dd_warn_pct: 2.0
+  daily_dd_critical_pct: 3.0
+  alert_cooldown_critical_min: 30
+  alert_cooldown_warning_min: 120
