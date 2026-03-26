@@ -267,8 +267,35 @@ class StrategyScorer:
         else:
             detail["trend_1h"] = 0.0
 
-        # ADX 필터: ADX < 20이면 추세 부재 → 가짜 돌파 위험 (점수 50% 감소)
+        # BB 스퀴즈 선행 확인 (+15/+7pt): 스퀴즈 후 확장 패턴
+        # ADX 패널티 적용 전에 계산 — ADX < 20(추세 부재) 환경에서는 보너스 제외
         adx_val = _last_valid(ind_1h.adx.adx) if ind_1h.adx else 0.0
+        if adx_val >= 20 and ind_15m.bb and len(ind_15m.bb.upper) >= 22 and len(ind_15m.bb.lower) >= 22:
+            upper = ind_15m.bb.upper
+            lower = ind_15m.bb.lower
+            bandwidth = upper - lower
+            valid_bw = bandwidth[~np.isnan(bandwidth)]
+            if len(valid_bw) >= 22:
+                bw_min_recent = float(np.min(valid_bw[-5:-1]))   # 직전 완성봉 포함 4봉 최솟값
+                bw_min_20 = float(np.min(valid_bw[-22:-1]))      # 20봉 최솟값
+                bw_prev = float(valid_bw[-2])
+                bw_curr = float(valid_bw[-1])
+                was_squeezed = bw_min_recent <= bw_min_20 * 1.15
+                is_expanding = bw_prev > 0 and bw_curr > bw_prev * 1.20
+                if was_squeezed and is_expanding:
+                    detail["bb_squeeze"] = 15.0
+                    score += 15.0
+                elif is_expanding:
+                    detail["bb_squeeze"] = 7.0
+                    score += 7.0
+                else:
+                    detail["bb_squeeze"] = 0.0
+            else:
+                detail["bb_squeeze"] = 0.0
+        else:
+            detail["bb_squeeze"] = 0.0
+
+        # ADX 필터: ADX < 20이면 추세 부재 → 가짜 돌파 위험 (점수 50% 감소)
         if adx_val < 20:
             detail["adx_filter"] = -score * 0.5
             score *= 0.5

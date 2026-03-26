@@ -62,3 +62,26 @@ def test_get_weights_config_override():
     scorer = StrategyScorer(strategy_params=params)
     weights = scorer.get_weights("trend_follow")
     assert weights["trend_align"] == 50.0
+
+
+def test_score_strategy_c_has_bb_squeeze_key():
+    """score_strategy_c 결과에 bb_squeeze 키가 항상 존재한다."""
+    candles = strong_up_candles()
+    ind = indicators_from_candles(candles)
+    scorer = StrategyScorer()
+    result = scorer.score_strategy_c(ind_15m=ind, ind_1h=ind, candles_15m=candles)
+    assert "bb_squeeze" in result.detail
+    assert result.detail["bb_squeeze"] >= 0.0
+
+
+def test_score_strategy_c_bb_squeeze_not_applied_when_adx_low():
+    """ADX < 20 환경에서는 bb_squeeze 보너스가 0이다."""
+    # range_candles는 ADX < 20 조건을 충족
+    from tests.fixtures.candles import range_candles
+
+    candles = range_candles()
+    ind = indicators_from_candles(candles)
+    scorer = StrategyScorer()
+    result = scorer.score_strategy_c(ind_15m=ind, ind_1h=ind, candles_15m=candles)
+    # ADX < 20이므로 bb_squeeze 보너스 없음
+    assert result.detail.get("bb_squeeze", 0.0) == 0.0

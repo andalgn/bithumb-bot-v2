@@ -57,4 +57,10 @@ class EnvironmentFilter:
         if 0 <= now_kst.hour < 6 and tier_params.tier == Tier.TIER3:
             return False, "L1: 심야 시간대 Tier 3 거래 중단"
 
+        # 5. 1H 급변동 억제: 직전 완성 1H 봉 변동 ≥ 1.5% → 급등/급락 직후 진입 차단
+        if snap.candles_1h and len(snap.candles_1h) >= 2:
+            c = snap.candles_1h[-2]  # 마지막 완성봉
+            if c.open > 0 and abs(c.close / c.open - 1) >= 0.015:
+                return False, f"L1: 1H 모멘텀 버스트 ({abs(c.close / c.open - 1):.2%})"
+
         return True, ""

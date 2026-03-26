@@ -116,10 +116,9 @@ class TestSendChannel:
 
         notifier._post_webhook = AsyncMock(return_value=True)
         await notifier.send("<b>테스트</b>", channel="system")
-        notifier._post_webhook.assert_called_once_with(
-            "https://fake-url",
-            "**테스트**",
-        )
+        call_args = notifier._post_webhook.call_args
+        assert call_args[0][0] == "https://fake-url"
+        assert call_args[0][1].endswith("**테스트**")
 
 
 @pytest.mark.asyncio

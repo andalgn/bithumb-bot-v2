@@ -1111,7 +1111,14 @@ class TradingBot:
                 price=exit_price,
                 qty=exit_qty,
             )
-            await self._order_manager.execute_order(ticket)
+            ticket = await self._order_manager.execute_order(ticket)
+            if ticket.status == OrderStatus.FAILED:
+                logger.warning(
+                    "부분 청산 실패 — 포지션 유지: %s %s",
+                    symbol,
+                    ticket.error_msg,
+                )
+                return
 
         # PnL 계산 (부분) — 진입·청산 양쪽 수수료 차감
         gross = (exit_price - pos.entry_price) * exit_qty
@@ -1248,11 +1255,11 @@ class TradingBot:
         pos.size_krw는 이미 차감된 상태이며, cum_fee에 부분 청산 시 지불한
         수수료(진입+청산 양쪽)가 누적되어 있다.
         """
-        pos = self._positions.pop(symbol, None)
+        pos = self._positions.get(symbol)
         if pos is None:
             return
 
-        # LIVE 모드: 실제 매도 주문
+        # LIVE 모드: 실제 매도 주문 (주문 실패 시 포지션 유지)
         if self._run_mode == RunMode.LIVE:
             ticket = self._order_manager.create_ticket(
                 symbol=symbol,
@@ -1261,8 +1268,17 @@ class TradingBot:
                 qty=pos.qty,
             )
             ticket = await self._order_manager.execute_order(ticket)
+            if ticket.status == OrderStatus.FAILED:
+                logger.warning(
+                    "청산 실패 — 포지션 유지: %s %s",
+                    symbol,
+                    ticket.error_msg,
+                )
+                return
             if ticket.filled_price > 0:
                 exit_price = ticket.filled_price
+
+        self._positions.pop(symbol, None)
 
         # PnL 계산
         gross_pnl = (exit_price - pos.entry_price) * pos.qty

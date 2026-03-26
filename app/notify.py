@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 import ssl
+from datetime import datetime, timezone, timedelta
 from typing import Protocol, runtime_checkable
 
 import aiohttp
@@ -151,6 +152,9 @@ class DiscordNotifier:
             return False
 
         text = _html_to_discord(text)
+
+        ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+        text = f"`[{ts}]` {text}"
 
         chunks = self._split_message(text)
         all_ok = True

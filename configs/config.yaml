@@ -122,7 +122,7 @@ risk_gate:
   global_quarantine_failures: 8
   global_quarantine_sec: 60
   auth_error_quarantine_sec: 600
-  consecutive_loss_limit: 5
+  consecutive_loss_limit: 3
   cooldown_min: 60
 execution:
   order_timeout_sec: 30

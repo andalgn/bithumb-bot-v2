@@ -133,7 +133,7 @@ class RiskGateConfig:
     global_quarantine_failures: int = 8
     global_quarantine_sec: int = 60
     auth_error_quarantine_sec: int = 600
-    consecutive_loss_limit: int = 5
+    consecutive_loss_limit: int = 3
     cooldown_min: int = 60
 
 

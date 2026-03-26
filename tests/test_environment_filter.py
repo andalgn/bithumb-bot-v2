@@ -30,6 +30,18 @@ def _make_tier_params(tier: Tier = Tier.TIER1, spread_limit: float = 0.0018) -> 
     )
 
 
+def _make_1h_candle(open_price: float, close_price: float) -> Candle:
+    """테스트용 1H 캔들을 생성한다."""
+    return Candle(
+        timestamp=0,
+        open=open_price,
+        high=max(open_price, close_price) * 1.001,
+        low=min(open_price, close_price) * 0.999,
+        close=close_price,
+        volume=1000.0,
+    )
+
+
 def _make_snap(candles: list[Candle], spread_pct: float = 0.001) -> MarketSnapshot:
     """테스트용 MarketSnapshot을 생성한다."""
     bid_price = 50_000_000.0
@@ -82,3 +94,62 @@ def test_check_reject_high_spread():
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is False
     assert "스프레드" in reason
+
+
+def test_check_reject_1h_momentum_burst():
+    """직전 1H 봉 변동 ≥ 1.5%이면 L1 필터가 거부한다."""
+    candles = strong_up_candles()
+    ind = indicators_from_candles(candles)
+    base = 50_000_000.0
+    # 직전 완성봉: 1.6% 급등
+    c_prev = _make_1h_candle(base, base * 1.016)
+    # 현재 형성 중인 봉 ([-1])
+    c_curr = _make_1h_candle(base * 1.016, base * 1.017)
+    snap = _make_snap(candles)
+    snap = MarketSnapshot(
+        symbol="BTC",
+        current_price=base,
+        candles_15m=candles,
+        candles_1h=[c_prev, c_curr],
+        orderbook=snap.orderbook,
+    )
+    tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
+    ef = EnvironmentFilter()
+    passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
+    assert passed is False
+    assert "1H" in reason
+
+
+def test_check_pass_1h_small_move():
+    """직전 1H 봉 변동 < 1.5%이면 L1 필터가 통과한다."""
+    candles = strong_up_candles()
+    ind = indicators_from_candles(candles)
+    base = 50_000_000.0
+    # 0.5% 소폭 상승 — 버스트 임계값 미만
+    c_prev = _make_1h_candle(base, base * 1.005)
+    c_curr = _make_1h_candle(base * 1.005, base * 1.006)
+    snap = MarketSnapshot(
+        symbol="BTC",
+        current_price=base,
+        candles_15m=candles,
+        candles_1h=[c_prev, c_curr],
+        orderbook=_make_snap(candles).orderbook,
+    )
+    tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
+    ef = EnvironmentFilter()
+    passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
+    assert passed is True
+    assert reason == ""
+
+
+def test_check_pass_no_1h_candles():
+    """candles_1h가 없거나 1봉 이하이면 버스트 체크를 건너뛰고 통과한다."""
+    candles = strong_up_candles()
+    ind = indicators_from_candles(candles)
+    # candles_1h 미제공 (기본값 빈 리스트)
+    snap = _make_snap(candles)
+    tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
+    ef = EnvironmentFilter()
+    passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
+    assert passed is True
+    assert reason == ""
