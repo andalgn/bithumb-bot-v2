@@ -43,6 +43,7 @@ from strategy.position_manager import PositionManager, SizingResult
 from strategy.promotion_manager import PromotionManager
 from strategy.review_engine import ReviewEngine
 from strategy.rule_engine import RuleEngine
+from app.health_monitor import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,23 @@ class TradingBot:
         self._review_engine._risk_gate = self._risk_gate
         self._pilot_remaining: int = 0
         self._pilot_size_mult: float = 1.0
+
+        # HealthMonitor
+        self._last_candle_ts: float = 0.0
+        hm_cfg = config.health_monitor
+        self._health_monitor = HealthMonitor(
+            interval_sec=hm_cfg.interval_sec,
+            notifier=self._notifier,
+            journal=self._journal,
+            config=hm_cfg,
+        )
+        self._health_monitor._get_bithumb_client = lambda: self._client
+        self._health_monitor._get_exchange_balances = self._client.get_balance
+        self._health_monitor._get_positions = lambda: {
+            k: {"qty": v.qty}
+            for k, v in self._positions.items()
+        }
+        self._health_monitor._get_last_candle_ts = lambda: self._last_candle_ts
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
@@ -476,6 +494,14 @@ class TradingBot:
                 )
             self._consecutive_data_failures = 0
             self._data_failure_alerted = False
+
+        # 마지막 캔들 타임스탬프 갱신 (HealthMonitor 데이터 신선도 체크용)
+        fresh_ts = max(
+            (snap.candles_15m[-1].timestamp for snap in snapshots.values() if snap.candles_15m),
+            default=0,
+        )
+        if fresh_ts > 0:
+            self._last_candle_ts = float(fresh_ts)
 
         # 2. 장기 데이터 축적
         for symbol, snap in snapshots.items():
@@ -1087,6 +1113,7 @@ class TradingBot:
         await self._run_darwin_cycle()
         await self._execute_entries(signals, data)
         await self._finalize_cycle(data, cycle_start)
+        self._health_monitor.record_heartbeat()
 
     async def _partial_close_position(
         self,
@@ -1402,6 +1429,13 @@ class TradingBot:
         # BacktestDaemon 백그라운드 시작
         self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
         self._daemon_task.add_done_callback(_on_daemon_done)
+
+        # HealthMonitor 백그라운드 시작
+        if self._config.health_monitor.enabled:
+            hm_task = asyncio.create_task(self._health_monitor.run_forever())
+            hm_task.add_done_callback(
+                lambda t: logger.error("HealthMonitor 종료: %s", t.exception()) if t.exception() else None
+            )
 
         while self._running:
             try:
