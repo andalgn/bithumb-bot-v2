@@ -45,6 +45,12 @@ from strategy.review_engine import ReviewEngine
 from strategy.rule_engine import RuleEngine
 from app.health_monitor import HealthMonitor
 
+try:
+    import sdnotify
+    _sd_notifier = sdnotify.SystemdNotifier()
+except ImportError:
+    _sd_notifier = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -1114,6 +1120,9 @@ class TradingBot:
         await self._execute_entries(signals, data)
         await self._finalize_cycle(data, cycle_start)
         self._health_monitor.record_heartbeat()
+        if _sd_notifier:
+            _sd_notifier.notify("WATCHDOG=1")
+            _sd_notifier.notify(f"STATUS=Cycle ok, {len(self._positions)} positions")
 
     async def _partial_close_position(
         self,
@@ -1442,6 +1451,9 @@ class TradingBot:
                     logger.error("HealthMonitor 종료: %s", exc)
 
             self._health_task.add_done_callback(_on_hm_done)
+
+        if _sd_notifier:
+            _sd_notifier.notify("READY=1")
 
         while self._running:
             try:
