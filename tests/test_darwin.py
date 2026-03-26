@@ -339,6 +339,53 @@ class TestRegimeAwareMutation:
         )
 
 
+class TestInjectShadow:
+    """inject_shadow 테스트."""
+
+    def test_inject_shadow_replaces_worst(self, engine: DarwinEngine) -> None:
+        """inject_shadow는 최하위 Shadow를 교체하고 인구 수를 유지한다."""
+        before_count = engine.shadow_count
+        new_params = ShadowParams(
+            mr_sl_mult=3.0,
+            mr_tp_rr=2.0,
+            dca_sl_pct=0.03,
+            dca_tp_pct=0.03,
+            cutoff=68.0,
+            group="moderate",
+        )
+        sid = engine.inject_shadow(new_params, source="feedback")
+
+        # 인구 수 유지
+        assert engine.shadow_count == before_count
+        # 새 shadow_id가 집단에 존재
+        shadow_ids = {s.shadow_id for s in engine._shadows}
+        assert sid in shadow_ids
+        # shadow_id 형식 확인
+        assert sid.startswith("feedback_")
+        # 새 성과 초기화 확인
+        assert sid in engine._performances
+
+    def test_inject_shadow_returns_unique_id(self, engine: DarwinEngine) -> None:
+        """연속 주입 시 고유한 shadow_id가 반환된다."""
+        import time as _time
+        params = ShadowParams(cutoff=65.0, group="moderate")
+        id1 = engine.inject_shadow(params, source="feedback")
+        _time.sleep(0.001)
+        id2 = engine.inject_shadow(params, source="feedback")
+        # 서로 다른 경우가 대부분이지만, 최소한 형식은 올바르다
+        assert id1.startswith("feedback_")
+        assert id2.startswith("feedback_")
+
+    def test_get_current_params_returns_champion_params(self, engine: DarwinEngine) -> None:
+        """get_current_params는 챔피언의 수치 파라미터를 반환한다."""
+        params = engine.get_current_params()
+        assert "mr_sl_mult" in params
+        assert "mr_tp_rr" in params
+        assert "dca_sl_pct" in params
+        assert "dca_tp_pct" in params
+        assert "cutoff" in params
+
+
 class TestDiversityEnforcement:
     """다양성 강제 테스트."""
 

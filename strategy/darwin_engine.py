@@ -801,3 +801,67 @@ class DarwinEngine:
             reverse=True,
         )
         return ranked[:n]
+
+    def get_current_params(self) -> dict:
+        """챔피언의 현재 파라미터를 dict로 반환한다.
+
+        Returns:
+            챔피언 ShadowParams의 수치 파라미터 dict.
+        """
+        c = self._champion
+        return {
+            "mr_sl_mult": c.mr_sl_mult,
+            "mr_tp_rr": c.mr_tp_rr,
+            "dca_sl_pct": c.dca_sl_pct,
+            "dca_tp_pct": c.dca_tp_pct,
+            "cutoff": c.cutoff,
+        }
+
+    def inject_shadow(self, params: ShadowParams, source: str = "feedback") -> str:
+        """외부에서 파라미터를 Shadow 집단에 주입한다.
+
+        Args:
+            params: 주입할 ShadowParams.
+            source: 주입 출처 ("feedback", "manual" 등).
+
+        Returns:
+            주입된 shadow_id.
+        """
+        new_id = f"{source}_{int(time.time())}"
+        new_params = copy.copy(params)
+        new_params.shadow_id = new_id
+
+        # 최하위 성과 Shadow 결정 (CompositeScore 최소)
+        worst_idx: int | None = None
+        worst_score = float("inf")
+        for i, shadow in enumerate(self._shadows):
+            perf = self._performances.get(shadow.shadow_id)
+            if perf is None:
+                worst_idx = i
+                worst_score = -float("inf")
+                break
+            cs = self._calc_composite_score(shadow.shadow_id, perf)
+            if cs.score < worst_score:
+                worst_score = cs.score
+                worst_idx = i
+
+        if worst_idx is None:
+            # 집단이 비어 있으면 단순 추가
+            self._shadows.append(new_params)
+        else:
+            old_id = self._shadows[worst_idx].shadow_id
+            self._performances.pop(old_id, None)
+            self._pnl_history.pop(old_id, None)
+            self._open_positions.pop(old_id, None)
+            self._shadows[worst_idx] = new_params
+
+        # 새 Shadow 성과 초기화
+        self._performances[new_id] = ShadowPerformance(shadow_id=new_id)
+
+        logger.info(
+            "Shadow 주입: id=%s, source=%s, cutoff=%.1f",
+            new_id,
+            source,
+            new_params.cutoff,
+        )
+        return new_id

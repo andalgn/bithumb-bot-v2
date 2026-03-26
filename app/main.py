@@ -42,6 +42,7 @@ from strategy.pool_manager import PoolManager
 from strategy.position_manager import PositionManager, SizingResult
 from strategy.promotion_manager import PromotionManager
 from strategy.review_engine import ReviewEngine
+from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
 from strategy.trade_tagger import tag_trade
 from app.health_monitor import HealthMonitor
@@ -216,6 +217,12 @@ class TradingBot:
         self._review_engine._risk_gate = self._risk_gate
         self._pilot_remaining: int = 0
         self._pilot_size_mult: float = 1.0
+
+        # Phase 3 Task 12: FeedbackLoop
+        self._feedback_loop = FeedbackLoop(
+            journal=self._journal,
+            deepseek_api_key=config.secrets.deepseek_api_key,
+        )
 
         # HealthMonitor
         self._last_candle_ts: float = 0.0
@@ -1093,6 +1100,28 @@ class TradingBot:
                     mc_p5=bd.mc_result.pnl_percentile_5 if bd.mc_result else 0,
                     mc_mdd=bd.mc_result.worst_mdd if bd.mc_result else 0,
                 )
+
+                # 피드백 루프: 실패 패턴 분석 → 가설 생성 → Shadow 주입
+                try:
+                    from strategy.darwin_engine import ShadowParams
+                    patterns = self._feedback_loop.get_failure_patterns(days=7)
+                    if patterns:
+                        hypotheses = await self._feedback_loop.generate_hypotheses(
+                            patterns, self._darwin.get_current_params()
+                        )
+                        for hyp in hypotheses[:1]:  # 주당 최대 1개 주입
+                            shadow_params = ShadowParams(
+                                mr_sl_mult=hyp.get("mr_sl_mult", 2.0),
+                                mr_tp_rr=hyp.get("mr_tp_rr", 2.5),
+                                dca_sl_pct=hyp.get("dca_sl_pct", 0.02),
+                                dca_tp_pct=hyp.get("dca_tp_pct", 0.04),
+                                cutoff=hyp.get("cutoff", 70.0),
+                                group="moderate",
+                            )
+                            sid = self._darwin.inject_shadow(shadow_params, source="feedback")
+                            logger.info("피드백 Shadow 주입: %s", sid)
+                except Exception:  # noqa: BLE001 — 피드백 루프 오류, 메인 루프 보호
+                    logger.exception("피드백 루프 오류 (무시)")
 
             # 월 1일 00:00~00:15 KST: 월간 심층 리뷰
             if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:

@@ -56,3 +56,30 @@ def test_old_trades_excluded(mock_journal):
     fb = FeedbackLoop(mock_journal)
     patterns = fb.get_failure_patterns(days=7)
     assert len(patterns) == 0
+
+
+def test_generate_hypotheses_empty_on_no_patterns():
+    """패턴 없으면 빈 목록을 반환한다."""
+    import asyncio
+    from unittest.mock import MagicMock
+    fb = FeedbackLoop(MagicMock())
+    result = asyncio.get_event_loop().run_until_complete(
+        fb.generate_hypotheses([], {})
+    )
+    assert result == []
+
+
+def test_generate_hypotheses_empty_without_api_key(mock_journal):
+    """DeepSeek API 키 없으면 빈 목록을 반환한다."""
+    import asyncio
+    patterns = [
+        FailurePattern(
+            tag="regime_mismatch", strategy="breakout", regime="STRONG_UP",
+            count=2, avg_loss_krw=-4000.0, total_loss_krw=-8000.0,
+        )
+    ]
+    fb = FeedbackLoop(mock_journal)  # no deepseek_api_key
+    result = asyncio.get_event_loop().run_until_complete(
+        fb.generate_hypotheses(patterns, {"cutoff": 72.0})
+    )
+    assert result == []
