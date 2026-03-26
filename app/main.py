@@ -1432,10 +1432,16 @@ class TradingBot:
 
         # HealthMonitor 백그라운드 시작
         if self._config.health_monitor.enabled:
-            hm_task = asyncio.create_task(self._health_monitor.run_forever())
-            hm_task.add_done_callback(
-                lambda t: logger.error("HealthMonitor 종료: %s", t.exception()) if t.exception() else None
-            )
+            self._health_task = asyncio.create_task(self._health_monitor.run_forever())
+
+            def _on_hm_done(t: asyncio.Task) -> None:  # noqa: ANN001
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc:
+                    logger.error("HealthMonitor 종료: %s", exc)
+
+            self._health_task.add_done_callback(_on_hm_done)
 
         while self._running:
             try:
