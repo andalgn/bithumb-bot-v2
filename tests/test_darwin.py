@@ -292,3 +292,87 @@ class TestCompositeScore8Metrics:
         for perf in engine.performances.values():
             if perf.trade_count > 0:
                 assert isinstance(perf.max_consecutive_loss, int)
+
+
+class TestRegimeAwareMutation:
+    """시장 국면별 변이 범위 테스트."""
+
+    def test_mutate_wider_range_in_crisis(self, engine: DarwinEngine) -> None:
+        """CRISIS 국면에서 변이 범위가 더 넓다."""
+        import statistics
+
+        base = ShadowParams(shadow_id="base", mr_sl_mult=6.0, cutoff=72.0)
+        n_trials = 200
+
+        crisis_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.CRISIS).mr_sl_mult for _ in range(n_trials)]
+        range_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult for _ in range(n_trials)]
+
+        crisis_std = statistics.stdev(crisis_mr_sl)
+        range_std = statistics.stdev(range_mr_sl)
+        # CRISIS 국면의 표준편차가 RANGE보다 커야 함
+        assert crisis_std > range_std, (
+            f"CRISIS std={crisis_std:.4f} should be > RANGE std={range_std:.4f}"
+        )
+
+    def test_mutate_narrower_range_in_strong_up(self, engine: DarwinEngine) -> None:
+        """STRONG_UP 국면에서 변이 범위가 더 좁다."""
+        import statistics
+
+        base = ShadowParams(shadow_id="base", mr_sl_mult=6.0, cutoff=72.0)
+        n_trials = 200
+
+        strong_up_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.STRONG_UP).mr_sl_mult for _ in range(n_trials)]
+        range_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult for _ in range(n_trials)]
+
+        strong_up_std = statistics.stdev(strong_up_mr_sl)
+        range_std = statistics.stdev(range_mr_sl)
+        # STRONG_UP 국면의 표준편차가 RANGE보다 작아야 함
+        assert strong_up_std < range_std, (
+            f"STRONG_UP std={strong_up_std:.4f} should be < RANGE std={range_std:.4f}"
+        )
+
+
+class TestDiversityEnforcement:
+    """다양성 강제 테스트."""
+
+    def test_calc_diversity_identical_population(self, engine: DarwinEngine) -> None:
+        """동일한 파라미터로 채운 집단의 다양성은 0에 가깝다."""
+        identical = ShadowParams(shadow_id="x", mr_sl_mult=6.0, mr_tp_rr=2.0, dca_sl_pct=0.05, dca_tp_pct=0.03, cutoff=72.0)
+        for i, shadow in enumerate(engine._shadows):
+            engine._shadows[i] = ShadowParams(
+                shadow_id=shadow.shadow_id,
+                group=shadow.group,
+                mr_sl_mult=identical.mr_sl_mult,
+                mr_tp_rr=identical.mr_tp_rr,
+                dca_sl_pct=identical.dca_sl_pct,
+                dca_tp_pct=identical.dca_tp_pct,
+                cutoff=identical.cutoff,
+            )
+        diversity = engine._calc_diversity()
+        assert diversity < 0.05, f"동일 집단 다양성={diversity:.4f}이 0.05보다 커야 0에 가까운 것"
+
+    def test_diversity_enforcement_injects_random(self, engine: DarwinEngine) -> None:
+        """다양성이 낮으면 랜덤 파라미터를 주입한다."""
+        # 모든 Shadow를 동일하게 설정하여 다양성 0으로 만듦
+        identical = ShadowParams(mr_sl_mult=6.0, mr_tp_rr=2.0, dca_sl_pct=0.05, dca_tp_pct=0.03, cutoff=72.0)
+        for i, shadow in enumerate(engine._shadows):
+            engine._shadows[i] = ShadowParams(
+                shadow_id=shadow.shadow_id,
+                group=shadow.group,
+                mr_sl_mult=identical.mr_sl_mult,
+                mr_tp_rr=identical.mr_tp_rr,
+                dca_sl_pct=identical.dca_sl_pct,
+                dca_tp_pct=identical.dca_tp_pct,
+                cutoff=identical.cutoff,
+            )
+
+        diversity_before = engine._calc_diversity()
+        injected = engine._enforce_diversity(regime=Regime.RANGE)
+        diversity_after = engine._calc_diversity()
+
+        # 다양성이 낮으면 주입이 발생해야 함
+        assert injected > 0, "동일 집단에서 주입 수가 0이면 안 됨"
+        # 주입 후 다양성이 높아져야 함
+        assert diversity_after > diversity_before, (
+            f"다양성 before={diversity_before:.4f}, after={diversity_after:.4f}"
+        )

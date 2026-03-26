@@ -222,8 +222,32 @@ class DarwinEngine:
         if restored:
             logger.info("Shadow 거래 복원: %d건", restored)
 
-    def _mutate(self, base: ShadowParams, variation: float, group: str) -> ShadowParams:
-        """파라미터를 돌연변이시킨다."""
+    def _mutate(
+        self,
+        base: ShadowParams,
+        variation: float,
+        group: str,
+        regime: Regime | None = None,
+    ) -> ShadowParams:
+        """파라미터를 돌연변이시킨다.
+
+        Args:
+            base: 기준 파라미터.
+            variation: 변이 크기 (0~1 범위 기준).
+            group: Shadow 그룹 (conservative/moderate/innovative).
+            regime: 현재 시장 국면. None이면 기본 변이율 적용.
+
+        Returns:
+            변이된 ShadowParams.
+        """
+        # 시장 국면별 변이 범위 조정 (scale factor는 multiplier cap과 독립 적용)
+        if regime in (Regime.CRISIS, Regime.WEAK_DOWN):
+            regime_scale = 1.5   # 위기 시 더 넓게 탐색
+        elif regime in (Regime.STRONG_UP, Regime.WEAK_UP):
+            regime_scale = 0.7   # 강세 시 보수적 조정
+        else:
+            regime_scale = 1.0  # RANGE 또는 None: 기본값
+
         params = copy.copy(base)
         params.group = group
 
@@ -232,7 +256,7 @@ class DarwinEngine:
             if base_val is None:
                 continue
             multiplier = min(variation / 0.10, 2.0)  # 최대 2배로 제한
-            delta = random.uniform(-max_delta, max_delta) * multiplier
+            delta = random.uniform(-max_delta, max_delta) * multiplier * regime_scale
             setattr(params, name, max(lo, min(hi, base_val + delta)))
 
         return params
@@ -424,11 +448,11 @@ class DarwinEngine:
                 # 교차: 두 부모를 선택한 뒤 uniform crossover → 소폭 변이
                 p_a, p_b = random.sample(survivor_pool, 2)
                 child = self._crossover(p_a, p_b)
-                child = self._mutate(child, variation=mutation_rate * 0.5, group="moderate")
+                child = self._mutate(child, variation=mutation_rate * 0.5, group="moderate", regime=market_regime)
             else:
                 # 변이: 단일 부모 변이
                 parent = random.choice(survivor_pool)
-                child = self._mutate(parent, variation=mutation_rate, group="moderate")
+                child = self._mutate(parent, variation=mutation_rate, group="moderate", regime=market_regime)
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
             self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)
@@ -437,7 +461,7 @@ class DarwinEngine:
         self._last_tournament = time.time()
 
         # 강제 다양성 확보
-        diversity_mutations = self._enforce_diversity()
+        diversity_mutations = self._enforce_diversity(regime=market_regime)
 
         logger.info(
             "토너먼트 완료: 생존=%d, 새생성=%d, 다양성변이=%d",
@@ -457,44 +481,104 @@ class DarwinEngine:
             return 0.2
         return 0.1  # RANGE, WEAK_UP, STRONG_UP
 
-    def _enforce_diversity(self) -> int:
-        """Shadow 간 다양성을 강제한다.
+    def _calc_diversity(self) -> float:
+        """집단의 다양성을 Euclidean 거리 평균으로 계산한다.
 
-        정규화된 유클리드 거리가 0.1 미만인 쌍이 있으면 하나를 강제 변이.
+        MUTATION_RANGES의 수치 파라미터를 [0,1]로 정규화한 뒤
+        모든 쌍의 유클리드 거리 평균을 구하고, 최대 가능 거리로 나눠 0~1로 반환한다.
 
         Returns:
-            강제 변이 적용 횟수.
+            0~1 범위의 다양성 지표. 0이면 완전 동일, 1이면 최대 분산.
         """
+        if len(self._shadows) < 2:
+            return 1.0
+
         param_names = list(MUTATION_RANGES.keys())
-        mutation_count = 0
+        n_params = len(param_names)
 
-        for i in range(len(self._shadows)):
-            for j in range(i + 1, len(self._shadows)):
-                s1 = self._shadows[i]
-                s2 = self._shadows[j]
+        # 각 Shadow를 정규화 벡터로 변환
+        vectors: list[list[float]] = []
+        for shadow in self._shadows:
+            vec: list[float] = []
+            for name in param_names:
+                _, lo, hi = MUTATION_RANGES[name]
+                span = hi - lo
+                val = getattr(shadow, name, lo)
+                vec.append((val - lo) / span if span > 0 else 0.0)
+            vectors.append(vec)
 
-                # 정규화된 유클리드 거리 계산
+        # 모든 쌍의 유클리드 거리 계산
+        total_dist = 0.0
+        pair_count = 0
+        for i in range(len(vectors)):
+            for j in range(i + 1, len(vectors)):
+                dist_sq = sum((vectors[i][k] - vectors[j][k]) ** 2 for k in range(n_params))
+                total_dist += math.sqrt(dist_sq)
+                pair_count += 1
+
+        if pair_count == 0:
+            return 0.0
+
+        avg_dist = total_dist / pair_count
+        # 최대 가능 거리: sqrt(n_params) (모든 파라미터가 0과 1 양 끝에 있을 때)
+        max_possible = math.sqrt(n_params)
+        return avg_dist / max_possible if max_possible > 0 else 0.0
+
+    def _enforce_diversity(self, regime: Regime | None = None) -> int:
+        """다양성이 0.15 미만이면 랜덤 파라미터를 주입한다.
+
+        집단 전체의 평균 다양성이 임계값 미만일 때 하위 20%를 랜덤 파라미터로 교체한다.
+
+        Args:
+            regime: 현재 시장 국면. 주입 시 변이 범위 결정에 활용.
+
+        Returns:
+            주입된 Shadow 수.
+        """
+        diversity = self._calc_diversity()
+        if diversity >= 0.15:
+            return 0
+
+        # 하위 20%를 랜덤 파라미터로 교체
+        param_names = list(MUTATION_RANGES.keys())
+        replace_count = max(1, int(len(self._shadows) * 0.2))
+        injected = 0
+
+        # 각 Shadow에 대해 정규화 벡터의 평균 거리(다른 Shadow들과)를 계산 → 거리가 가장 짧은 것이 "하위"
+        if len(self._shadows) < 2:
+            return 0
+
+        distances: list[tuple[float, int]] = []
+        for i, s1 in enumerate(self._shadows):
+            total = 0.0
+            for j, s2 in enumerate(self._shadows):
+                if i == j:
+                    continue
                 dist_sq = 0.0
                 for name in param_names:
                     _, lo, hi = MUTATION_RANGES[name]
                     span = hi - lo
-                    if span <= 0:
-                        continue
-                    v1 = (getattr(s1, name) - lo) / span
-                    v2 = (getattr(s2, name) - lo) / span
+                    v1 = (getattr(s1, name, lo) - lo) / span if span > 0 else 0.0
+                    v2 = (getattr(s2, name, lo) - lo) / span if span > 0 else 0.0
                     dist_sq += (v1 - v2) ** 2
+                total += math.sqrt(dist_sq)
+            avg = total / (len(self._shadows) - 1)
+            distances.append((avg, i))
 
-                dist = math.sqrt(dist_sq / len(param_names))
+        # 평균 거리가 가장 작은(가장 유사한) Shadow 인덱스를 하위로 간주
+        distances.sort(key=lambda x: x[0])
+        bottom_indices = [idx for _, idx in distances[:replace_count]]
 
-                if dist < 0.1:
-                    # j번째 Shadow를 강제 변이
-                    mutated = self._mutate(s2, variation=0.3, group=s2.group)
-                    mutated.shadow_id = s2.shadow_id
-                    mutated.group = s2.group
-                    self._shadows[j] = mutated
-                    mutation_count += 1
+        # 랜덤 파라미터로 교체 (MUTATION_RANGES에서 균등 샘플링)
+        for idx in bottom_indices:
+            shadow = self._shadows[idx]
+            new_params = ShadowParams(shadow_id=shadow.shadow_id, group=shadow.group)
+            for name, (_, lo, hi) in MUTATION_RANGES.items():
+                setattr(new_params, name, random.uniform(lo, hi))
+            self._shadows[idx] = new_params
+            injected += 1
 
-        return mutation_count
+        return injected
 
     def check_champion_replacement(self) -> ShadowParams | None:
         """챔피언 교체 가능 여부를 확인한다.
