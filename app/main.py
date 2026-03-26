@@ -223,6 +223,7 @@ class TradingBot:
             journal=self._journal,
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
+        self._last_feedback_inject: tuple | None = None
 
         # HealthMonitor
         self._last_candle_ts: float = 0.0
@@ -1102,26 +1103,29 @@ class TradingBot:
                 )
 
                 # 피드백 루프: 실패 패턴 분석 → 가설 생성 → Shadow 주입
-                try:
-                    from strategy.darwin_engine import ShadowParams
-                    patterns = self._feedback_loop.get_failure_patterns(days=7)
-                    if patterns:
-                        hypotheses = await self._feedback_loop.generate_hypotheses(
-                            patterns, self._darwin.get_current_params()
-                        )
-                        for hyp in hypotheses[:1]:  # 주당 최대 1개 주입
-                            shadow_params = ShadowParams(
-                                mr_sl_mult=hyp.get("mr_sl_mult", 2.0),
-                                mr_tp_rr=hyp.get("mr_tp_rr", 2.5),
-                                dca_sl_pct=hyp.get("dca_sl_pct", 0.02),
-                                dca_tp_pct=hyp.get("dca_tp_pct", 0.04),
-                                cutoff=hyp.get("cutoff", 70.0),
-                                group="moderate",
+                week_key = now_kst.isocalendar()[:2]
+                if self._last_feedback_inject != week_key:
+                    self._last_feedback_inject = week_key
+                    try:
+                        from strategy.darwin_engine import ShadowParams
+                        patterns = self._feedback_loop.get_failure_patterns(days=7)
+                        if patterns:
+                            hypotheses = await self._feedback_loop.generate_hypotheses(
+                                patterns, self._darwin.get_current_params()
                             )
-                            sid = self._darwin.inject_shadow(shadow_params, source="feedback")
-                            logger.info("피드백 Shadow 주입: %s", sid)
-                except Exception:  # noqa: BLE001 — 피드백 루프 오류, 메인 루프 보호
-                    logger.exception("피드백 루프 오류 (무시)")
+                            for hyp in hypotheses[:1]:  # 주당 최대 1개 주입
+                                shadow_params = ShadowParams(
+                                    mr_sl_mult=hyp.get("mr_sl_mult", 2.0),
+                                    mr_tp_rr=hyp.get("mr_tp_rr", 2.5),
+                                    dca_sl_pct=hyp.get("dca_sl_pct", 0.02),
+                                    dca_tp_pct=hyp.get("dca_tp_pct", 0.04),
+                                    cutoff=hyp.get("cutoff", 70.0),
+                                    group="moderate",
+                                )
+                                sid = self._darwin.inject_shadow(shadow_params, source="feedback")
+                                logger.info("피드백 Shadow 주입: %s", sid)
+                    except Exception:  # noqa: BLE001 — 피드백 루프 오류, 메인 루프 보호
+                        logger.exception("피드백 루프 오류 (무시)")
 
             # 월 1일 00:00~00:15 KST: 월간 심층 리뷰
             if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
