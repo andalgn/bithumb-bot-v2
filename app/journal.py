@@ -7,6 +7,7 @@ SQLite WAL 모드. Trade Schema 21필드.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -323,7 +324,6 @@ class Journal:
 
     def record_health_check(self, score: int, verdict: str, results: list[dict], alerts: list[dict]) -> None:
         """헬스 체크 결과를 기록한다."""
-        import json
         self._conn.execute(
             "INSERT INTO health_checks (score, verdict, results_json, alerts_json) VALUES (?, ?, ?, ?)",
             (score, verdict, json.dumps(results, ensure_ascii=False), json.dumps(alerts, ensure_ascii=False)),
@@ -332,7 +332,6 @@ class Journal:
 
     def get_recent_health_checks(self, limit: int = 96) -> list[dict]:
         """최근 헬스 체크 결과를 반환한다."""
-        import json
         rows = self._conn.execute(
             "SELECT score, verdict, results_json, alerts_json, created_at FROM health_checks ORDER BY id DESC LIMIT ?",
             (limit,),
@@ -365,7 +364,8 @@ class Journal:
         )
         total += cursor.rowcount
 
-        self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
+        cursor = self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
+        total += cursor.rowcount
 
         self._conn.commit()
         if total > 0:

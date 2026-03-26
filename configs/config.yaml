@@ -268,3 +268,6 @@ health_monitor:
   alert_cooldown_critical_min: 30
   alert_cooldown_warning_min: 120
   retention_days: 90
+  reconciliation_interval_sec: 3600
+  discord_check_interval_sec: 14400
+  wal_warn_mb: 100
