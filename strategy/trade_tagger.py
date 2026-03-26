@@ -27,8 +27,8 @@ def tag_trade(
     1. winner — 순수익 > 0
     2. external — 외부 오류(API, 타임아웃, 최소주문금액 등)
     3. regime_mismatch — 진입/청산 국면 불일치
-    4. sizing_error — 손실이 수수료보다 작음 (포지션 크기 과소)
-    5. timing_error — SL 청산이지만 가격 방향은 올바름
+    4. timing_error — SL 청산이지만 가격 방향은 올바름
+    5. sizing_error — 손실이 수수료보다 작음 (포지션 크기 과소)
     6. signal_quality — 그 외 모든 손실 (기본값)
 
     Args:
