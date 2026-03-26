@@ -44,13 +44,16 @@ MUTATION_RANGES: dict[str, tuple[float, float, float]] = {
     "cutoff": (3.0, 55.0, 90.0),
 }
 
-# Composite Score 가중치
+# Composite Score 가중치 (합 = 1.0)
 COMPOSITE_WEIGHTS = {
-    "expectancy": 0.30,
-    "profit_factor": 0.20,
-    "mdd": 0.20,
-    "sharpe": 0.20,
-    "exec_quality": 0.10,
+    "expectancy": 0.25,
+    "profit_factor": 0.15,
+    "mdd": 0.15,
+    "sharpe": 0.15,
+    "sortino": 0.10,
+    "calmar": 0.10,
+    "consec_loss": 0.05,
+    "exec_quality": 0.05,
 }
 
 
@@ -93,6 +96,9 @@ class ShadowPerformance:
     max_drawdown: float = 0.0
     peak_equity: float = 1_000_000.0
     current_equity: float = 1_000_000.0
+    sortino_ratio: float = 0.0        # 하방 변동성 대비 수익률
+    calmar_ratio: float = 0.0         # MDD 대비 연간 수익률
+    max_consecutive_loss: int = 0     # 최대 연속 손실 횟수
 
     @property
     def expectancy(self) -> float:
@@ -128,6 +134,9 @@ class CompositeScore:
     profit_factor: float = 0.0
     mdd: float = 0.0
     sharpe: float = 0.0
+    sortino: float = 0.0
+    calmar: float = 0.0
+    consec_loss_penalty: float = 0.0
     exec_quality: float = 0.0
 
 
@@ -311,6 +320,9 @@ class DarwinEngine:
                     dd = (perf.peak_equity - perf.current_equity) / perf.peak_equity
                     if dd > perf.max_drawdown:
                         perf.max_drawdown = dd
+
+                # 파생 지표 (Sortino, Calmar, 연속 손실) 업데이트
+                self._update_derived_metrics(perf, sid)
 
                 del open_pos[sym]
 
@@ -585,8 +597,59 @@ class DarwinEngine:
             "dca": {"sl_pct": c.dca_sl_pct, "tp_pct": c.dca_tp_pct},
         }
 
+    def _update_derived_metrics(self, perf: ShadowPerformance, shadow_id: str) -> None:
+        """Sortino ratio, Calmar ratio, 최대 연속 손실 횟수를 업데이트한다.
+
+        Shadow별 가상 거래 PnL 이력에서 하방 변동성·연속 손실을 계산한다.
+
+        Args:
+            perf: 업데이트할 ShadowPerformance 객체.
+            shadow_id: 해당 Shadow의 ID.
+        """
+        # 해당 Shadow의 완결 거래 PnL 목록 수집 (virtual_pnl != 0)
+        closed_pnls = [
+            t.virtual_pnl
+            for t in self._trades
+            if t.shadow_id == shadow_id and t.virtual_pnl != 0.0
+        ]
+        n = len(closed_pnls)
+        if n < 2:
+            return
+
+        mean_r = sum(closed_pnls) / n
+
+        # Sortino ratio: 하방 변동성 (음의 수익률만)
+        neg_returns = [r for r in closed_pnls if r < 0]
+        if neg_returns:
+            downside_var = sum(r**2 for r in neg_returns) / n  # 전체 n 기준
+            downside_dev = math.sqrt(downside_var)
+            perf.sortino_ratio = mean_r / downside_dev if downside_dev > 0 else 0.0
+        else:
+            # 손실이 없으면 Sortino 최대값으로 처리
+            perf.sortino_ratio = 3.0
+
+        # Calmar ratio: 연간 수익률 / MDD
+        # 연간화 계수: 1거래당 평균 15분봉 1개 기준 → 연 35040개 (15분 × 4 × 24 × 365)
+        annualized_return = mean_r * 35040
+        if perf.max_drawdown > 0:
+            perf.calmar_ratio = annualized_return / perf.max_drawdown
+        else:
+            perf.calmar_ratio = annualized_return  # MDD 0이면 그대로
+
+        # 최대 연속 손실 횟수
+        max_streak = 0
+        cur_streak = 0
+        for pnl in closed_pnls:
+            if pnl < 0:
+                cur_streak += 1
+                if cur_streak > max_streak:
+                    max_streak = cur_streak
+            else:
+                cur_streak = 0
+        perf.max_consecutive_loss = max_streak
+
     def _calc_composite_score(self, shadow_id: str, perf: ShadowPerformance) -> CompositeScore:
-        """Composite Score를 계산한다."""
+        """Composite Score를 계산한다 (8지표)."""
         # 정규화 (0~1 범위로)
         exp_norm = min(1.0, max(0.0, perf.expectancy / 0.02 + 0.5))
         pf_norm = min(1.0, max(0.0, (perf.profit_factor - 0.5) / 3.0))
@@ -595,6 +658,12 @@ class DarwinEngine:
         # 정밀 Sharpe 계산은 개별 거래 PnL 이력이 필요하므로 현재 구조에서는 근사치 사용.
         sharpe = perf.expectancy / 0.02 if perf.trade_count > 5 else 0
         sharpe_norm = min(1.0, max(0.0, (sharpe + 1) / 4))
+        # Sortino: 2.0 이상이면 1.0, 0 이하면 0.0 (Sharpe와 동일 패턴)
+        sortino_norm = min(1.0, max(0.0, (perf.sortino_ratio + 1) / 4))
+        # Calmar: 1.0 이상이면 1.0, 0 이하면 0.0
+        calmar_norm = min(1.0, max(0.0, perf.calmar_ratio / 1.0))
+        # 연속 손실 패널티: 5회 이상이면 0, 0회면 1.0
+        consec_penalty = max(0.0, 1.0 - perf.max_consecutive_loss / 5.0)
         exec_norm = 0.5  # 기본값 (실제 체결 품질은 LIVE에서)
 
         score = (
@@ -602,6 +671,9 @@ class DarwinEngine:
             + COMPOSITE_WEIGHTS["profit_factor"] * pf_norm
             + COMPOSITE_WEIGHTS["mdd"] * mdd_norm
             + COMPOSITE_WEIGHTS["sharpe"] * sharpe_norm
+            + COMPOSITE_WEIGHTS["sortino"] * sortino_norm
+            + COMPOSITE_WEIGHTS["calmar"] * calmar_norm
+            + COMPOSITE_WEIGHTS["consec_loss"] * consec_penalty
             + COMPOSITE_WEIGHTS["exec_quality"] * exec_norm
         )
 
@@ -612,6 +684,9 @@ class DarwinEngine:
             profit_factor=perf.profit_factor,
             mdd=perf.max_drawdown,
             sharpe=sharpe,
+            sortino=perf.sortino_ratio,
+            calmar=perf.calmar_ratio,
+            consec_loss_penalty=consec_penalty,
             exec_quality=exec_norm,
         )
 

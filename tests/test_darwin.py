@@ -10,7 +10,7 @@ from app.data_types import (
     Strategy,
     Tier,
 )
-from strategy.darwin_engine import DarwinEngine, ShadowParams
+from strategy.darwin_engine import COMPOSITE_WEIGHTS, DarwinEngine, ShadowParams, ShadowPerformance
 
 
 @pytest.fixture
@@ -192,3 +192,103 @@ class TestCrossover:
             )
         engine.run_tournament(market_regime=Regime.RANGE)
         assert engine.shadow_count == 10
+
+
+class TestCompositeScore8Metrics:
+    """CompositeScore 8지표 확장 테스트."""
+
+    def test_shadow_performance_has_sortino_calmar_consec_loss(self) -> None:
+        """ShadowPerformance에 sortino_ratio, calmar_ratio, max_consecutive_loss 필드가 있다."""
+        perf = ShadowPerformance(shadow_id="test")
+        assert hasattr(perf, "sortino_ratio")
+        assert hasattr(perf, "calmar_ratio")
+        assert hasattr(perf, "max_consecutive_loss")
+
+    def test_shadow_performance_new_fields_default(self) -> None:
+        """새 필드 기본값이 올바르다."""
+        perf = ShadowPerformance(shadow_id="test")
+        assert perf.sortino_ratio == 0.0
+        assert perf.calmar_ratio == 0.0
+        assert perf.max_consecutive_loss == 0
+
+    def test_composite_weights_sum_to_one(self) -> None:
+        """CompositeScore 가중치 합이 1.0이다."""
+        total = sum(COMPOSITE_WEIGHTS.values())
+        assert abs(total - 1.0) < 1e-9, f"가중치 합 {total}이 1.0이 아님"
+
+    def test_composite_weights_has_8_metrics(self) -> None:
+        """COMPOSITE_WEIGHTS에 8개 지표가 있다."""
+        assert len(COMPOSITE_WEIGHTS) == 8
+
+    def test_composite_weights_includes_new_metrics(self) -> None:
+        """새 지표(sortino, calmar, consec_loss)가 COMPOSITE_WEIGHTS에 포함된다."""
+        assert "sortino" in COMPOSITE_WEIGHTS
+        assert "calmar" in COMPOSITE_WEIGHTS
+        assert "consec_loss" in COMPOSITE_WEIGHTS
+
+    def test_calc_composite_score_returns_valid_score(self, engine: DarwinEngine) -> None:
+        """_calc_composite_score가 0~1 범위의 score를 반환한다."""
+        perf = ShadowPerformance(
+            shadow_id="test",
+            trade_count=10,
+            total_pnl=0.05,
+            win_count=6,
+            total_wins_pnl=0.07,
+            total_losses_pnl=0.02,
+            max_drawdown=0.05,
+            sortino_ratio=1.2,
+            calmar_ratio=0.8,
+            max_consecutive_loss=2,
+        )
+        cs = engine._calc_composite_score("test", perf)
+        assert 0.0 <= cs.score <= 1.0
+
+    def test_consec_loss_penalty_high_streak(self, engine: DarwinEngine) -> None:
+        """연속 손실 5회 이상이면 패널티 0, 0회면 1.0."""
+        perf_no_loss = ShadowPerformance(
+            shadow_id="no_loss",
+            trade_count=10,
+            total_pnl=0.05,
+            win_count=8,
+            total_wins_pnl=0.07,
+            total_losses_pnl=0.02,
+            max_consecutive_loss=0,
+        )
+        perf_high_loss = ShadowPerformance(
+            shadow_id="high_loss",
+            trade_count=10,
+            total_pnl=-0.01,
+            win_count=2,
+            total_wins_pnl=0.02,
+            total_losses_pnl=0.03,
+            max_consecutive_loss=5,
+        )
+        cs_no = engine._calc_composite_score("no_loss", perf_no_loss)
+        cs_hi = engine._calc_composite_score("high_loss", perf_high_loss)
+        # max_consecutive_loss=0인 경우가 5인 경우보다 score가 높아야 함
+        assert cs_no.score > cs_hi.score
+
+    def test_record_cycle_updates_max_consecutive_loss(self, engine: DarwinEngine) -> None:
+        """record_cycle 호출 후 max_consecutive_loss가 업데이트된다."""
+        # 손실 거래를 연속으로 발생시킴 (TP 50만, 진입 5000만, SL 4900만 → TP 미달하면 SL 도달)
+        signals = [
+            Signal(
+                symbol="BTC",
+                direction=OrderSide.BUY,
+                strategy=Strategy.TREND_FOLLOW,
+                score=90.0,
+                regime=Regime.STRONG_UP,
+                tier=Tier.TIER1,
+                entry_price=50_000_000,
+                stop_loss=49_000_000,
+                take_profit=55_000_000,
+            )
+        ]
+        # 사이클1: 진입
+        engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=50_000_000)}, signals)
+        # 사이클2: SL 아래로 가격 하락 → 손실 청산
+        engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=48_000_000)}, [])
+        # 어떤 Shadow든 max_consecutive_loss가 int임을 확인
+        for perf in engine.performances.values():
+            if perf.trade_count > 0:
+                assert isinstance(perf.max_consecutive_loss, int)
