@@ -89,6 +89,8 @@ class AlertManager:
         if time.time() - last < cooldown:
             return False
 
+        self._last_sent[key] = time.time()
+
         if alert.level == "info":
             self._daily_buffer.append(alert)
             return True
@@ -101,29 +103,25 @@ class AlertManager:
         if not self._pending:
             return []
 
-        criticals = [a for a in self._pending if a.level == "critical"]
-        warnings = [a for a in self._pending if a.level == "warning"]
+        to_send = list(self._pending)
+        self._pending.clear()
+
+        criticals = [a for a in to_send if a.level == "critical"]
+        warnings = [a for a in to_send if a.level == "warning"]
 
         for alert in criticals:
-            key = f"{alert.category}:{alert.level}"
-            self._last_sent[key] = time.time()
             if notifier:
                 await notifier.send(f"**CRITICAL** {alert.message}", channel="system")
 
         if warnings:
-            self._last_sent["warning_batch"] = time.time()
             lines = [f"- {a.message}" for a in warnings]
-            for a in warnings:
-                self._last_sent[f"{a.category}:{a.level}"] = time.time()
             if notifier:
                 await notifier.send(
                     f"**WARNING** ({len(warnings)}건)\n" + "\n".join(lines),
                     channel="system",
                 )
 
-        sent = list(self._pending)
-        self._pending.clear()
-        return sent
+        return to_send
 
     def get_daily_buffer(self) -> list[Alert]:
         """일일 요약용 INFO 알림을 반환하고 비운다."""
