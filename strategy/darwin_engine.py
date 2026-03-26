@@ -228,6 +228,24 @@ class DarwinEngine:
 
         return params
 
+    def _crossover(self, parent_a: ShadowParams, parent_b: ShadowParams) -> ShadowParams:
+        """두 부모의 파라미터를 균등 교차하여 자식을 생성한다.
+
+        Args:
+            parent_a: 첫 번째 부모 파라미터. 비수치 필드(shadow_id, group)의 기준.
+            parent_b: 두 번째 부모 파라미터.
+
+        Returns:
+            각 수치 파라미터가 두 부모 중 하나에서 균등 확률로 선택된 자식 ShadowParams.
+        """
+        child = copy.copy(parent_a)
+        numeric_fields = set(MUTATION_RANGES.keys())
+        for field in dataclasses.fields(ShadowParams):
+            if field.name in numeric_fields:
+                val = getattr(parent_a, field.name) if random.random() < 0.5 else getattr(parent_b, field.name)
+                setattr(child, field.name, val)
+        return child
+
     def record_cycle(
         self,
         snapshots: dict[str, MarketSnapshot],
@@ -387,10 +405,18 @@ class DarwinEngine:
         # 동적 변이율
         mutation_rate = self._get_mutation_rate(market_regime)
 
-        # 부족분을 생존 Shadow에서 변이 생성
+        # 부족분을 생존 Shadow에서 교차(50%) 또는 변이(50%)로 생성
+        survivor_pool = new_shadows[:survive_count] if new_shadows else [self._champion]
         while len(new_shadows) < self._pop_size:
-            parent = random.choice(new_shadows[:survive_count]) if new_shadows else self._champion
-            child = self._mutate(parent, variation=mutation_rate, group="moderate")
+            if len(survivor_pool) >= 2 and random.random() < 0.5:
+                # 교차: 두 부모를 선택한 뒤 uniform crossover → 소폭 변이
+                p_a, p_b = random.sample(survivor_pool, 2)
+                child = self._crossover(p_a, p_b)
+                child = self._mutate(child, variation=mutation_rate * 0.5, group="moderate")
+            else:
+                # 변이: 단일 부모 변이
+                parent = random.choice(survivor_pool)
+                child = self._mutate(parent, variation=mutation_rate, group="moderate")
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
             self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)

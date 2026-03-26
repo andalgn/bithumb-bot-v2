@@ -133,3 +133,62 @@ class TestTopShadows:
             )
         top = engine.get_top_shadows(3)
         assert len(top) <= 3 + 1  # champion 포함 가능
+
+
+class TestCrossover:
+    """crossover 연산자 테스트."""
+
+    def test_crossover_produces_valid_params(self, engine: DarwinEngine) -> None:
+        """crossover는 두 부모 중 하나의 파라미터값을 선택한다."""
+        parent_a = ShadowParams(
+            shadow_id="a",
+            group="conservative",
+            mr_sl_mult=3.0,
+            mr_tp_rr=1.2,
+            dca_sl_pct=0.03,
+            dca_tp_pct=0.02,
+            cutoff=60.0,
+        )
+        parent_b = ShadowParams(
+            shadow_id="b",
+            group="innovative",
+            mr_sl_mult=9.0,
+            mr_tp_rr=3.5,
+            dca_sl_pct=0.07,
+            dca_tp_pct=0.04,
+            cutoff=85.0,
+        )
+        child = engine._crossover(parent_a, parent_b)
+
+        numeric_fields = ["mr_sl_mult", "mr_tp_rr", "dca_sl_pct", "dca_tp_pct", "cutoff"]
+        for field_name in numeric_fields:
+            val = getattr(child, field_name)
+            assert val in (getattr(parent_a, field_name), getattr(parent_b, field_name)), (
+                f"Field {field_name}: {val} not in parents"
+            )
+
+    def test_crossover_preserves_non_numeric_fields(self, engine: DarwinEngine) -> None:
+        """crossover 후 shadow_id, group 등 비파라미터 필드는 parent_a 기준."""
+        parent_a = ShadowParams(shadow_id="parent_a_id", group="conservative")
+        parent_b = ShadowParams(shadow_id="parent_b_id", group="innovative")
+        child = engine._crossover(parent_a, parent_b)
+        assert child.shadow_id == parent_a.shadow_id
+        assert child.group == parent_a.group
+
+    def test_crossover_child_is_different_object(self, engine: DarwinEngine) -> None:
+        """crossover 결과는 부모와 다른 객체여야 한다."""
+        parent_a = ShadowParams(shadow_id="a", group="conservative")
+        parent_b = ShadowParams(shadow_id="b", group="moderate")
+        child = engine._crossover(parent_a, parent_b)
+        assert child is not parent_a
+        assert child is not parent_b
+
+    def test_tournament_population_preserved_with_crossover(self, engine: DarwinEngine) -> None:
+        """crossover 적용 후에도 토너먼트 결과 인구 크기가 유지된다."""
+        for _ in range(10):
+            engine.record_cycle(
+                {"BTC": _make_snapshot()},
+                [_make_signal()],
+            )
+        engine.run_tournament(market_regime=Regime.RANGE)
+        assert engine.shadow_count == 10
