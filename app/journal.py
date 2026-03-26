@@ -64,6 +64,7 @@ class Journal:
                 entry_time INTEGER,
                 exit_time INTEGER,
                 exit_reason TEXT,
+                tag TEXT DEFAULT 'untagged',
                 created_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
@@ -139,6 +140,13 @@ class Journal:
                 created_at INTEGER NOT NULL
             );
         """)
+        # 기존 DB에 tag 컬럼이 없을 경우 마이그레이션
+        try:
+            self._conn.execute("ALTER TABLE trades ADD COLUMN tag TEXT DEFAULT 'untagged'")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # 이미 존재하는 컬럼 — 무시
+
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS health_checks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,8 +177,8 @@ class Journal:
                 entry_price, exit_price, qty, entry_fee_krw, exit_fee_krw,
                 slippage_krw, gross_pnl_krw, net_pnl_krw, net_pnl_pct,
                 hold_seconds, promoted, entry_score, entry_time, exit_time,
-                exit_reason, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                exit_reason, tag, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 trade_id,
                 trade_data.get("symbol", ""),
@@ -193,6 +201,7 @@ class Journal:
                 trade_data.get("entry_time"),
                 trade_data.get("exit_time"),
                 trade_data.get("exit_reason", ""),
+                trade_data.get("tag", "untagged"),
                 now,
             ),
         )

@@ -43,6 +43,7 @@ from strategy.position_manager import PositionManager, SizingResult
 from strategy.promotion_manager import PromotionManager
 from strategy.review_engine import ReviewEngine
 from strategy.rule_engine import RuleEngine
+from strategy.trade_tagger import tag_trade
 from app.health_monitor import HealthMonitor
 
 try:
@@ -1331,30 +1332,40 @@ class TradingBot:
 
         # Journal 기록
         hold_sec = (int(time.time() * 1000) - pos.entry_time) // 1000
-        self._journal.record_trade(
-            {
-                "symbol": symbol,
-                "strategy": pos.strategy.value,
-                "tier": pos.tier.value,
-                "regime": pos.regime.value,
-                "pool": pos.pool.value,
-                "entry_price": pos.entry_price,
-                "exit_price": exit_price,
-                "qty": pos.qty,
-                "entry_fee_krw": total_fee / 2,  # 근사 배분 (저널용)
-                "exit_fee_krw": total_fee / 2,
-                "gross_pnl_krw": gross_pnl,
-                "net_pnl_krw": net_pnl,
-                # net_pnl_pct: 퍼센트 값 (예: 2.5% → 2.5). live_gate에서는 비율(0.025)로 비교.
-                "net_pnl_pct": net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0,
-                "hold_seconds": hold_sec,
-                "promoted": pos.promoted,
-                "entry_score": pos.entry_score,
-                "entry_time": pos.entry_time,
-                "exit_time": int(time.time() * 1000),
-                "exit_reason": exit_reason,
-            }
+        trade_data: dict = {
+            "symbol": symbol,
+            "strategy": pos.strategy.value,
+            "tier": pos.tier.value,
+            "regime": pos.regime.value,
+            "pool": pos.pool.value,
+            "entry_price": pos.entry_price,
+            "exit_price": exit_price,
+            "qty": pos.qty,
+            "entry_fee_krw": total_fee / 2,  # 근사 배분 (저널용)
+            "exit_fee_krw": total_fee / 2,
+            "gross_pnl_krw": gross_pnl,
+            "net_pnl_krw": net_pnl,
+            # net_pnl_pct: 퍼센트 값 (예: 2.5% → 2.5). live_gate에서는 비율(0.025)로 비교.
+            "net_pnl_pct": net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0,
+            "hold_seconds": hold_sec,
+            "promoted": pos.promoted,
+            "entry_score": pos.entry_score,
+            "entry_time": pos.entry_time,
+            "exit_time": int(time.time() * 1000),
+            "exit_reason": exit_reason,
+        }
+        # 거래 결과 태깅 (실패 유형 분류)
+        try:
+            exit_regime_state = self._rule_engine.get_regime_state(symbol)
+            exit_regime_value: str | None = exit_regime_state.current.value if exit_regime_state.current else None
+        except Exception:  # noqa: BLE001
+            exit_regime_value = None
+        trade_data["tag"] = tag_trade(
+            trade_data,
+            entry_regime=pos.regime.value,
+            exit_regime=exit_regime_value,
         )
+        self._journal.record_trade(trade_data)
 
         # 청산 후 정리
         self._exit_manager.remove_position(symbol)

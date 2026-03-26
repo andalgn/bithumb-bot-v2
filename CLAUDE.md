@@ -71,7 +71,8 @@ bithumb_auto_v2/
 │   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
 │   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
-│   └── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
+│   ├── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
+│   └── trade_tagger.py             ← TradeTagger — 거래 결과를 실패 유형으로 분류한다.
 ├── market/
 │   ├── bithumb_api.py              ← 빗썸 REST API 클라이언트.
 │   ├── datafeed.py                 ← 데이터 수집 모듈.
