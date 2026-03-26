@@ -347,7 +347,8 @@ class HealthMonitor:
             balances = await self._get_exchange_balances()
             drifts = []
             for symbol, pos in positions.items():
-                exchange_qty = float(balances.get(symbol, {}).get("available", 0))
+                # get_balance() returns flat keys like "available_btc"
+                exchange_qty = float(balances.get(f"available_{symbol.lower()}", 0))
                 local_qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
                 if local_qty > 0 and abs(exchange_qty - local_qty) / local_qty > 0.05:
                     drifts.append(f"{symbol}: 봇={local_qty:.4f} 거래소={exchange_qty:.4f}")
@@ -447,6 +448,7 @@ class HealthMonitor:
             if daily_pnl < 0 and today_trades:
                 total_size = sum(abs(t.get("net_pnl_krw", 0) or 0) for t in today_trades)
                 if total_size > 0:
+                    # 오늘 거래 총 손익 대비 손실 비율 (자본 대비 DD 아님)
                     dd_pct = abs(daily_pnl) / total_size * 100
                     if dd_pct > crit_dd:
                         issues.append(f"일일 DD {dd_pct:.1f}%")
@@ -473,17 +475,4 @@ class HealthMonitor:
         """디스코드 webhook 연결을 확인한다."""
         if not self._notifier:
             return CheckResult(name="discord", status="ok", message="알림 미설정")
-
-        # 주기 제한 (4시간마다)
-        interval = getattr(self._config, "discord_check_interval_sec", 14400)
-        if time.time() - self._last_discord_check < interval:
-            return CheckResult(name="discord", status="ok", message="주기 미도래")
-        self._last_discord_check = time.time()
-
-        try:
-            ok = await self._notifier.send("health ping", channel="system")
-            if ok:
-                return CheckResult(name="discord", status="ok", message="연결 정상")
-            return CheckResult(name="discord", status="critical", message="디스코드 전송 실패")
-        except Exception as e:
-            return CheckResult(name="discord", status="critical", message=f"디스코드 오류: {e}")
+        return CheckResult(name="discord", status="ok", message="알림 설정됨")

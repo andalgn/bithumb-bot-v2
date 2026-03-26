@@ -226,7 +226,7 @@ class TradingBot:
             config=hm_cfg,
         )
         self._health_monitor._get_bithumb_client = lambda: self._client
-        self._health_monitor._get_exchange_balances = self._client.get_balance
+        self._health_monitor._get_exchange_balances = lambda: self._client.get_balance()
         self._health_monitor._get_positions = lambda: {
             k: {"qty": v.qty}
             for k, v in self._positions.items()
@@ -1483,6 +1483,12 @@ class TradingBot:
             self._daemon_task.cancel()
             try:
                 await self._daemon_task
+            except asyncio.CancelledError:
+                pass
+        if hasattr(self, "_health_task") and not self._health_task.done():
+            self._health_task.cancel()
+            try:
+                await self._health_task
             except asyncio.CancelledError:
                 pass
         await self._backtest_daemon.stop()
