@@ -425,7 +425,8 @@ class Journal:
         cursor = self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
         total += cursor.rowcount
 
-        self._conn.execute("DELETE FROM reflections WHERE created_at < datetime('now', '-90 days')")
+        cursor = self._conn.execute("DELETE FROM reflections WHERE created_at < datetime('now', '-90 days')")
+        total += cursor.rowcount
 
         self._conn.commit()
         if total > 0:
