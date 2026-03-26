@@ -267,3 +267,4 @@ health_monitor:
   daily_dd_critical_pct: 3.0
   alert_cooldown_critical_min: 30
   alert_cooldown_warning_min: 120
+  retention_days: 90

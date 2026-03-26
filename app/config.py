@@ -374,7 +374,16 @@ def load_config(
         strategy_params=raw.get("strategy_params", {}),
         backtest=_build_backtest(raw.get("backtest", {})),
         proxy=raw.get("proxy", "") or os.environ.get("HTTPS_PROXY", ""),
+        health_monitor=_build_health_monitor(raw.get("health_monitor", {})),
     )
+
+
+def _build_health_monitor(raw: dict) -> HealthMonitorConfig:
+    """health_monitor 섹션을 파싱한다."""
+    if not raw:
+        return HealthMonitorConfig()
+    fields = HealthMonitorConfig.__dataclass_fields__
+    return HealthMonitorConfig(**{k: v for k, v in raw.items() if k in fields and v is not None})
 
 
 def _build_backtest(raw: dict) -> BacktestConfig:
