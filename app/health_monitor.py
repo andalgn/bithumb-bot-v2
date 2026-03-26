@@ -169,13 +169,13 @@ class HealthMonitor:
         self._last_heartbeat: float = time.time()
         self._api_consecutive_fails: int = 0
         self._last_reconciliation: float = 0.0
-        self._last_discord_check: float = 0.0
 
         # 외부에서 주입하는 상태 참조
         self._get_last_candle_ts: Callable[[], float] | None = None
         self._get_positions: Callable[[], dict] | None = None
         self._get_exchange_balances: Callable[[], Coroutine[None, None, dict]] | None = None
         self._get_bithumb_client: Callable[[], object] | None = None
+        self._get_equity: Callable[[], float] | None = None
 
     def record_heartbeat(self) -> None:
         """메인 루프에서 매 사이클 호출한다."""
@@ -381,7 +381,7 @@ class HealthMonitor:
             disk_pct = disk.used / disk.total * 100
 
             # WAL 파일 크기
-            wal_path = "data/journal.db-wal"
+            wal_path = (str(self._journal._db_path) + "-wal") if self._journal else "data/journal.db-wal"
             wal_mb = os.path.getsize(wal_path) / (1024 * 1024) if os.path.exists(wal_path) else 0
 
             warn_mem = getattr(self._config, "memory_warn_pct", 70)
@@ -390,18 +390,17 @@ class HealthMonitor:
 
             status: Literal["ok", "warn", "critical"] = "ok"
             issues: list[str] = []
-            severity_order = ["ok", "warn", "critical"]
 
             if disk_pct > crit_disk:
                 issues.append(f"디스크 {disk_pct:.0f}%")
                 status = "critical"
             if mem_pct > warn_mem:
                 issues.append(f"메모리 {mem_pct:.0f}%")
-                if severity_order.index("warn") > severity_order.index(status):
+                if status == "ok":
                     status = "warn"
             if wal_mb > warn_wal:
                 issues.append(f"WAL {wal_mb:.0f}MB")
-                if severity_order.index("warn") > severity_order.index(status):
+                if status == "ok":
                     status = "warn"
 
             if issues:
@@ -434,7 +433,6 @@ class HealthMonitor:
             warn_dd = getattr(self._config, "daily_dd_warn_pct", 2.0)
             crit_dd = getattr(self._config, "daily_dd_critical_pct", 3.0)
 
-            severity_order = ["ok", "warn", "critical"]
             status: Literal["ok", "warn", "critical"] = "ok"
             issues: list[str] = []
 
@@ -446,17 +444,16 @@ class HealthMonitor:
                 status = "warn"
 
             if daily_pnl < 0 and today_trades:
-                total_size = sum(abs(t.get("net_pnl_krw", 0) or 0) for t in today_trades)
-                if total_size > 0:
-                    # 오늘 거래 총 손익 대비 손실 비율 (자본 대비 DD 아님)
-                    dd_pct = abs(daily_pnl) / total_size * 100
+                equity = self._get_equity() if self._get_equity else 0
+                if equity > 0:
+                    dd_pct = abs(daily_pnl) / equity * 100
                     if dd_pct > crit_dd:
                         issues.append(f"일일 DD {dd_pct:.1f}%")
-                        if severity_order.index("critical") > severity_order.index(status):
+                        if status != "critical":
                             status = "critical"
                     elif dd_pct > warn_dd:
                         issues.append(f"일일 DD {dd_pct:.1f}%")
-                        if severity_order.index("warn") > severity_order.index(status):
+                        if status == "ok":
                             status = "warn"
 
             if issues:
@@ -475,4 +472,7 @@ class HealthMonitor:
         """디스코드 webhook 연결을 확인한다."""
         if not self._notifier:
             return CheckResult(name="discord", status="ok", message="알림 미설정")
+        # Verify system channel webhook is configured
+        if not getattr(self._notifier, "_webhooks", {}).get("system"):
+            return CheckResult(name="discord", status="warn", message="system 채널 webhook 미설정")
         return CheckResult(name="discord", status="ok", message="알림 설정됨")

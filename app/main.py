@@ -232,6 +232,7 @@ class TradingBot:
             for k, v in self._positions.items()
         }
         self._health_monitor._get_last_candle_ts = lambda: self._last_candle_ts
+        self._health_monitor._get_equity = lambda: self._pool_manager._total_equity
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
