@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -166,6 +168,8 @@ class HealthMonitor:
         self._running = False
         self._last_heartbeat: float = time.time()
         self._api_consecutive_fails: int = 0
+        self._last_reconciliation: float = 0.0
+        self._last_discord_check: float = 0.0
 
         # 외부에서 주입하는 상태 참조
         self._get_last_candle_ts: Callable[[], float] | None = None
@@ -334,8 +338,6 @@ class HealthMonitor:
         # 주기 제한 (1시간마다)
         now = time.time()
         interval = getattr(self._config, "reconciliation_interval_sec", 3600)
-        if not hasattr(self, "_last_reconciliation"):
-            self._last_reconciliation: float = 0.0
         if now - self._last_reconciliation < interval:
             return CheckResult(name="reconciliation", status="ok", message="주기 미도래")
         self._last_reconciliation = now
@@ -365,9 +367,6 @@ class HealthMonitor:
 
     def _check_system_resources(self) -> CheckResult:
         """CPU/메모리/디스크/WAL 사용량을 확인한다."""
-        import os
-        import shutil
-
         try:
             # 메모리 (psutil 없이 /proc/meminfo 사용)
             with open("/proc/meminfo") as f:
@@ -477,8 +476,6 @@ class HealthMonitor:
 
         # 주기 제한 (4시간마다)
         interval = getattr(self._config, "discord_check_interval_sec", 14400)
-        if not hasattr(self, "_last_discord_check"):
-            self._last_discord_check: float = 0.0
         if time.time() - self._last_discord_check < interval:
             return CheckResult(name="discord", status="ok", message="주기 미도래")
         self._last_discord_check = time.time()
