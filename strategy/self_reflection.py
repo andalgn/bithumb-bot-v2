@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -91,3 +93,36 @@ class ReflectionStore:
             lesson=lesson,
         )
         logger.debug("반성 기록: [%s] %s", tag, lesson)
+
+    def get_weekly_synthesis(self, days: int = 7) -> list[str]:
+        """최근 N일 반성에서 빈도 높은 교훈 Top 5를 반환한다.
+
+        Args:
+            days: 분석 기간 (일)
+
+        Returns:
+            교훈 문자열 목록 (빈도순, 최대 5개)
+        """
+        reflections = self._journal.get_recent_reflections(limit=200)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        lessons: list[str] = []
+        for r in reflections:
+            created_at = r.get("created_at", "")
+            if not created_at:
+                continue
+            try:
+                dt = datetime.fromisoformat(created_at)
+                # created_at이 timezone-naive이면 UTC로 간주
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                if dt < cutoff:
+                    continue
+            except ValueError:
+                continue
+            lesson = r.get("lesson", "")
+            if lesson:
+                lessons.append(lesson)
+
+        counter = Counter(lessons)
+        top5 = [lesson for lesson, _ in counter.most_common(5)]
+        return top5

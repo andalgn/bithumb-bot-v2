@@ -82,6 +82,7 @@ class ReviewEngine:
         deepseek_api_key: str = "",
         deepseek_base_url: str = "https://api.deepseek.com/v1",
         experiment_store: object | None = None,
+        reflection_store: object | None = None,
     ) -> None:
         """초기화.
 
@@ -91,6 +92,7 @@ class ReviewEngine:
             deepseek_api_key: DeepSeek API 키.
             deepseek_base_url: DeepSeek API URL.
             experiment_store: 실험 기록 저장소 (ExperimentStore).
+            reflection_store: 거래 반성 저장소 (ReflectionStore).
         """
         self._journal = journal
         self._notifier = notifier
@@ -101,6 +103,7 @@ class ReviewEngine:
         self._risk_gate: object | None = None  # 외부에서 주입
         self._rule_engine: object | None = None  # 외부에서 주입
         self._experiment_store = experiment_store
+        self._reflection_store = reflection_store
         self._last_daily: str = ""
         self._last_weekly: str = ""
 
@@ -383,6 +386,19 @@ class ReviewEngine:
             worst_strategy=worst[0],
         )
 
+        # 과거 교훈 수집
+        past_lessons: list[str] = []
+        if self._reflection_store:
+            past_lessons = self._reflection_store.get_weekly_synthesis(days=30)
+
+        # 교훈을 프롬프트 첫 부분에 추가
+        lessons_section = ""
+        if past_lessons:
+            lessons_section = "## 과거 학습 교훈 (최근 30일)\n"
+            for i, lesson in enumerate(past_lessons, 1):
+                lessons_section += f"{i}. {lesson}\n"
+            lessons_section += "\n"
+
         # DeepSeek API 호출
         if self._deepseek_key:
             suggestions = await self._call_deepseek(
@@ -393,6 +409,7 @@ class ReviewEngine:
                 mc_mdd=mc_mdd,
                 sensitive_params=sensitive_params,
                 corr_pairs=corr_pairs,
+                lessons_section=lessons_section,
             )
             result.deepseek_suggestions = suggestions
 
@@ -429,6 +446,7 @@ class ReviewEngine:
         mc_mdd: float = 0.0,
         sensitive_params: list[str] | None = None,
         corr_pairs: list | None = None,
+        lessons_section: str = "",
     ) -> list[dict]:
         """DeepSeek API를 호출하여 분석 제안을 받는다."""
         try:
@@ -453,6 +471,7 @@ class ReviewEngine:
         }
 
         prompt = (
+            f"{lessons_section}"
             "아래는 암호화폐 자동매매 봇의 주간 성과 데이터입니다.\n"
             "JSON으로 파라미터 조정 제안을 3개 이내로 해주세요.\n"
             '각 제안: {"param": "파라미터명", "action": "increase/decrease",'

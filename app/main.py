@@ -208,12 +208,16 @@ class TradingBot:
             experiment_store=self._experiment_store,
         )
 
+        # Task 13: ReflectionStore
+        self._reflection_store = ReflectionStore(self._journal)
+
         # Phase 6: ReviewEngine
         self._review_engine = ReviewEngine(
             journal=self._journal,
             notifier=self._notifier,
             deepseek_api_key=config.secrets.deepseek_api_key,
             experiment_store=self._experiment_store,
+            reflection_store=self._reflection_store,
         )
         self._review_engine._risk_gate = self._risk_gate
         self._pilot_remaining: int = 0
@@ -225,9 +229,6 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
         self._last_feedback_inject: tuple | None = None
-
-        # Task 13: ReflectionStore
-        self._reflection_store = ReflectionStore(self._journal)
 
         # HealthMonitor
         self._last_candle_ts: float = 0.0

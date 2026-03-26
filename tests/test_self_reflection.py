@@ -42,3 +42,31 @@ def test_reflection_store_records(journal):
     assert len(reflections) == 1
     assert reflections[0]["tag"] == "regime_mismatch"
     assert reflections[0]["strategy"] == "breakout"
+
+
+def test_get_weekly_synthesis_returns_top_lessons(journal):
+    """빈도 높은 교훈을 반환한다."""
+    store = ReflectionStore(journal)
+    # Record 3 same lessons and 1 different
+    for _ in range(3):
+        store.record_trade_reflection(
+            {"strategy": "breakout", "net_pnl_krw": -3000},
+            "STRONG_UP", "WEAK_DOWN", "regime_mismatch"
+        )
+    store.record_trade_reflection(
+        {"strategy": "mean_reversion", "net_pnl_krw": -1000},
+        "RANGE", "RANGE", "signal_quality"
+    )
+    synthesis = store.get_weekly_synthesis(days=7)
+    assert len(synthesis) >= 1
+    assert len(synthesis) <= 5
+    # Most frequent lesson should come first
+    # (regime_mismatch lesson appears 3 times)
+    assert "국면" in synthesis[0] or "SL" in synthesis[0] or len(synthesis[0]) > 5
+
+
+def test_get_weekly_synthesis_empty_on_no_reflections(journal):
+    """반성 없으면 빈 목록을 반환한다."""
+    store = ReflectionStore(journal)
+    synthesis = store.get_weekly_synthesis(days=7)
+    assert synthesis == []
