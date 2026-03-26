@@ -10,6 +10,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -167,10 +168,10 @@ class HealthMonitor:
         self._api_consecutive_fails: int = 0
 
         # 외부에서 주입하는 상태 참조
-        self._get_last_candle_ts: object | None = None   # () -> float
-        self._get_positions: object | None = None         # () -> dict
-        self._get_exchange_balances: object | None = None # async () -> dict
-        self._get_bithumb_client: object | None = None    # () -> BithumbClient
+        self._get_last_candle_ts: Callable[[], float] | None = None
+        self._get_positions: Callable[[], dict] | None = None
+        self._get_exchange_balances: Callable[[], Coroutine[None, None, dict]] | None = None
+        self._get_bithumb_client: Callable[[], object] | None = None
 
     def record_heartbeat(self) -> None:
         """메인 루프에서 매 사이클 호출한다."""
