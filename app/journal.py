@@ -157,6 +157,19 @@ class Journal:
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS reflections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT,
+                strategy TEXT NOT NULL,
+                regime_entry TEXT NOT NULL,
+                regime_exit TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                reflection_text TEXT NOT NULL,
+                lesson TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
         self._conn.commit()
 
     def record_trade(self, trade_data: dict[str, Any]) -> str:
@@ -350,6 +363,42 @@ class Journal:
             for r in rows
         ]
 
+    def record_reflection(
+        self,
+        trade_id: str,
+        strategy: str,
+        regime_entry: str,
+        regime_exit: str,
+        tag: str,
+        reflection_text: str,
+        lesson: str,
+    ) -> None:
+        """거래 반성 기록을 저장한다."""
+        self._conn.execute(
+            """INSERT INTO reflections
+               (trade_id, strategy, regime_entry, regime_exit, tag, reflection_text, lesson)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (trade_id, strategy, regime_entry, regime_exit, tag, reflection_text, lesson),
+        )
+        self._conn.commit()
+
+    def get_recent_reflections(self, limit: int = 50) -> list[dict]:
+        """최근 반성 기록을 반환한다."""
+        rows = self._conn.execute(
+            """SELECT trade_id, strategy, regime_entry, regime_exit, tag,
+                      reflection_text, lesson, created_at
+               FROM reflections ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "trade_id": r[0], "strategy": r[1],
+                "regime_entry": r[2], "regime_exit": r[3], "tag": r[4],
+                "reflection_text": r[5], "lesson": r[6], "created_at": r[7],
+            }
+            for r in rows
+        ]
+
     def cleanup(self) -> int:
         """90일 지난 데이터를 정리한다.
 
@@ -375,6 +424,8 @@ class Journal:
 
         cursor = self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
         total += cursor.rowcount
+
+        self._conn.execute("DELETE FROM reflections WHERE created_at < datetime('now', '-90 days')")
 
         self._conn.commit()
         if total > 0:

@@ -71,6 +71,7 @@ bithumb_auto_v2/
 │   ├── regime_classifier.py        ← 국면 분류기 — 히스테리시스 적용 국면 판정.
 │   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
 │   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
+│   ├── self_reflection.py          ← SelfReflection — 거래 후 자동 반성 생성 모듈.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
 │   ├── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
 │   └── trade_tagger.py             ← TradeTagger — 거래 결과를 실패 유형으로 분류한다.

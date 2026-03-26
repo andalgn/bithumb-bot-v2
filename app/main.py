@@ -45,6 +45,7 @@ from strategy.review_engine import ReviewEngine
 from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
 from strategy.trade_tagger import tag_trade
+from strategy.self_reflection import ReflectionStore
 from app.health_monitor import HealthMonitor
 
 try:
@@ -224,6 +225,9 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
         self._last_feedback_inject: tuple | None = None
+
+        # Task 13: ReflectionStore
+        self._reflection_store = ReflectionStore(self._journal)
 
         # HealthMonitor
         self._last_candle_ts: float = 0.0
@@ -1399,6 +1403,16 @@ class TradingBot:
             exit_regime=exit_regime_value,
         )
         self._journal.record_trade(trade_data)
+        # 거래 반성 기록
+        try:
+            self._reflection_store.record_trade_reflection(
+                trade=trade_data,
+                entry_regime=pos.regime.value,
+                exit_regime=exit_regime_value or pos.regime.value,
+                tag=trade_data["tag"],
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("반성 기록 실패 — 무시")
 
         # 청산 후 정리
         self._exit_manager.remove_position(symbol)
