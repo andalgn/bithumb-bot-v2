@@ -236,10 +236,16 @@ class BacktestDaemon:
         self.wf_result = self._walk_forward.run(wf_trades)
 
         if self._notifier:
-            msg = (
-                f"<b>Walk-Forward</b>: {self.wf_result.pass_count}/"
-                f"{self.wf_result.total_segments} -> {self.wf_result.verdict}"
-            )
+            if self.wf_result.verdict == "insufficient_data":
+                msg = (
+                    f"**Walk-Forward**: 거래 {len(wf_trades)}건 — "
+                    f"데이터 부족으로 검증 보류"
+                )
+            else:
+                msg = (
+                    f"**Walk-Forward**: {self.wf_result.pass_count}/"
+                    f"{self.wf_result.total_segments} -> {self.wf_result.verdict}"
+                )
             await self._notifier.send(msg, channel="backtest")
 
     async def _run_monte_carlo(self) -> None:

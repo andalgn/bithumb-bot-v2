@@ -212,6 +212,74 @@ PATCHEOF
     patched=1
 }
 
+# ─── server.ts ProxyAgent 체크/패치 ──────────────────────
+check_server_ts() {
+    local dir="$1"
+    local file="$dir/server.ts"
+    if [[ ! -f "$file" ]]; then
+        issues+=("$file: 파일 없음")
+        return 1
+    fi
+    if ! grep -q "ProxyAgent" "$file" 2>/dev/null; then
+        issues+=("$file: REST ProxyAgent 패치 없음")
+        return 1
+    fi
+    return 0
+}
+
+patch_server_ts() {
+    local dir="$1"
+    local file="$dir/server.ts"
+    if [[ ! -f "$file" ]]; then
+        echo "$LOG_TAG server.ts 없음, 스킵: $dir"
+        return
+    fi
+    # 이미 패치되어 있으면 스킵
+    if grep -q "ProxyAgent" "$file" 2>/dev/null; then
+        return
+    fi
+    python3 - "$file" << 'PYEOF'
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    content = f.read()
+
+if 'ProxyAgent' in content:
+    print("server.ts 이미 패치됨")
+    sys.exit(0)
+
+# 1) import 추가: join, sep from 'path' 줄 뒤에
+old_import = "import { join, sep } from 'path'"
+new_import = "import { join, sep } from 'path'\nimport { ProxyAgent } from 'undici'"
+content = content.replace(old_import, new_import, 1)
+
+# 2) Client 생성 앞에 proxyUrl/proxyAgent 선언
+old_client = "const client = new Client({"
+new_client = (
+    "const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || ''\n"
+    "const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined\n\n"
+    "const client = new Client({"
+)
+content = content.replace(old_client, new_client, 1)
+
+# 3) partials 닫는 줄 뒤에 rest 옵션
+old_partials = "  partials: [Partials.Channel],\n})"
+new_partials = "  partials: [Partials.Channel],\n  ...(proxyAgent ? { rest: { agent: proxyAgent } } : {}),\n})"
+content = content.replace(old_partials, new_partials, 1)
+
+with open(sys.argv[1], 'w') as f:
+    f.write(content)
+print("server.ts REST proxy 패치 완료")
+PYEOF
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
+        echo "$LOG_TAG 패치 완료: $file"
+        patched=1
+    else
+        echo "$LOG_TAG 패치 실패: $file"
+    fi
+}
+
 # ─── skip-worktree 보호 체크/적용 ─────────────────────────
 check_skip_worktree() {
     local repo_dir="$PLUGIN_BASE/marketplaces/claude-plugins-official"
@@ -258,6 +326,7 @@ process_dir() {
         check_mcp_json "$dir" || needs_patch=1
         check_package_json "$dir" || needs_patch=1
         check_patch_proxy "$dir" || needs_patch=1
+        check_server_ts "$dir" || needs_patch=1
     fi
 
     if [[ $needs_patch -eq 1 ]]; then
@@ -268,6 +337,7 @@ process_dir() {
             patch_mcp_json "$dir"
             patch_package_json "$dir"
             patch_patch_proxy "$dir"
+            patch_server_ts "$dir"
         fi
     else
         echo "$LOG_TAG $name: 정상"

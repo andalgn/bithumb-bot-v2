@@ -78,6 +78,16 @@ class WalkForward:
             result.verdict = "warning"
             return result
 
+        # 최소 거래수 가드: 세그먼트당 5건 이상 필요
+        min_trades = self._num_segments * 5
+        if len(trades) < min_trades:
+            result.verdict = "insufficient_data"
+            logger.info(
+                "Walk-Forward: 거래 %d건 < 최소 %d건 — 검증 보류",
+                len(trades), min_trades,
+            )
+            return result
+
         for seg in range(self._num_segments):
             train_start = seg * self._slide_days
             train_end = train_start + self._data_days // 2
