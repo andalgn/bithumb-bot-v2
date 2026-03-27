@@ -25,7 +25,7 @@ sizing:
   vol_target_mult_max: 1.5
   defense_mult_min: 0.3
   defense_mult_max: 1.0
-  atr_sizing_enabled: false
+  atr_sizing_enabled: true
   atr_target_pct: 0.01
 score_cutoff:
   group1:
