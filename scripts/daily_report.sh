@@ -12,6 +12,9 @@ cd "$PROJECT_ROOT"
 # 가상환경 활성화
 source venv/bin/activate
 
+# claude CLI PATH 추가 (cron의 기본 PATH에는 없음)
+export PATH="/home/bythejune/.local/bin:$PATH"
+
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 echo "[$TIMESTAMP] daily_report.sh started" | tee "$LOG_FILE"
 

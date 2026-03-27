@@ -71,10 +71,15 @@ def _send_webhook(url: str, content: str) -> None:
     """Discord 웹훅에 메시지를 POST한다."""
     import httpx  # httpx는 requirements.txt에 포함돼 있다
 
-    proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
-    proxies = {"http://": proxy_url, "https://": proxy_url} if proxy_url else None
+    proxy_url = (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+        or None
+    )
 
-    with httpx.Client(proxies=proxies, timeout=30) as client:
+    with httpx.Client(proxy=proxy_url, timeout=30) as client:
         resp = client.post(url, json={"content": content})
         resp.raise_for_status()
 
@@ -109,8 +114,11 @@ def main() -> int:
         return 0
 
     try:
-        for chunk in chunks:
+        import time
+        for i, chunk in enumerate(chunks):
             _send_webhook(webhook_url, chunk)
+            if i < len(chunks) - 1:
+                time.sleep(0.5)  # Discord rate-limit 방지
         print(f"sent {len(chunks)} chunks")
         return 0
     except Exception as exc:  # noqa: BLE001
