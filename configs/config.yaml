@@ -276,9 +276,9 @@ health_monitor:
   auto_fix_win_rate_threshold: 0.30
   auto_fix_min_trades: 10
 momentum_ranking:
-  enabled: false
+  enabled: true
   top_n: 10
 coin_universe:
-  enabled: false
+  enabled: true
   top_n: 20
   refresh_hour: 0
