@@ -46,6 +46,7 @@ from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
 from strategy.trade_tagger import tag_trade
 from strategy.self_reflection import ReflectionStore
+from strategy.momentum_ranker import MomentumRanker
 from app.health_monitor import HealthMonitor
 
 try:
@@ -229,6 +230,9 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
         self._last_feedback_inject: tuple | None = None
+
+        # MomentumRanker
+        self._momentum_ranker = MomentumRanker()
 
         # HealthMonitor
         self._last_candle_ts: float = 0.0
@@ -651,13 +655,28 @@ class TradingBot:
                 if core_pos:
                     self._positions[symbol] = core_pos.position
 
+        # 모멘텀 랭킹 적용
+        mr_cfg = self._config.momentum_ranking
+        coins_to_process: list[str] = list(self._coins)
+        if mr_cfg.enabled and data.snapshots:
+            candles_map = {
+                sym: data.snapshots[sym].candles_1h
+                for sym in self._coins
+                if data.snapshots.get(sym) and data.snapshots[sym].candles_1h
+            }
+            if candles_map:
+                ranked = self._momentum_ranker.rank(candles_map)
+                coins_to_process = ranked[: mr_cfg.top_n]
+                logger.debug("모멘텀 랭킹 적용: %s", coins_to_process)
+
         # 신호 생성
         if self._paused:
             logger.info("봇 일시 중지 중 — 신규 진입 스킵")
             signals = []
         else:
+            filtered_snapshots = {sym: snapshots[sym] for sym in coins_to_process if sym in snapshots}
             signals = self._rule_engine.generate_signals(
-                snapshots,
+                filtered_snapshots,
                 paper_test=self._paper_test,
             )
 

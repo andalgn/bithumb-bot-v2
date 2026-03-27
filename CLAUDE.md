@@ -65,6 +65,7 @@ bithumb_auto_v2/
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── feedback_loop.py            ← FeedbackLoop — 거래 실패 패턴을 집계하고 가설을 생성한다.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
+│   ├── momentum_ranker.py          ← MomentumRanker — 코인 간 횡단면 모멘텀 점수 계산 및 순위 결정.
 │   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
 │   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
 │   ├── promotion_manager.py        ← 승격/강등 시스템.

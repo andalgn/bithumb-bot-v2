@@ -220,6 +220,14 @@ class HealthMonitorConfig:
     auto_fix_min_trades: int = 10
 
 
+@dataclass(frozen=True)
+class MomentumRankingConfig:
+    """모멘텀 랭킹 설정."""
+
+    enabled: bool = False
+    top_n: int = 10
+
+
 @dataclass
 class AppConfig:
     """애플리케이션 전체 설정."""
@@ -241,6 +249,7 @@ class AppConfig:
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     proxy: str = ""
     health_monitor: HealthMonitorConfig = field(default_factory=HealthMonitorConfig)
+    momentum_ranking: MomentumRankingConfig = field(default_factory=MomentumRankingConfig)
 
 
 def _load_env() -> EnvSecrets:
@@ -379,6 +388,7 @@ def load_config(
         backtest=_build_backtest(raw.get("backtest", {})),
         proxy=raw.get("proxy", "") or os.environ.get("HTTPS_PROXY", ""),
         health_monitor=_build_health_monitor(raw.get("health_monitor", {})),
+        momentum_ranking=_build_momentum_ranking(raw.get("momentum_ranking", {})),
     )
 
 
@@ -388,6 +398,13 @@ def _build_health_monitor(raw: dict) -> HealthMonitorConfig:
         return HealthMonitorConfig()
     fields = HealthMonitorConfig.__dataclass_fields__
     return HealthMonitorConfig(**{k: v for k, v in raw.items() if k in fields and v is not None})
+
+
+def _build_momentum_ranking(raw: dict) -> MomentumRankingConfig:
+    """momentum_ranking 섹션을 파싱한다."""
+    if not raw:
+        return MomentumRankingConfig()
+    return MomentumRankingConfig(**{k: v for k, v in raw.items() if v is not None})
 
 
 def _build_backtest(raw: dict) -> BacktestConfig:
