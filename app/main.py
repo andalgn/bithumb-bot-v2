@@ -819,6 +819,8 @@ class TradingBot:
                     weekly_dd_pct=weekly_dd,
                     candles_1h=data.snapshots[signal.symbol].candles_1h,
                     pilot_mult=self._pilot_size_mult,
+                    ind_1h=data.indicators_1h.get(signal.symbol),
+                    current_price=data.current_prices.get(signal.symbol, 0.0),
                 )
 
             # LIVE 전환 첫 7일: risk_pct 50% 축소

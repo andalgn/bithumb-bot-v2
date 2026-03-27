@@ -79,6 +79,8 @@ class PositionManager:
         weekly_dd_pct: float = 0.0,
         candles_1h: list[Candle] | None = None,
         pilot_mult: float = 1.0,
+        ind_1h: object | None = None,
+        current_price: float = 0.0,
     ) -> SizingResult:
         """Active Pool 사이징을 계산한다.
 
@@ -110,10 +112,14 @@ class PositionManager:
         score_mult = SCORE_MULT.get(size_decision, 1.0)
         detail["score_mult"] = score_mult
 
-        vol_target_mult = self._calc_vol_target_mult(candles_1h)
-        detail["vol_target_mult"] = vol_target_mult
+        if self._cfg.atr_sizing_enabled and ind_1h is not None and current_price > 0:
+            sizing_mult = self._calc_atr_mult(ind_1h, current_price)
+            detail["atr_mult"] = sizing_mult
+        else:
+            sizing_mult = self._calc_vol_target_mult(candles_1h)
+            detail["vol_target_mult"] = sizing_mult
 
-        opportunity = base * tier_mult * score_mult * vol_target_mult
+        opportunity = base * tier_mult * score_mult * sizing_mult
         detail["opportunity"] = opportunity
 
         # ─── 2단계: 방어 조정 ───
@@ -163,6 +169,8 @@ class PositionManager:
         regime: Regime,
         weekly_dd_pct: float = 0.0,
         candles_1h: list[Candle] | None = None,
+        ind_1h: object | None = None,
+        current_price: float = 0.0,
     ) -> SizingResult:
         """Core Pool 사이징을 계산한다 (승격/추가매수용).
 
@@ -184,10 +192,14 @@ class PositionManager:
         tier_mult = tier_params.position_mult
         detail["tier_mult"] = tier_mult
 
-        vol_target_mult = self._calc_vol_target_mult(candles_1h)
-        detail["vol_target_mult"] = vol_target_mult
+        if self._cfg.atr_sizing_enabled and ind_1h is not None and current_price > 0:
+            sizing_mult = self._calc_atr_mult(ind_1h, current_price)
+            detail["atr_mult"] = sizing_mult
+        else:
+            sizing_mult = self._calc_vol_target_mult(candles_1h)
+            detail["vol_target_mult"] = sizing_mult
 
-        opportunity = base * tier_mult * vol_target_mult
+        opportunity = base * tier_mult * sizing_mult
         detail["opportunity"] = opportunity
 
         regime_mult = REGIME_DEFENSE_MULT.get(regime, 1.0)
@@ -251,6 +263,26 @@ class PositionManager:
         target_vol = 0.02  # 목표 변동성 2%
         mult = target_vol / realized_vol
 
+        return max(self._cfg.vol_target_mult_min, min(self._cfg.vol_target_mult_max, mult))
+
+    def _calc_atr_mult(self, ind_1h: object | None, current_price: float) -> float:
+        """ATR 기반 사이징 배수를 계산한다.
+
+        atr_target_pct / 실제_ATR_pct 로 배수를 구한다.
+        목표 변동성(atr_target_pct=1%)보다 ATR이 크면 포지션 축소, 작으면 확대.
+        """
+        if ind_1h is None or current_price <= 0:
+            return 1.0
+        atr = getattr(ind_1h, "atr", np.array([]))
+        if len(atr) == 0:
+            return 1.0
+        valid = atr[~np.isnan(atr)]
+        if len(valid) == 0:
+            return 1.0
+        atr_pct = float(valid[-1]) / current_price
+        if atr_pct <= 0:
+            return 1.0
+        mult = self._cfg.atr_target_pct / atr_pct
         return max(self._cfg.vol_target_mult_min, min(self._cfg.vol_target_mult_max, mult))
 
     def _calc_dd_mult(self, weekly_dd_pct: float) -> float:
