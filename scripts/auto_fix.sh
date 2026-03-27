@@ -34,6 +34,16 @@ fi
 STRATEGY="$1"
 REASON="$2"
 
+# 입력값 검증 — 알파벳/숫자/밑줄/하이픈만 허용 (경로 탐색 및 인젝션 방지)
+if ! [[ "${STRATEGY}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "[auto_fix] ERROR: STRATEGY에 허용되지 않는 문자 포함: '${STRATEGY}'" >&2
+    exit 1
+fi
+if ! [[ "${REASON}" =~ ^[a-zA-Z0-9_%.-]+$ ]]; then
+    echo "[auto_fix] ERROR: REASON에 허용되지 않는 문자 포함: '${REASON}'" >&2
+    exit 1
+fi
+
 log() {
     echo "[auto_fix][$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
@@ -214,6 +224,8 @@ ${PLAN}
         log "테스트 통과. 커밋 생성."
         git add -A
         git commit -m "fix: auto-optimize ${STRATEGY} — ${REASON}" || true
+        mkdir -p "${DATA_DIR}"
+        date +%s > "${TS_FILE}"
         send_discord "🔀 auto-fix 브랜치 생성됨 (인간 리뷰 필요): ${BRANCH_NAME} — ${STRATEGY} / ${REASON}"
         git checkout main
         log "브랜치 ${BRANCH_NAME} 생성 완료. main으로 복귀."
