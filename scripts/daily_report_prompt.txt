@@ -21,12 +21,12 @@ ts_7d_ms   = int((now - datetime.timedelta(days=7)).timestamp() * 1000)
 cur.execute("SELECT * FROM health_checks WHERE created_at >= ? ORDER BY created_at DESC", (ts_24h_iso,))
 health_rows = cur.fetchall()
 
-# trades last 24h (entry_time is Unix ms)
-cur.execute("SELECT * FROM trades WHERE entry_time >= ? ORDER BY entry_time DESC", (ts_24h_ms,))
+# trades last 24h — filter by exit_time to get completed trades with PnL
+cur.execute("SELECT * FROM trades WHERE exit_time >= ? AND exit_time IS NOT NULL ORDER BY exit_time DESC", (ts_24h_ms,))
 trades_24h = cur.fetchall()
 
-# trades last 7d (for strategy breakdown)
-cur.execute("SELECT * FROM trades WHERE entry_time >= ? ORDER BY entry_time DESC", (ts_7d_ms,))
+# trades last 7d (for strategy breakdown) — same: completed trades only
+cur.execute("SELECT * FROM trades WHERE exit_time >= ? AND exit_time IS NOT NULL ORDER BY exit_time DESC", (ts_7d_ms,))
 trades_7d = cur.fetchall()
 
 # reflections last 7d (created_at is ISO text)

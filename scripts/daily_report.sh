@@ -6,6 +6,7 @@ set -euo pipefail
 
 PROJECT_ROOT="/home/bythejune/projects/bithumb-bot-v2"
 LOG_FILE="/tmp/daily_report_last.log"
+CLAUDE_LOG="/tmp/daily_report_claude.log"
 
 cd "$PROJECT_ROOT"
 
@@ -23,7 +24,7 @@ REPORT="$(claude -p "$(cat scripts/daily_report_prompt.txt)" \
     --model sonnet \
     --allowedTools "Read,Grep,Glob,Bash(python3 *)" \
     --output-format text \
-    2>/dev/null || true)"
+    2>"${CLAUDE_LOG}" || true)"
 
 if [ -z "$REPORT" ]; then
     echo "[$TIMESTAMP] warning: claude -p produced no output" | tee -a "$LOG_FILE"

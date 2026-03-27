@@ -14,8 +14,8 @@
 
 set -euo pipefail
 
-# 경로 B에서 예기치 않은 종료 시 main으로 복귀 보장
-trap 'git -C "${PROJECT_ROOT}" checkout main 2>/dev/null || true' EXIT
+# 예기치 않은 종료 시 안전 복구: main 복귀 + 수정된 파일 롤백
+trap 'cd "${PROJECT_ROOT}" && git checkout main 2>/dev/null || true; git checkout -- configs/config.yaml 2>/dev/null || true' EXIT
 
 # ─── 상수 ──────────────────────────────────────────────────────────────────────
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
