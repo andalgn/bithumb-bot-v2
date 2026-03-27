@@ -103,6 +103,7 @@ bithumb_auto_v2/
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
+    ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.
     └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
 ├── configs/
 │   └── config.yaml              ← 통합 설정

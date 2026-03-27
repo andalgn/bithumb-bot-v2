@@ -1,0 +1,78 @@
+You are a crypto trading bot analyst. Read the following SQLite database and generate a daily Discord-formatted report.
+
+## Step 1: Read the database
+
+The database is at `data/journal.db`. Read these tables using Python:
+
+```python
+import sqlite3, datetime
+conn = sqlite3.connect("data/journal.db")
+conn.row_factory = sqlite3.Row
+cur = conn.cursor()
+
+now = datetime.datetime.utcnow()
+ts_24h = (now - datetime.timedelta(hours=24)).isoformat()
+ts_7d  = (now - datetime.timedelta(days=7)).isoformat()
+
+# health_checks last 24h
+cur.execute("SELECT * FROM health_checks WHERE timestamp >= ? ORDER BY timestamp DESC", (ts_24h,))
+health_rows = cur.fetchall()
+
+# trades last 24h
+cur.execute("SELECT * FROM trades WHERE opened_at >= ? ORDER BY opened_at DESC", (ts_24h,))
+trades_24h = cur.fetchall()
+
+# trades last 7d (for strategy breakdown)
+cur.execute("SELECT * FROM trades WHERE opened_at >= ? ORDER BY opened_at DESC", (ts_7d,))
+trades_7d = cur.fetchall()
+
+# reflections last 7d (failure tags)
+cur.execute("SELECT * FROM reflections WHERE created_at >= ? ORDER BY created_at DESC", (ts_7d,))
+reflections_7d = cur.fetchall()
+
+conn.close()
+```
+
+Also check for recent log files: look in `data/` and `logs/` for `*.log` files modified in the last 24 hours (use Glob or Bash). Read up to 100 lines from the end of any found log files.
+
+## Step 2: Generate the report
+
+Produce a Discord markdown report using EXACTLY this structure. Replace placeholders with actual computed values. Keep total length under 2000 characters.
+
+---
+## 일일 리포트 {TODAY_DATE_KST} (KST)
+
+**🩺 건강 점수 24h 추이**
+- 샘플 수: {health_count}
+- 최저 / 평균 / 최고: {min_score} / {avg_score:.1f} / {max_score}
+- 판정 분포: {verdict_distribution}  (예: OK×12 WARN×3 CRIT×0)
+
+**📊 거래 요약 (최근 24h)**
+- 총 거래: {trade_count_24h}건  |  승률: {win_rate_24h:.0f}%
+- 총 PnL: {total_pnl_krw:+,.0f} KRW
+- Profit Factor: {profit_factor:.2f}  (없으면 N/A)
+
+**🧩 전략별 성과 (최근 7d)**
+{strategy_table}
+(형식: `전략명: N건 WR=XX%`)
+
+**⚠️ 이상 패턴 (최근 7d)**
+{top_failure_tags}
+(형식: `태그명: N회`)
+이상 없으면 "없음" 표시
+
+**🖥️ 시스템 상태**
+- 최근 판정: {latest_verdict}  |  점수: {latest_score}
+- DB 거래 총 누적: {total_trade_count}건
+---
+
+Rules:
+- Use actual numbers from the database. If a table is empty or missing, show "데이터 없음".
+- For trades: pnl field may be named `pnl`, `realized_pnl`, or `pnl_krw` — check column names first.
+- For trades: a win is pnl > 0. Win rate = wins / total * 100.
+- Profit factor = sum(positive pnl) / abs(sum(negative pnl)); if no losses, write "∞".
+- For strategy table: group trades_7d by `strategy` column (or `strategy_name`).
+- For failure tags: the `reflections` table may have a `failure_tag` or `tags` column — check first. Count occurrences, show top 5.
+- If `reflections` table doesn't exist, write "없음" for anomaly section.
+- Do NOT include any text outside the report block above.
+- Output ONLY the report. No explanations, no code, no preamble.
