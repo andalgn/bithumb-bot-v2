@@ -59,6 +59,7 @@ bithumb_auto_v2/
 ├── strategy/
 │   ├── auto_researcher.py          ← AutoResearcher — 자율 전략 실험 엔진.
 │   ├── coin_profiler.py            ← 코인 프로파일러 — 자동 Tier 분류.
+│   ├── coin_universe.py            ← CoinUniverse — 빗썸 거래량 기준 동적 코인 유니버스 관리.
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
 │   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
