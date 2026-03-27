@@ -278,3 +278,7 @@ health_monitor:
 momentum_ranking:
   enabled: false
   top_n: 10
+coin_universe:
+  enabled: false
+  top_n: 20
+  refresh_hour: 0

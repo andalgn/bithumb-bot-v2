@@ -46,6 +46,7 @@ from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
 from strategy.trade_tagger import tag_trade
 from strategy.self_reflection import ReflectionStore
+from strategy.coin_universe import CoinUniverse
 from strategy.momentum_ranker import MomentumRanker
 from app.health_monitor import HealthMonitor
 
@@ -102,6 +103,12 @@ class TradingBot:
         )
 
         self._datafeed = DataFeed(self._client, self._coins)
+        self._coin_universe = CoinUniverse(
+            client=self._client,
+            top_n=config.coin_universe.top_n,
+            base_coins=list(config.coins),
+        )
+        self._last_universe_refresh_hour: int = -1
         self._market_store = MarketStore(db_path="data/market_data.db")
         self._journal = Journal(db_path="data/journal.db")
         self._storage = StateStorage(path="data/app_state.json")
@@ -1174,6 +1181,19 @@ class TradingBot:
         logger.info("=" * 40)
         logger.info("사이클 #%d 시작 [%s]", self._cycle_count, self._run_mode.value)
 
+        # 동적 코인 유니버스 갱신 (enabled + 갱신 시각 도달 시)
+        if self._config.coin_universe.enabled:
+            import datetime
+            now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+            if (now_kst.hour == self._config.coin_universe.refresh_hour
+                    and self._last_universe_refresh_hour != now_kst.hour):
+                new_coins = await self._coin_universe.refresh()
+                if new_coins:
+                    self._coins = new_coins
+                    self._datafeed.update_coins(new_coins)
+                    self._last_universe_refresh_hour = now_kst.hour
+                    logger.info("코인 유니버스 갱신: %s", new_coins)
+
         data = await self._fetch_market_data()
         signals = self._evaluate_signals(data)
         await self._manage_open_positions(data)
@@ -1535,6 +1555,14 @@ class TradingBot:
 
         if _sd_notifier:
             _sd_notifier.notify("READY=1")
+
+        # 동적 코인 유니버스 초기화
+        if self._config.coin_universe.enabled:
+            initial_coins = await self._coin_universe.refresh()
+            if initial_coins:
+                self._coins = initial_coins
+                self._datafeed.update_coins(initial_coins)
+                logger.info("초기 코인 유니버스: %s", initial_coins)
 
         while self._running:
             try:

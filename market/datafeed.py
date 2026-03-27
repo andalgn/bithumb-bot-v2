@@ -110,6 +110,14 @@ class DataFeed:
             asks=asks,
         )
 
+    def update_coins(self, coins: list[str]) -> None:
+        """거래 대상 코인 목록을 갱신한다.
+
+        Args:
+            coins: 새 코인 목록.
+        """
+        self._coins = list(coins)
+
     async def get_candles(self, coin: str, interval: str) -> list[Candle]:
         """캔들 데이터를 조회한다 (캐시 적용).
 

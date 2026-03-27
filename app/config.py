@@ -228,6 +228,15 @@ class MomentumRankingConfig:
     top_n: int = 10
 
 
+@dataclass(frozen=True)
+class CoinUniverseConfig:
+    """동적 코인 유니버스 설정."""
+
+    enabled: bool = False
+    top_n: int = 20
+    refresh_hour: int = 0
+
+
 @dataclass
 class AppConfig:
     """애플리케이션 전체 설정."""
@@ -250,6 +259,7 @@ class AppConfig:
     proxy: str = ""
     health_monitor: HealthMonitorConfig = field(default_factory=HealthMonitorConfig)
     momentum_ranking: MomentumRankingConfig = field(default_factory=MomentumRankingConfig)
+    coin_universe: CoinUniverseConfig = field(default_factory=CoinUniverseConfig)
 
 
 def _load_env() -> EnvSecrets:
@@ -389,6 +399,7 @@ def load_config(
         proxy=raw.get("proxy", "") or os.environ.get("HTTPS_PROXY", ""),
         health_monitor=_build_health_monitor(raw.get("health_monitor", {})),
         momentum_ranking=_build_momentum_ranking(raw.get("momentum_ranking", {})),
+        coin_universe=_build_coin_universe(raw.get("coin_universe", {})),
     )
 
 
@@ -405,6 +416,13 @@ def _build_momentum_ranking(raw: dict) -> MomentumRankingConfig:
     if not raw:
         return MomentumRankingConfig()
     return MomentumRankingConfig(**{k: v for k, v in raw.items() if v is not None})
+
+
+def _build_coin_universe(raw: dict) -> CoinUniverseConfig:
+    """coin_universe 섹션을 파싱한다."""
+    if not raw:
+        return CoinUniverseConfig()
+    return CoinUniverseConfig(**{k: v for k, v in raw.items() if v is not None})
 
 
 def _build_backtest(raw: dict) -> BacktestConfig:
