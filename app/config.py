@@ -415,14 +415,20 @@ def _build_momentum_ranking(raw: dict) -> MomentumRankingConfig:
     """momentum_ranking 섹션을 파싱한다."""
     if not raw:
         return MomentumRankingConfig()
-    return MomentumRankingConfig(**{k: v for k, v in raw.items() if v is not None})
+    fields = MomentumRankingConfig.__dataclass_fields__
+    cfg = MomentumRankingConfig(**{k: v for k, v in raw.items() if k in fields and v is not None})
+    # top_n=0이면 모든 신호가 차단되므로 최소 1 보장
+    if cfg.top_n < 1:
+        cfg = MomentumRankingConfig(enabled=cfg.enabled, top_n=1)
+    return cfg
 
 
 def _build_coin_universe(raw: dict) -> CoinUniverseConfig:
     """coin_universe 섹션을 파싱한다."""
     if not raw:
         return CoinUniverseConfig()
-    return CoinUniverseConfig(**{k: v for k, v in raw.items() if v is not None})
+    fields = CoinUniverseConfig.__dataclass_fields__
+    return CoinUniverseConfig(**{k: v for k, v in raw.items() if k in fields and v is not None})
 
 
 def _build_backtest(raw: dict) -> BacktestConfig:

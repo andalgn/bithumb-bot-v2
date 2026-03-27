@@ -1184,7 +1184,7 @@ class TradingBot:
         # 동적 코인 유니버스 갱신 (enabled + 갱신 시각 도달 시)
         if self._config.coin_universe.enabled:
             import datetime
-            now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+            now_kst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
             if (now_kst.hour == self._config.coin_universe.refresh_hour
                     and self._last_universe_refresh_hour != now_kst.hour):
                 new_coins = await self._coin_universe.refresh()
