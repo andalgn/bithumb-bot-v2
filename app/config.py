@@ -31,6 +31,8 @@ class SizingConfig:
     vol_target_mult_max: float = 1.5
     defense_mult_min: float = 0.3
     defense_mult_max: float = 1.0
+    atr_sizing_enabled: bool = False
+    atr_target_pct: float = 0.01
 
 
 @dataclass(frozen=True)
