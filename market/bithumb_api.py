@@ -305,6 +305,20 @@ class BithumbClient:
         """
         return await self._public_request(f"/public/ticker/{coin}_KRW")
 
+    async def get_all_tickers(self) -> dict[str, dict]:
+        """전체 KRW 마켓 현재가 및 거래량을 조회한다.
+
+        Returns:
+            {심볼: {acc_trade_value_24H: 거래대금, ...}} 딕셔너리.
+            오류 시 빈 딕셔너리 반환.
+        """
+        try:
+            data = await self._public_request("/public/ticker/ALL_KRW")
+            return {k: v for k, v in data.items() if k != "date" and isinstance(v, dict)}
+        except Exception:  # noqa: BLE001
+            logger.exception("get_all_tickers 실패")
+            return {}
+
     async def get_orderbook(self, coin: str) -> dict[str, Any]:
         """호가창을 조회한다.
 
