@@ -11,23 +11,26 @@ conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
 now = datetime.datetime.utcnow()
-ts_24h = (now - datetime.timedelta(hours=24)).isoformat()
-ts_7d  = (now - datetime.timedelta(days=7)).isoformat()
+ts_24h_iso = (now - datetime.timedelta(hours=24)).isoformat()
+ts_7d_iso  = (now - datetime.timedelta(days=7)).isoformat()
+# entry_time / exit_time in trades table are Unix milliseconds
+ts_24h_ms  = int((now - datetime.timedelta(hours=24)).timestamp() * 1000)
+ts_7d_ms   = int((now - datetime.timedelta(days=7)).timestamp() * 1000)
 
-# health_checks last 24h
-cur.execute("SELECT * FROM health_checks WHERE timestamp >= ? ORDER BY timestamp DESC", (ts_24h,))
+# health_checks last 24h (created_at is ISO text)
+cur.execute("SELECT * FROM health_checks WHERE created_at >= ? ORDER BY created_at DESC", (ts_24h_iso,))
 health_rows = cur.fetchall()
 
-# trades last 24h
-cur.execute("SELECT * FROM trades WHERE opened_at >= ? ORDER BY opened_at DESC", (ts_24h,))
+# trades last 24h (entry_time is Unix ms)
+cur.execute("SELECT * FROM trades WHERE entry_time >= ? ORDER BY entry_time DESC", (ts_24h_ms,))
 trades_24h = cur.fetchall()
 
 # trades last 7d (for strategy breakdown)
-cur.execute("SELECT * FROM trades WHERE opened_at >= ? ORDER BY opened_at DESC", (ts_7d,))
+cur.execute("SELECT * FROM trades WHERE entry_time >= ? ORDER BY entry_time DESC", (ts_7d_ms,))
 trades_7d = cur.fetchall()
 
-# reflections last 7d (failure tags)
-cur.execute("SELECT * FROM reflections WHERE created_at >= ? ORDER BY created_at DESC", (ts_7d,))
+# reflections last 7d (created_at is ISO text)
+cur.execute("SELECT * FROM reflections WHERE created_at >= ? ORDER BY created_at DESC", (ts_7d_iso,))
 reflections_7d = cur.fetchall()
 
 conn.close()
@@ -37,7 +40,7 @@ Also check for recent log files: look in `data/` and `logs/` for `*.log` files m
 
 ## Step 2: Generate the report
 
-Produce a Discord markdown report using EXACTLY this structure. Replace placeholders with actual computed values. Keep total length under 2000 characters.
+Produce a Discord markdown report using EXACTLY this structure. Replace placeholders with actual computed values. Write a complete, detailed report — it will be split into Discord messages automatically.
 
 ---
 ## 일일 리포트 {TODAY_DATE_KST} (KST)
@@ -68,11 +71,11 @@ Produce a Discord markdown report using EXACTLY this structure. Replace placehol
 
 Rules:
 - Use actual numbers from the database. If a table is empty or missing, show "데이터 없음".
-- For trades: pnl field may be named `pnl`, `realized_pnl`, or `pnl_krw` — check column names first.
+- For trades: the PnL field is `net_pnl_krw` (net profit/loss in KRW after fees).
 - For trades: a win is pnl > 0. Win rate = wins / total * 100.
 - Profit factor = sum(positive pnl) / abs(sum(negative pnl)); if no losses, write "∞".
-- For strategy table: group trades_7d by `strategy` column (or `strategy_name`).
-- For failure tags: the `reflections` table may have a `failure_tag` or `tags` column — check first. Count occurrences, show top 5.
+- For strategy table: group trades_7d by `strategy` column.
+- For failure tags: the `reflections` table has a `tag` column (values: winner, external, regime_mismatch, timing_error, sizing_error, signal_quality). Count occurrences, exclude 'winner', show top 5.
 - If `reflections` table doesn't exist, write "없음" for anomaly section.
 - Do NOT include any text outside the report block above.
 - Output ONLY the report. No explanations, no code, no preamble.
