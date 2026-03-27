@@ -464,13 +464,11 @@ class HealthMonitor:
             seven_days_ago = time.time() - 7 * 86400
 
             try:
-                recent200 = self._journal.get_recent_trades(limit=200)
+                recent7d = self._journal.get_trades_since(int(seven_days_ago))
                 strategy_trades: dict[str, list[dict]] = {}
-                for t in recent200:
+                for t in recent7d:
                     strategy = t.get("strategy", "unknown")
-                    exit_ts = (t.get("exit_time", 0) or 0) / 1000
-                    if exit_ts > seven_days_ago:
-                        strategy_trades.setdefault(strategy, []).append(t)
+                    strategy_trades.setdefault(strategy, []).append(t)
 
                 for strategy, strades in strategy_trades.items():
                     if len(strades) >= min_trades:

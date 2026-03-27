@@ -14,11 +14,16 @@
 
 set -euo pipefail
 
+# 경로 B에서 예기치 않은 종료 시 main으로 복귀 보장
+trap 'git -C "${PROJECT_ROOT}" checkout main 2>/dev/null || true' EXIT
+
 # ─── 상수 ──────────────────────────────────────────────────────────────────────
-CLAUDE_BIN="/home/bythejune/.local/bin/claude"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/data"
 SCRIPT_DIR="${PROJECT_ROOT}/scripts"
+CLAUDE_BIN="/home/bythejune/.local/bin/claude"
+PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python3"  # httpx 등 의존성이 venv에 설치됨
+export PATH="/home/bythejune/.local/bin:$PATH"  # claude CLI PATH
 
 # ─── 인수 검증 ─────────────────────────────────────────────────────────────────
 if [[ $# -lt 2 ]]; then
@@ -35,7 +40,7 @@ log() {
 
 send_discord() {
     local msg="$1"
-    echo "$msg" | python3 "${SCRIPT_DIR}/send_discord_report.py" || true
+    echo "$msg" | "${PYTHON_BIN}" "${SCRIPT_DIR}/send_discord_report.py" || true
 }
 
 log "시작: STRATEGY=${STRATEGY} REASON=${REASON}"
@@ -76,10 +81,10 @@ configs/config.yaml만 수정하는 경우 type='param', 코드 파일을 수정
 보수적으로 판단하세요 — param 변경으로 해결 가능하면 type='param'을 사용하세요."
 
 PLAN=$("${CLAUDE_BIN}" -p "${OPUS_PROMPT}" \
-    --model claude-opus-4-5 \
+    --model opus \
     --allowedTools "Read,Grep,Glob" \
     --output-format json \
-    2>/dev/null | python3 -c "
+    2>/dev/null | "${PYTHON_BIN}" -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -102,7 +107,7 @@ if [[ -z "${PLAN}" ]]; then
 fi
 
 # PLAN에서 JSON 파싱 가능한지 확인
-PLAN_VALID=$(echo "${PLAN}" | python3 -c "
+PLAN_VALID=$(echo "${PLAN}" | "${PYTHON_BIN}" -c "
 import sys, json
 try:
     text = sys.stdin.read().strip()
@@ -128,7 +133,7 @@ PLAN="${PLAN_VALID}"
 log "PLAN 파싱 성공: ${PLAN:0:200}..."
 
 # ─── code 변경 포함 여부 판단 ───────────────────────────────────────────────────
-HAS_CODE=$(echo "${PLAN}" | python3 -c "
+HAS_CODE=$(echo "${PLAN}" | "${PYTHON_BIN}" -c "
 import sys, json
 try:
     obj = json.loads(sys.stdin.read())
@@ -159,14 +164,14 @@ ${PLAN}
 - 수정 완료 후 아무것도 출력하지 않아도 된다."
 
     "${CLAUDE_BIN}" -p "${SONNET_PROMPT}" \
-        --model claude-sonnet-4-5 \
+        --model sonnet \
         --allowedTools "Read,Edit" \
         2>/dev/null || true
 
     log "Sonnet 수정 완료. pytest 실행 중..."
 
     # pytest 실행
-    if python3 -m pytest tests/ -q --ignore=tests/test_bithumb_api.py 2>&1 | tail -5; then
+    if "${PYTHON_BIN}" -m pytest tests/ -q --ignore=tests/test_bithumb_api.py 2>&1 | tail -5; then
         log "테스트 통과. 타임스탬프 기록 및 알림 전송."
         mkdir -p "${DATA_DIR}"
         date +%s > "${TS_FILE}"
@@ -199,13 +204,13 @@ ${PLAN}
 - 수정 후 반드시 pytest로 테스트하라."
 
     "${CLAUDE_BIN}" -p "${SONNET_PROMPT}" \
-        --model claude-sonnet-4-5 \
+        --model sonnet \
         --allowedTools "Read,Edit,Bash(python3 -m pytest *)" \
         2>/dev/null || true
 
     log "Sonnet 수정 완료. pytest 최종 확인 중..."
 
-    if python3 -m pytest tests/ -q --ignore=tests/test_bithumb_api.py 2>&1 | tail -5; then
+    if "${PYTHON_BIN}" -m pytest tests/ -q --ignore=tests/test_bithumb_api.py 2>&1 | tail -5; then
         log "테스트 통과. 커밋 생성."
         git add -A
         git commit -m "fix: auto-optimize ${STRATEGY} — ${REASON}" || true
