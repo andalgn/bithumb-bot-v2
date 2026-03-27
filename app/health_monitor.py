@@ -9,10 +9,12 @@ import asyncio
 import logging
 import os
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable, Coroutine
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -456,6 +458,29 @@ class HealthMonitor:
                         if status == "ok":
                             status = "warn"
 
+            # 전략별 7일 승률 체크 (별도 쿼리 — 200건)
+            win_rate_threshold = getattr(self._config, "auto_fix_win_rate_threshold", 0.30)
+            min_trades = getattr(self._config, "auto_fix_min_trades", 10)
+            seven_days_ago = time.time() - 7 * 86400
+
+            try:
+                recent200 = self._journal.get_recent_trades(limit=200)
+                strategy_trades: dict[str, list[dict]] = {}
+                for t in recent200:
+                    strategy = t.get("strategy", "unknown")
+                    exit_ts = (t.get("exit_time", 0) or 0) / 1000
+                    if exit_ts > seven_days_ago:
+                        strategy_trades.setdefault(strategy, []).append(t)
+
+                for strategy, strades in strategy_trades.items():
+                    if len(strades) >= min_trades:
+                        wins = sum(1 for t in strades if (t.get("net_pnl_krw", 0) or 0) > 0)
+                        wr = wins / len(strades)
+                        if wr < win_rate_threshold:
+                            self._trigger_auto_fix(strategy, f"win_rate_{wr:.0%}_below_30pct")
+            except Exception:
+                logger.exception("전략별 승률 체크 실패")
+
             if issues:
                 return CheckResult(name="trading_metrics", status=status, message=", ".join(issues))
             return CheckResult(
@@ -465,6 +490,36 @@ class HealthMonitor:
         except Exception as e:
             return CheckResult(name="trading_metrics", status="warn",
                                message=f"지표 확인 실패: {e}")
+
+    def _trigger_auto_fix(self, strategy: str, reason: str) -> None:
+        """전략 자동 수정 스크립트를 비동기적으로 실행한다.
+
+        HealthMonitor 주기를 차단하지 않으며, 예외를 절대 외부로 전파하지 않는다.
+        """
+        try:
+            project_root = Path(__file__).resolve().parent.parent
+            ts_file = project_root / "data" / f"last_auto_fix_{strategy}.ts"
+            if ts_file.exists():
+                try:
+                    last_run = float(ts_file.read_text().strip())
+                    if time.time() - last_run < 7 * 86400:
+                        logger.info(
+                            "auto-fix skipped (cooldown): strategy=%s reason=%s",
+                            strategy, reason,
+                        )
+                        return
+                except (ValueError, OSError):
+                    pass
+
+            subprocess.Popen(
+                ["bash", "scripts/auto_fix.sh", strategy, reason],
+                cwd=str(project_root),
+                start_new_session=True,
+            )
+            logger.info("auto-fix triggered: strategy=%s reason=%s", strategy, reason)
+        except Exception:  # noqa: BLE001
+            logger.exception("auto-fix 실행 실패 (무시)")
+
 
     # ─── Check 8: 디스코드 연결 ───
 

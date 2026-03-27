@@ -271,3 +271,5 @@ health_monitor:
   reconciliation_interval_sec: 3600
   discord_check_interval_sec: 14400
   wal_warn_mb: 100
+  auto_fix_win_rate_threshold: 0.30
+  auto_fix_min_trades: 10

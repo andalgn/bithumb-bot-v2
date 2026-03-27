@@ -214,6 +214,8 @@ class HealthMonitorConfig:
     alert_cooldown_critical_min: int = 30
     alert_cooldown_warning_min: int = 120
     retention_days: int = 90
+    auto_fix_win_rate_threshold: float = 0.30
+    auto_fix_min_trades: int = 10
 
 
 @dataclass
