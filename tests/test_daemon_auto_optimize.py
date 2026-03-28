@@ -19,7 +19,7 @@ def test_auto_optimize_disabled():
     result = asyncio.get_event_loop().run_until_complete(
         daemon._run_auto_optimize()
     )
-    assert result is None
+    assert result == []
 
 
 def test_auto_optimize_no_store():
@@ -29,7 +29,7 @@ def test_auto_optimize_no_store():
     result = asyncio.get_event_loop().run_until_complete(
         daemon._run_auto_optimize()
     )
-    assert result is None
+    assert result == []
 
 
 def test_collect_candles_no_store():

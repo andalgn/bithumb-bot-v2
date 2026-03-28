@@ -588,6 +588,10 @@ class DarwinEngine:
 
         return injected
 
+    def get_shadow_performance(self, shadow_id: str) -> ShadowPerformance | None:
+        """Shadow의 성능 데이터를 반환한다."""
+        return self._performances.get(shadow_id)
+
     def check_champion_replacement(self) -> ShadowParams | None:
         """챔피언 교체 가능 여부를 확인한다.
 

@@ -53,6 +53,7 @@ class BacktestDaemon:
         coins: list[str] | None = None,
         deepseek_api_key: str = "",
         experiment_store: object | None = None,
+        darwin: object | None = None,
     ) -> None:
         """초기화.
 
@@ -65,6 +66,7 @@ class BacktestDaemon:
             coins: 대상 코인 목록 (선택).
             deepseek_api_key: DeepSeek API 키 (자율 연구용).
             experiment_store: ExperimentStore 인스턴스 (자율 연구용).
+            darwin: DarwinEngine 인스턴스 (진화 파이프라인용).
         """
         self._journal = journal
         self._notifier = notifier
@@ -74,6 +76,7 @@ class BacktestDaemon:
         self._coins = coins or []
         self._deepseek_key = deepseek_api_key
         self._experiment_store = experiment_store
+        self._darwin = darwin
         self._running = False
 
         c = self._config
@@ -97,8 +100,7 @@ class BacktestDaemon:
         self._last_wf: str = ""
         self._last_mc: str = ""
         self._last_sens: str = ""
-        self._last_optimize: str = ""
-        self._last_research: str = ""
+        self._last_pipeline: str = ""
 
         # 최근 결과
         self.wf_result: WalkForwardResult | None = None
@@ -117,8 +119,10 @@ class BacktestDaemon:
         mc_h, mc_m = self._parse_time(c.mc_time)
         sens_h, sens_m = self._parse_time(c.sens_time)
         mc_weekday = self._parse_weekday(c.mc_day)
-        opt_h, opt_m = self._parse_time(c.auto_optimize_time)
-        opt_weekday = self._parse_weekday(c.auto_optimize_day)
+        # Evolution Pipeline: auto_optimize_day/time 기준 통합 실행
+        # (auto_research.time은 무시 — 파이프라인이 순차 처리)
+        pipeline_h, pipeline_m = self._parse_time(c.auto_optimize_time)
+        pipeline_weekday = self._parse_weekday(c.auto_optimize_day)
 
         while self._running:
             try:
@@ -151,29 +155,16 @@ class BacktestDaemon:
                         await self._run_sensitivity()
                         await self._send_weekly_report()
 
-                # 자동 최적화: 매주
+                # Evolution Pipeline 통합: 매주 (Optimize + Research + Darwin)
                 if (
-                    c.auto_optimize_enabled
-                    and now.weekday() == opt_weekday
-                    and now.hour == opt_h
-                    and now.minute >= opt_m
-                    and self._last_optimize != week_key
+                    (c.auto_optimize_enabled or c.auto_research_enabled)
+                    and now.weekday() == pipeline_weekday
+                    and now.hour == pipeline_h
+                    and now.minute >= pipeline_m
+                    and self._last_pipeline != week_key
                 ):
-                    self._last_optimize = week_key
-                    await self._run_auto_optimize()
-
-                # 자율 연구: 매주
-                if c.auto_research_enabled:
-                    research_h, research_m = self._parse_time(c.auto_research_time)
-                    research_weekday = self._parse_weekday(c.auto_research_day)
-                    if (
-                        now.weekday() == research_weekday
-                        and now.hour == research_h
-                        and now.minute >= research_m
-                        and self._last_research != week_key
-                    ):
-                        self._last_research = week_key
-                        await self._run_auto_research()
+                    self._last_pipeline = week_key
+                    await self._run_evolution_pipeline()
 
             except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
                 logger.exception("BacktestDaemon 오류")
@@ -299,12 +290,15 @@ class BacktestDaemon:
     # 자동 파라미터 최적화
     # ═══════════════════════════════════════════
 
-    async def _run_auto_optimize(self) -> dict | None:
-        """자동 파라미터 최적화를 실행한다."""
+    async def _run_auto_optimize(self) -> list[dict]:
+        """자동 파라미터 최적화를 실행하고 후보 목록을 반환한다.
+
+        config.yaml을 직접 수정하지 않는다. 후보만 생성하여 반환.
+        """
         if not self._config.auto_optimize_enabled:
-            return None
+            return []
         if not self._store:
-            return None
+            return []
 
         logger.info("자동 파라미터 최적화 시작")
 
@@ -323,7 +317,7 @@ class BacktestDaemon:
 
         if not any(len(v) > 200 for v in candles_15m.values()):
             logger.warning("자동 최적화: 데이터 부족, 건너뜀")
-            return None
+            return []
 
         # rule_engine 로그 억제
         import logging as _logging
@@ -332,7 +326,7 @@ class BacktestDaemon:
 
         optimizer = ParameterOptimizer(self._coins, config)
         grids = build_grids()
-        results: dict[str, dict] = {}
+        candidates: list[dict] = []
 
         for strategy, grid in grids.items():
             combos = grid.combinations()
@@ -345,12 +339,18 @@ class BacktestDaemon:
             if not oos_list:
                 continue
             best = max(oos_list, key=lambda r: r.profit_factor)
-            results[strategy] = {
-                "params": best.params,
-                "pf": best.profit_factor,
-                "trades": best.trades,
-                "wr": best.win_rate,
-            }
+            if (
+                best.profit_factor >= self._config.auto_apply_min_pf
+                and best.trades >= self._config.auto_apply_min_trades
+            ):
+                candidates.append({
+                    "source": "auto_optimize",
+                    "strategy": strategy,
+                    "params": best.params,
+                    "pf": best.profit_factor,
+                    "trades": best.trades,
+                    "win_rate": best.win_rate,
+                })
             logger.info(
                 "최적화 %s: PF=%.2f WR=%.0f%% (%d건)",
                 strategy,
@@ -359,39 +359,16 @@ class BacktestDaemon:
                 best.trades,
             )
 
-        # 기준 충족 시 자동 적용 (현재 config 대비 개선된 경우만)
-        config_path = Path("configs/config.yaml")
-        applied = []
-        # 현재 config로 baseline PF 계산
-        current_trades = self._journal.get_recent_trades(limit=100)
-        current_pf = self._calc_pf(current_trades) if current_trades else 0.0
-        for strategy, r in results.items():
-            if (
-                r["pf"] >= self._config.auto_apply_min_pf
-                and r["trades"] >= self._config.auto_apply_min_trades
-                and r["pf"] > current_pf
-            ):
-                self._apply_optimized_params(strategy, r["params"], config_path)
-                applied.append(f"{strategy}: PF={r['pf']:.2f} (현재={current_pf:.2f})")
+        self.optimize_result = {c["strategy"]: c for c in candidates}
+        return candidates
 
-        # 디스코드 알림
-        if self._notifier:
-            lines = ["<b>자동 최적화 완료</b>"]
-            for s, r in results.items():
-                lines.append(f"  {s}: PF={r['pf']:.2f} ({r['trades']}건)")
-            if applied:
-                lines.append(f"\n<b>자동 적용:</b> {', '.join(applied)}")
-            else:
-                lines.append("\n기준 미달 — 적용 없음")
-            await self._notifier.send("\n".join(lines), channel="backtest")
+    async def _run_auto_research(self) -> list[dict]:
+        """자율 연구 세션을 실행하고 후보 목록을 반환한다.
 
-        self.optimize_result = results
-        return results
-
-    async def _run_auto_research(self) -> None:
-        """자율 연구 세션을 실행한다."""
+        config.yaml을 직접 수정하지 않는다. 후보만 생성하여 반환.
+        """
         if not self._store:
-            return
+            return []
         logger.info("자율 연구 세션 시작")
 
         from strategy.auto_researcher import AutoResearcher
@@ -406,30 +383,207 @@ class BacktestDaemon:
         )
         results = await researcher.run_session()
 
-        # KEEP된 최종 파라미터를 config에 적용
         kept = [r for r in results if r.verdict == "KEEP"]
+        candidates: list[dict] = []
         if kept:
-            final_params: dict[str, float] = {}
+            # 전략별로 최종 KEEP 파라미터를 묶어서 후보 생성
+            by_strategy: dict[str, dict[str, float]] = {}
+            best_pf: dict[str, float] = {}
+            best_trades: dict[str, int] = {}
             for r in kept:
-                final_params.update(r.params_changed)
-            config_path = Path("configs/config.yaml")
-            self._apply_optimized_params(
-                kept[-1].strategy,
-                final_params,
-                config_path,
+                by_strategy.setdefault(r.strategy, {}).update(r.params_changed)
+                best_pf[r.strategy] = r.result_pf
+                best_trades[r.strategy] = getattr(r, "result_trades", 0)
+            for strategy, params in by_strategy.items():
+                candidates.append({
+                    "source": "auto_research",
+                    "strategy": strategy,
+                    "params": params,
+                    "pf": best_pf.get(strategy, 0.0),
+                    "trades": best_trades.get(strategy, 0),
+                    "win_rate": 0.0,
+                })
+
+        return candidates
+
+    def _run_darwin_candidate(self) -> list[dict]:
+        """Darwin 토너먼트를 실행하고 챔피언 후보를 반환한다.
+
+        config.yaml을 직접 수정하지 않는다. 후보만 생성하여 반환.
+        """
+        if not self._darwin:
+            return []
+
+        logger.info("Darwin 토너먼트 후보 생성 시작")
+
+        from app.data_types import Regime
+
+        # 현재 국면 추정 (최근 거래의 regime 또는 기본값)
+        market_regime = Regime.RANGE
+        trades = self._journal.get_recent_trades(limit=5)
+        if trades:
+            last_regime = trades[0].get("regime", "")
+            for r in Regime:
+                if r.value == last_regime:
+                    market_regime = r
+                    break
+
+        self._darwin.run_tournament(market_regime=market_regime)
+        new_champion = self._darwin.check_champion_replacement()
+        if not new_champion:
+            logger.info("Darwin: 챔피언 교체 후보 없음")
+            return []
+
+        perf = self._darwin.get_shadow_performance(new_champion.shadow_id)
+        if not (perf and perf.trade_count >= 30):
+            logger.info("Darwin: 후보 거래 수 부족 (%d < 30)", perf.trade_count if perf else 0)
+            return []
+
+        if perf.max_drawdown > 0.15:
+            logger.info("Darwin: 후보 MDD 초과 (%.1f%% > 15%%)", perf.max_drawdown * 100)
+            return []
+
+        champ_params = {
+            "mean_reversion": {
+                "sl_mult": new_champion.mr_sl_mult,
+                "tp_rr": new_champion.mr_tp_rr,
+            },
+            "dca": {
+                "sl_pct": new_champion.dca_sl_pct,
+                "tp_pct": new_champion.dca_tp_pct,
+            },
+        }
+
+        candidates = []
+        for strategy, params in champ_params.items():
+            candidates.append({
+                "source": "darwin",
+                "strategy": strategy,
+                "params": params,
+                "pf": perf.profit_factor,
+                "trades": perf.trade_count,
+                "win_rate": perf.win_rate,
+                "shadow_id": new_champion.shadow_id,
+                "_new_champion": new_champion,
+            })
+
+        logger.info(
+            "Darwin 후보: PF=%.2f WR=%.0f%% MDD=%.1f%% (%d건)",
+            perf.profit_factor,
+            perf.win_rate * 100,
+            perf.max_drawdown * 100,
+            perf.trade_count,
+        )
+        return candidates
+
+    async def _run_evolution_pipeline(self) -> None:
+        """자율진화 통합 파이프라인.
+
+        Auto-Optimize, Auto-Research, Darwin 토너먼트를 순차 실행하여
+        후보를 수집하고, PF 기준 최고 1개만 config.yaml에 적용한다.
+        """
+        logger.info("=" * 50)
+        logger.info("Evolution Pipeline 시작")
+
+        # baseline PF 계산
+        recent_trades = self._journal.get_recent_trades(limit=100)
+        if len(recent_trades) < 10:
+            logger.info("Evolution Pipeline: 거래 %d건 부족 (최소 10), 건너뜀", len(recent_trades))
+            if self._notifier:
+                await self._notifier.send(
+                    "**Evolution Pipeline**: 거래 부족으로 건너뜀"
+                    f" ({len(recent_trades)}건 < 10)",
+                    channel="backtest",
+                )
+            return
+
+        baseline_pf = self._calc_pf(recent_trades)
+        logger.info("Baseline PF: %.2f (%d건)", baseline_pf, len(recent_trades))
+
+        # 1. Auto-Optimize 후보
+        all_candidates: list[dict] = []
+        try:
+            opt_candidates = await self._run_auto_optimize()
+            all_candidates.extend(opt_candidates)
+            logger.info("Auto-Optimize: %d개 후보", len(opt_candidates))
+        except Exception:
+            logger.exception("Auto-Optimize 실패")
+
+        # 2. Auto-Research 후보
+        try:
+            research_candidates = await self._run_auto_research()
+            all_candidates.extend(research_candidates)
+            logger.info("Auto-Research: %d개 후보", len(research_candidates))
+        except Exception:
+            logger.exception("Auto-Research 실패")
+
+        # 3. Darwin 후보
+        try:
+            darwin_candidates = self._run_darwin_candidate()
+            all_candidates.extend(darwin_candidates)
+            logger.info("Darwin: %d개 후보", len(darwin_candidates))
+        except Exception:
+            logger.exception("Darwin 토너먼트 실패")
+
+        # baseline보다 좋은 후보만 필터
+        viable = [c for c in all_candidates if c["pf"] > baseline_pf]
+        logger.info(
+            "후보 %d개 중 baseline(%.2f) 초과: %d개",
+            len(all_candidates),
+            baseline_pf,
+            len(viable),
+        )
+
+        # PF 기준 최고 후보 선택
+        selected = max(viable, key=lambda c: c["pf"]) if viable else None
+
+        # Discord 리포트 생성
+        report_lines = [
+            "**Evolution Pipeline 결과**",
+            f"Baseline PF: {baseline_pf:.2f} ({len(recent_trades)}건)",
+            "",
+        ]
+        for c in all_candidates:
+            delta = (c["pf"] / baseline_pf - 1) * 100 if baseline_pf > 0 else 0
+            is_selected = selected is not None and c is selected
+            icon = ">> " if is_selected else "   "
+            mark = " **SELECTED**" if is_selected else ""
+            report_lines.append(
+                f"{icon}[{c['source']}] {c['strategy']}: "
+                f"PF={c['pf']:.2f} ({delta:+.1f}%) "
+                f"({c['trades']}건){mark}"
             )
 
-        # 디스코드 리포트
-        if self._notifier and results:
-            total = len(results)
-            keep_count = len(kept)
-            lines = [f"<b>자율 연구 완료</b> ({keep_count}/{total} 개선)"]
-            for r in results:
-                icon = "+" if r.verdict == "KEEP" else "-"
-                lines.append(
-                    f"  {icon} {r.params_changed} PF {r.baseline_pf:.2f}->{r.result_pf:.2f}"
-                )
-            await self._notifier.send("\n".join(lines), channel="backtest")
+        if not all_candidates:
+            report_lines.append("   후보 없음")
+
+        report_lines.append("")
+
+        # 적용
+        if selected:
+            # Darwin 선택 시 챔피언을 먼저 교체 (config 쓰기 전 상태 일관성 보장)
+            if selected["source"] == "darwin" and "_new_champion" in selected:
+                self._darwin.replace_champion(selected["_new_champion"])
+                logger.info("Darwin 챔피언 교체 완료")
+                report_lines.append("Darwin 챔피언 교체 + Pilot 모드(50% × 20건)")
+
+            config_path = Path("configs/config.yaml")
+            self._apply_optimized_params(
+                selected["strategy"],
+                selected["params"],
+                config_path,
+            )
+            report_lines.append(
+                f"적용: {selected['source']} → {selected['strategy']} "
+                f"(PF {baseline_pf:.2f} → {selected['pf']:.2f})"
+            )
+        else:
+            report_lines.append("적용 없음 — baseline 초과 후보 없음")
+
+        logger.info("Evolution Pipeline 완료")
+
+        if self._notifier:
+            await self._notifier.send("\n".join(report_lines), channel="backtest")
 
     def _apply_optimized_params(
         self,

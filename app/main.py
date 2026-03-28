@@ -214,6 +214,7 @@ class TradingBot:
             coins=config.coins,
             deepseek_api_key=config.secrets.deepseek_api_key,
             experiment_store=self._experiment_store,
+            darwin=self._darwin,
         )
 
         # Task 13: ReflectionStore
@@ -711,10 +712,11 @@ class TradingBot:
         return signals
 
     async def _run_darwin_cycle(self) -> None:
-        """Darwin 토너먼트 + 챔피언 적용 + 파라미터 롤백.
+        """Darwin Shadow 데이터 기반 토너먼트 실행 (파라미터 적용 없음).
 
-        일요일 04:00 KST 이후 12사이클마다 토너먼트 실행.
-        챔피언 교체 조건: trade_count >= 30, PF > 현행, MDD <= 15%.
+        파라미터 적용은 BacktestDaemon._run_evolution_pipeline()에서
+        다른 후보(Auto-Optimize, Auto-Research)와 비교 후 통합 처리한다.
+        이 메서드는 토너먼트만 실행하여 Shadow 인구를 갱신한다.
         """
         import datetime as _dt
 
@@ -724,53 +726,7 @@ class TradingBot:
 
         market_regime = self._get_market_regime()
         self._darwin.run_tournament(market_regime=market_regime)
-        new_champion = self._darwin.check_champion_replacement()
-        if not new_champion:
-            return
-
-        # C1 fix: 성능 데이터를 replace 전에 캡처 (replace 후 리셋됨)
-        shadow_perf = self._darwin._performances.get(new_champion.shadow_id)
-        if not (shadow_perf and shadow_perf.trade_count >= 30):
-            return
-
-        pf = shadow_perf.profit_factor
-        mdd = shadow_perf.max_drawdown
-        recent_trades = self._journal.get_trades_since(int(time.time()) - 30 * 86400)
-        current_pf = (
-            self._backtest_daemon._calc_pf(recent_trades) if recent_trades else 1.0
-        )
-        if not (pf > current_pf and mdd <= 0.15):
-            return
-
-        self._darwin.replace_champion(new_champion)
-        champ_params = self._darwin.champion_to_strategy_params()
-        config_path = self._config_path
-
-        # 단일 백업 생성
-        import shutil as _shutil
-
-        backup_path = config_path.with_suffix(
-            f".yaml.bak.{_now_kst.strftime('%Y%m%d_%H%M%S')}"
-        )
-        _shutil.copy2(config_path, backup_path)
-
-        # 두 전략 모두 일괄 적용 (개별 백업 없이)
-        self._apply_champion_params(champ_params, config_path)
-
-        # 롤백 모니터링 등록 (두 전략 모두 포함)
-        old_mr = self._rule_engine.strategy_params.get("mean_reversion", {})
-        old_dca = self._rule_engine.strategy_params.get("dca", {})
-        self._experiment_store.log_param_change(
-            source="darwin",
-            strategy="mean_reversion+dca",
-            old_params={"mean_reversion": old_mr, "dca": old_dca},
-            new_params=champ_params,
-            backup_path=str(backup_path),
-            baseline_pf=current_pf,
-        )
-        self._pilot_remaining = 20
-        self._pilot_size_mult = 0.5
-        logger.info("Darwin 챔피언 실전 적용: %s", champ_params)
+        logger.info("Darwin 토너먼트 실행 완료 (파이프라인에서 후보 비교 예정)")
 
     async def _execute_entries(self, signals: list, data: "MarketData") -> None:
         """RiskGate 통과 신호만 Pool 사이징 → 주문 실행 → 포지션 등록.
@@ -1286,41 +1242,6 @@ class TradingBot:
         # 남은 수량이 최소 주문금액 미만이면 전량 청산
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
-
-    def _apply_champion_params(self, champ_params: dict, config_path: Path) -> None:
-        """챔피언 파라미터를 config에 일괄 적용한다."""
-        import fcntl
-        import os
-        import tempfile
-
-        import yaml
-
-        with open(config_path, "r+", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            try:
-                raw = yaml.safe_load(f)
-                sp = raw.setdefault("strategy_params", {})
-                for strategy, params in champ_params.items():
-                    if strategy not in sp:
-                        sp[strategy] = {}
-                    for k, v in params.items():
-                        sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
-                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(config_path.parent), suffix=".yaml.tmp")
-                try:
-                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
-                        yaml.dump(
-                            raw,
-                            tmp_f,
-                            allow_unicode=True,
-                            default_flow_style=False,
-                            sort_keys=False,
-                        )
-                    os.replace(tmp_path, str(config_path))
-                except OSError:
-                    os.unlink(tmp_path)
-                    raise
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
 
     async def _check_rollback(self) -> None:
         """파라미터 변경 모니터링 + 자동 롤백."""
