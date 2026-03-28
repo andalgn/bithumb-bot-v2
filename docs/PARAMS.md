@@ -12,7 +12,9 @@
 | Pool 상한 | 각 Pool의 25%/건 | 모든 보너스 포함 |
 | Active 하한 | 5,000원 | 미달 시 주문 안 함 |
 | Core 하한 | 10,000원 | 미달 시 주문 안 함 |
-| vol_target_mult | [0.5, 1.5] | target_vol / realized_20d_vol |
+| vol_target_mult | [0.8, 1.5] | target_vol / realized_20d_vol |
+| atr_sizing_enabled | true | ATR 기반 포지션 사이징 활성 |
+| atr_target_pct | 1.0% | 목표 ATR 리스크 비율 |
 | defense_mult | [0.3, 1.0] | 최소 30% 보장 |
 
 ## 점수 컷오프 (3그룹)
@@ -58,7 +60,7 @@
 | 종목 격리 | 3회 실패 → 120초 |
 | 전역 격리 | 8회 실패 → 60초 |
 | 인증 오류 | 1회 → 600초 |
-| 연속 손실 | 5회 → 진입 중단 |
+| 연속 손실 | 3회 → 진입 중단 |
 | 쿨다운 | 60분 |
 
 ## 체결
@@ -151,3 +153,43 @@
 | auto_research.time | 03:00 | 실행 시간 (KST) |
 | auto_research.max_experiments | 10 | 세션당 최대 실험 수 |
 | data_collect_time | 00:00 | 일일 캔들 수집 시간 (KST) |
+
+## 모멘텀 랭킹 (momentum_ranking)
+
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| enabled | true | 횡단면 모멘텀 랭킹 활성 |
+| top_n | 10 | 진입 우선순위 상위 N개 코인 |
+
+## 동적 코인 유니버스 (coin_universe)
+
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| enabled | true | 동적 코인 유니버스 활성 |
+| top_n | 20 | 거래량 기준 상위 N개 코인 선택 |
+| refresh_hour | 0 | 갱신 시각 (KST, 매일) |
+
+## 헬스 모니터 (health_monitor)
+
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| enabled | true | 헬스 모니터 활성 |
+| interval_sec | 900 | 점검 주기 (15분) |
+| heartbeat_warn_sec | 1,200 | 하트비트 경고 임계값 (20분) |
+| heartbeat_critical_sec | 1,800 | 하트비트 위험 임계값 (30분) |
+| api_timeout_sec | 5 | API 점검 타임아웃 |
+| api_consecutive_fail_critical | 3 | API 연속 실패 위험 횟수 |
+| data_freshness_warn_min | 20 | 데이터 최신성 경고 (분) |
+| data_freshness_critical_min | 40 | 데이터 최신성 위험 (분) |
+| memory_warn_pct | 70 | 메모리 경고 임계값 (%) |
+| disk_critical_pct | 90 | 디스크 위험 임계값 (%) |
+| daily_dd_warn_pct | 2.0 | 일일 DD 경고 임계값 (%) |
+| daily_dd_critical_pct | 3.0 | 일일 DD 위험 임계값 (%) |
+| alert_cooldown_critical_min | 30 | 위험 알림 쿨다운 (분) |
+| alert_cooldown_warning_min | 120 | 경고 알림 쿨다운 (분) |
+| retention_days | 90 | 헬스 이력 보관 기간 (일) |
+| reconciliation_interval_sec | 3,600 | 거래소↔로컬 상태 동기화 주기 (1시간) |
+| discord_check_interval_sec | 14,400 | Discord 봇 연결 점검 주기 (4시간) |
+| wal_warn_mb | 100 | WAL 파일 경고 크기 (MB) |
+| auto_fix_win_rate_threshold | 0.30 | 자동 수정 발동 승률 임계값 |
+| auto_fix_min_trades | 10 | 자동 수정 최소 거래 수 |

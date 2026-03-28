@@ -1193,6 +1193,11 @@ class TradingBot:
                     self._datafeed.update_coins(new_coins)
                     self._last_universe_refresh_hour = now_kst.hour
                     logger.info("코인 유니버스 갱신: %s", new_coins)
+                    await self._notifier.send(
+                        f"🌐 **코인 유니버스 갱신** ({len(new_coins)}개)\n"
+                        f"`{', '.join(new_coins)}`",
+                        channel="system",
+                    )
 
         data = await self._fetch_market_data()
         signals = self._evaluate_signals(data)

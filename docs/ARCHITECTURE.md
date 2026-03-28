@@ -6,6 +6,8 @@
 main.py (오케스트레이터, ~200줄)
   ├── MarketAnalyzer       ← 데이터 수집 + 지표 계산 + Tier 분류
   │   └── MarketStore      ← 5M/15M/1H 캔들 + 호가창 장기 축적
+  ├── CoinUniverse         ← 빗썸 거래량 기준 동적 코인 유니버스 관리 (매일 00:00 갱신)
+  ├── MomentumRanker       ← 코인 간 횡단면 모멘텀 점수 계산 및 순위 결정
   ├── SignalGenerator      ← 국면 분류 + 전략별 점수제 신호 생성
   ├── CorrelationMonitor   ← 코인 간 상관관계 (20일 롤링)
   ├── RiskGate             ← 통합 리스크 게이트웨이 (모든 주문 필수 경유)
@@ -14,6 +16,7 @@ main.py (오케스트레이터, ~200줄)
   ├── PromotionManager     ← 승격 판정 + 보호기간 + 강등
   ├── DarwinEngine         ← Shadow 20~30개 + 주간 토너먼트
   ├── ReviewEngine         ← 일일 규칙 리뷰 + 주간 DeepSeek 분석
+  ├── HealthMonitor        ← 봇 건강 감시 (15분 주기, 이상 시 Discord 알림)
   └── BacktestDaemon       ← Walk-Forward + Monte Carlo + 민감도 (백그라운드)
 ```
 
@@ -22,11 +25,13 @@ main.py (오케스트레이터, ~200줄)
 ```
 [매 15분 사이클]
 
-1. MarketAnalyzer
+1. MarketAnalyzer + CoinUniverse + MomentumRanker
    Bithumb API → DataFeed (TTL 60초)
    → MarketSnapshot (15M/1H 캔들 + 현재가 + 호가창)
    → Indicators (RSI, MACD, ATR, SuperTrend, OBV, BB, ADX, EMA20/50/200)
    → CoinProfiler: Tier 자동 분류 (매일 00:00 갱신)
+   → CoinUniverse: 거래량 상위 N개 동적 코인 풀 결정 (매일 00:00 갱신, top_n=20)
+   → MomentumRanker: 횡단면 모멘텀 점수 계산 → 상위 top_n=10개 진입 우선순위 결정
 
 2. SignalGenerator
    → classify_regime(): 5단계 국면 판정 (1H 캔들 기준)
@@ -55,9 +60,13 @@ main.py (오케스트레이터, ~200줄)
 7. DarwinEngine (매 사이클, 경량)
    → Shadow: "이 파라미터였으면 진입했을까?" 기록
 
-8. Journal + Telegram
+8. Journal + Discord
    → 거래 기록 (Trade Schema 21필드)
-   → 알림 발송
+   → 알림 발송 (Discord Webhook)
+
+9. HealthMonitor (매 사이클, 백그라운드)
+   → 하트비트 / API 상태 / 데이터 최신성 / 메모리·디스크 / DD 점검
+   → 이상 감지 시 Discord 알림 (쿨다운 적용)
 ```
 
 ## 빗썸 API 참조
@@ -140,7 +149,7 @@ NEW → PLACED → PARTIAL → FILLED
 | `app/main.py` | 1 | 오케스트레이터 |
 | `app/config.py` | 0 | 설정 로딩 |
 | `app/journal.py` | 1 | Trade Schema 21필드 |
-| `app/notify.py` | 0 | 텔레그램 알림 |
+| `app/notify.py` | 0 | Discord Webhook 알림 |
 | `app/storage.py` | 1 | JSON 영속화 |
 | `strategy/indicators.py` | 1 | 기술적 지표 전체 |
 | `strategy/rule_engine.py` | 2 | 5국면 + 5전략 + 점수제 (A/E 활성, B/C/D 비활성) |
@@ -161,6 +170,10 @@ NEW → PLACED → PARTIAL → FILLED
 | `backtesting/param_grid.py` | 5 | 파라미터 그리드 정의 |
 | `strategy/auto_researcher.py` | 6 | 자율 연구 엔진 (DeepSeek 기반) |
 | `app/live_gate.py` | 7 | LIVE 승인 자동 검증 |
+| `app/health_monitor.py` | 2 | 봇 건강 감시 (15분 주기, Discord 알림) |
+| `strategy/momentum_ranker.py` | 2 | 횡단면 모멘텀 점수 계산 + 상위 top_n 순위 결정 |
+| `strategy/coin_universe.py` | 2 | 빗썸 거래량 기준 동적 코인 유니버스 (매일 갱신) |
+| `bot_discord/bot.py` | 1 | Discord 슬래시 커맨드 처리기 |
 
 ## 대상 코인 (10개)
 BTC/KRW, ETH/KRW, XRP/KRW, SOL/KRW, RENDER/KRW,
