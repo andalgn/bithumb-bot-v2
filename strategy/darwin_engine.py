@@ -170,7 +170,7 @@ class DarwinEngine:
         self._trades: list[ShadowTrade] = []
         self._pnl_history: dict[str, list[float]] = {}  # shadow_id -> list of closed trade pnls
         # Shadow별 가상 오픈 포지션: {shadow_id: {symbol: entry_price}}
-        self._open_positions: dict[str, dict[str, float]] = {}
+        self._open_positions: dict[str, dict[str, tuple[float, float, float]]] = {}
         self._last_tournament: float = 0.0
         self._last_champion_change: float = 0.0
         self._champion_cooldown_days = 14

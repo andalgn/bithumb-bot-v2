@@ -18,7 +18,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from app.config import AppConfig
+    from app.journal import Journal
     from app.notify import DiscordNotifier
+    from market.bithumb_api import BithumbClient
 
 logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
@@ -155,8 +158,8 @@ class HealthMonitor:
         self,
         interval_sec: int = 900,
         notifier: DiscordNotifier | None = None,
-        journal: object | None = None,
-        config: object | None = None,
+        journal: Journal | None = None,
+        config: AppConfig | None = None,
     ) -> None:
         """초기화."""
         self._interval = interval_sec
@@ -176,7 +179,7 @@ class HealthMonitor:
         self._get_last_candle_ts: Callable[[], float] | None = None
         self._get_positions: Callable[[], dict] | None = None
         self._get_exchange_balances: Callable[[], Coroutine[None, None, dict]] | None = None
-        self._get_bithumb_client: Callable[[], object] | None = None
+        self._get_bithumb_client: Callable[[], BithumbClient] | None = None
         self._get_equity: Callable[[], float] | None = None
 
     def record_heartbeat(self) -> None:
