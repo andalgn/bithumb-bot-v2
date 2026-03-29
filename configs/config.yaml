@@ -282,3 +282,11 @@ coin_universe:
   enabled: true
   top_n: 20
   refresh_hour: 0
+evolution:
+  enabled: false
+  run_time: "00:30"
+  max_experiments: 10
+  held_out_days: 30
+  dsr_significance: 0.05
+  is_oos_max_ratio: 1.5
+  drift_threshold: 0.25

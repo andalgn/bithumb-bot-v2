@@ -49,6 +49,10 @@ from strategy.self_reflection import ReflectionStore
 from strategy.coin_universe import CoinUniverse
 from strategy.momentum_ranker import MomentumRanker
 from app.health_monitor import HealthMonitor
+from app.approval_workflow import ApprovalWorkflow
+from strategy.evolution_orchestrator import EvolutionOrchestrator
+from strategy.guard_agent import GuardAgent
+from strategy.strategy_params import EvolvableParams
 
 try:
     import sdnotify
@@ -66,6 +70,15 @@ def _on_daemon_done(task: asyncio.Task) -> None:
     exc = task.exception()
     if exc:
         logger.error("BacktestDaemon 비정상 종료: %s", exc, exc_info=exc)
+
+
+def _on_evolution_done(task: asyncio.Task) -> None:
+    """EvolutionOrchestrator 태스크 종료 콜백."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("EvolutionOrchestrator 비정상 종료: %s", exc, exc_info=exc)
 
 
 class TradingBot:
@@ -238,6 +251,38 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
         )
         self._last_feedback_inject: tuple | None = None
+
+        # 자율 진화 시스템
+        self._approval_workflow = ApprovalWorkflow()
+        self._evolution: EvolutionOrchestrator | None = None
+        self._evolution_task: asyncio.Task | None = None
+        if config.evolution.enabled:
+            from backtesting.optimizer import ParameterOptimizer
+            from backtesting.walk_forward import WalkForward
+
+            evo_cfg = config.evolution
+            self._evolution = EvolutionOrchestrator(
+                journal=self._journal,
+                notifier=self._notifier,
+                market_store=self._market_store,
+                optimizer=ParameterOptimizer(config=config),
+                walk_forward=WalkForward(
+                    data_days=config.backtest.wf_data_days,
+                    slide_days=config.backtest.wf_slide_days,
+                    num_segments=config.backtest.wf_segments,
+                ),
+                feedback_loop=self._feedback_loop,
+                experiment_store=self._experiment_store,
+                guard_agent=GuardAgent(),
+                approval_workflow=self._approval_workflow,
+                current_params=EvolvableParams.from_config(config),
+                coins=config.coins,
+                max_experiments=evo_cfg.max_experiments,
+                held_out_days=evo_cfg.held_out_days,
+                dsr_significance=evo_cfg.dsr_significance,
+                is_oos_max_ratio=evo_cfg.is_oos_max_ratio,
+                drift_threshold=evo_cfg.drift_threshold,
+            )
 
         # MomentumRanker
         self._momentum_ranker = MomentumRanker()
@@ -1466,6 +1511,13 @@ class TradingBot:
         self._daemon_task = asyncio.create_task(self._backtest_daemon.run())
         self._daemon_task.add_done_callback(_on_daemon_done)
 
+        # EvolutionOrchestrator 백그라운드 시작
+        if self._evolution:
+            self._evolution_task = asyncio.create_task(
+                self._run_evolution_loop()
+            )
+            self._evolution_task.add_done_callback(_on_evolution_done)
+
         # HealthMonitor 백그라운드 시작
         if self._config.health_monitor.enabled:
             self._health_task = asyncio.create_task(self._health_monitor.run_forever())
@@ -1503,6 +1555,53 @@ class TradingBot:
             if self._running:
                 await asyncio.sleep(self._cycle_interval)
 
+    async def _run_evolution_loop(self) -> None:
+        """매일 설정 시간에 진화 세션을 실행한다."""
+        from datetime import datetime, timedelta, timezone
+
+        kst = timezone(timedelta(hours=9))
+        run_time = self._config.evolution.run_time  # "00:30"
+
+        while self._running:
+            now = datetime.now(kst)
+            target_h, target_m = (int(x) for x in run_time.split(":"))
+            target = now.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+
+            wait_sec = (target - now).total_seconds()
+            if wait_sec < 60:
+                wait_sec = 60  # 최소 1분 대기 (CPU 스핀 방지)
+            logger.info("진화 세션 대기: %.0f초 후 (%s)", wait_sec, target.strftime("%H:%M"))
+
+            await asyncio.sleep(wait_sec)
+
+            if not self._running or not self._evolution:
+                break
+
+            # config 핫 리로드로 evolution이 비활성화되었을 수 있음
+            try:
+                mtime = self._config_path.stat().st_mtime
+                if mtime > self._config_mtime:
+                    import yaml
+                    with open(self._config_path, encoding="utf-8") as f:
+                        raw = yaml.safe_load(f)
+                    if not raw.get("evolution", {}).get("enabled", False):
+                        logger.info("evolution.enabled=false 감지, 루프 종료")
+                        break
+            except OSError:
+                pass
+
+            try:
+                # 오래된 pending 변경 만료
+                self._approval_workflow.expire_old(hours=48)
+                # 진화 세션 실행
+                result = await self._evolution.run_session()
+                logger.info("진화 세션 결과: success=%s, change_id=%s",
+                            result.success, result.change_id)
+            except Exception:
+                logger.exception("진화 세션 실행 중 오류")
+
     async def stop(self) -> None:
         """봇을 중지한다."""
         self._running = False
@@ -1524,6 +1623,12 @@ class TradingBot:
             self._health_task.cancel()
             try:
                 await self._health_task
+            except asyncio.CancelledError:
+                pass
+        if self._evolution_task and not self._evolution_task.done():
+            self._evolution_task.cancel()
+            try:
+                await self._evolution_task
             except asyncio.CancelledError:
                 pass
         await self._backtest_daemon.stop()

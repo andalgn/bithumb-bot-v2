@@ -44,6 +44,9 @@ class TestDiscordBotInit:
             "close",
             "restore_params",
             "help",
+            "approve",
+            "reject",
+            "pending",
         }
         guild = discord.Object(id=12345)
         registered = {cmd.name for cmd in discord_bot._tree.get_commands(guild=guild)}

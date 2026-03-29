@@ -44,6 +44,7 @@ bithumb_auto_v2/
 ├── docs/                        ← PRD 기반 설계 문서
 ├── tasks/                       ← 단계별 작업 명세
 ├── app/
+│   ├── approval_workflow.py        ← 승인 워크플로우 — 진화 변경의 인간 승인 관리.
 │   ├── config.py                   ← 설정 로딩 모듈.
 │   ├── cycle_data.py               ← 사이클 내 공유 데이터 컨테이너.
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
@@ -63,8 +64,10 @@ bithumb_auto_v2/
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
 │   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
+│   ├── evolution_orchestrator.py   ← EvolutionOrchestrator — 자율 진화 7단계 루프.
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── feedback_loop.py            ← FeedbackLoop — 거래 실패 패턴을 집계하고 가설을 생성한다.
+│   ├── guard_agent.py              ← GuardAgent — 진화 변경의 구조적 검증 모듈.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
 │   ├── momentum_ranker.py          ← MomentumRanker — 코인 간 횡단면 모멘텀 점수 계산 및 순위 결정.
 │   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
@@ -75,6 +78,7 @@ bithumb_auto_v2/
 │   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 │   ├── self_reflection.py          ← SelfReflection — 거래 후 자동 반성 생성 모듈.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
+│   ├── strategy_params.py          ← 진화 가능 파라미터 단일 관리 모듈.
 │   ├── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
 │   └── trade_tagger.py             ← TradeTagger — 거래 결과를 실패 유형으로 분류한다.
 ├── market/

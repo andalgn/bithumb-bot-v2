@@ -388,6 +388,83 @@ class DiscordBot:
                 lines.append(f"  {cmd} -- {desc}")
             await interaction.response.send_message("\n".join(lines))
 
+        # ── 자율 진화 명령어 ──────────────────────────────
+
+        @self._tree.command(
+            name="approve", description="진화 변경 승인", guild=guild
+        )
+        @admin_check
+        async def cmd_approve(
+            interaction: discord.Interaction, change_id: str
+        ) -> None:
+            workflow = self._bot._approval_workflow
+            change = workflow.get(change_id)
+            if not change:
+                await interaction.response.send_message(
+                    f"변경 `{change_id}` 없음", ephemeral=True
+                )
+                return
+            if change.status != "pending":
+                await interaction.response.send_message(
+                    f"상태: {change.status} (pending만 승인 가능)", ephemeral=True
+                )
+                return
+
+            ok = workflow.approve(change_id)
+            if ok:
+                await interaction.response.send_message(
+                    f"변경 `{change_id}` 승인 완료. "
+                    f"config.yaml 업데이트됨 (다음 사이클부터 반영)."
+                )
+            else:
+                await interaction.response.send_message(
+                    f"승인 실패: `{change_id}`", ephemeral=True
+                )
+
+        @self._tree.command(
+            name="reject", description="진화 변경 거부", guild=guild
+        )
+        @admin_check
+        async def cmd_reject(
+            interaction: discord.Interaction, change_id: str
+        ) -> None:
+            workflow = self._bot._approval_workflow
+            ok = workflow.reject(change_id)
+            if ok:
+                await interaction.response.send_message(
+                    f"변경 `{change_id}` 거부됨."
+                )
+            else:
+                await interaction.response.send_message(
+                    f"거부 실패: `{change_id}` (없거나 pending 아님)",
+                    ephemeral=True,
+                )
+
+        @self._tree.command(
+            name="pending", description="대기 중인 진화 변경 목록", guild=guild
+        )
+        @admin_check
+        async def cmd_pending(interaction: discord.Interaction) -> None:
+            workflow = self._bot._approval_workflow
+            changes = workflow.list_pending()
+            if not changes:
+                await interaction.response.send_message("대기 중인 변경 없음")
+                return
+
+            lines = ["**대기 중인 변경**"]
+            for c in changes:
+                param_str = (
+                    ", ".join(f"{k}: {v[0]}→{v[1]}" for k, v in c.changes.items())
+                    if c.changes
+                    else "(변경 없음)"
+                )
+                lines.append(
+                    f"\n`{c.change_id}` ({c.risk_level}, {c.risk_score:.2f})\n"
+                    f"  {param_str}\n"
+                    f"  fitness: +{c.fitness_improvement:.3f}"
+                )
+            await interaction.response.send_message("\n".join(lines))
+
         @self._client.event
         async def on_ready() -> None:
             self._tree.copy_global_to(guild=self._guild)

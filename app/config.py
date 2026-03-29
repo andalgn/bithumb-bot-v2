@@ -237,6 +237,19 @@ class CoinUniverseConfig:
     refresh_hour: int = 0
 
 
+@dataclass(frozen=True)
+class EvolutionConfig:
+    """자율 진화 시스템 설정."""
+
+    enabled: bool = False
+    run_time: str = "00:30"
+    max_experiments: int = 10
+    held_out_days: int = 30
+    dsr_significance: float = 0.05
+    is_oos_max_ratio: float = 1.5
+    drift_threshold: float = 0.25
+
+
 @dataclass
 class AppConfig:
     """애플리케이션 전체 설정."""
@@ -260,6 +273,7 @@ class AppConfig:
     health_monitor: HealthMonitorConfig = field(default_factory=HealthMonitorConfig)
     momentum_ranking: MomentumRankingConfig = field(default_factory=MomentumRankingConfig)
     coin_universe: CoinUniverseConfig = field(default_factory=CoinUniverseConfig)
+    evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
 
 
 def _load_env() -> EnvSecrets:
@@ -400,6 +414,7 @@ def load_config(
         health_monitor=_build_health_monitor(raw.get("health_monitor", {})),
         momentum_ranking=_build_momentum_ranking(raw.get("momentum_ranking", {})),
         coin_universe=_build_coin_universe(raw.get("coin_universe", {})),
+        evolution=_build_evolution(raw.get("evolution", {})),
     )
 
 
@@ -429,6 +444,14 @@ def _build_coin_universe(raw: dict) -> CoinUniverseConfig:
         return CoinUniverseConfig()
     fields = CoinUniverseConfig.__dataclass_fields__
     return CoinUniverseConfig(**{k: v for k, v in raw.items() if k in fields and v is not None})
+
+
+def _build_evolution(raw: dict) -> EvolutionConfig:
+    """evolution 섹션을 파싱한다."""
+    if not raw:
+        return EvolutionConfig()
+    dc_fields = EvolutionConfig.__dataclass_fields__
+    return EvolutionConfig(**{k: v for k, v in raw.items() if k in dc_fields and v is not None})
 
 
 def _build_backtest(raw: dict) -> BacktestConfig:
