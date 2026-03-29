@@ -283,7 +283,7 @@ coin_universe:
   top_n: 20
   refresh_hour: 0
 evolution:
-  enabled: false
+  enabled: true
   run_time: "00:30"
   max_experiments: 10
   held_out_days: 30

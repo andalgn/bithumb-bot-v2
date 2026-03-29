@@ -265,7 +265,7 @@ class TradingBot:
                 journal=self._journal,
                 notifier=self._notifier,
                 market_store=self._market_store,
-                optimizer=ParameterOptimizer(config=config),
+                optimizer=ParameterOptimizer(coins=config.coins, config=config),
                 walk_forward=WalkForward(
                     data_days=config.backtest.wf_data_days,
                     slide_days=config.backtest.wf_slide_days,
