@@ -56,8 +56,7 @@ class WeeklyReviewResult:
     best_strategy: str = ""
     worst_strategy: str = ""
     deepseek_suggestions: list[dict] = field(default_factory=list)
-    applied_suggestions: int = 0
-    rejected_suggestions: int = 0
+    weekly_insight: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -413,17 +412,12 @@ class ReviewEngine:
             )
             result.deepseek_suggestions = suggestions
 
-            # 제안별 백테스트 검증
-            applied, rejected, valid_suggestions = self._validate_suggestions(
-                suggestions, week_trades
+            # 주간 인사이트 저장 (EvolutionOrchestrator Phase 3 컨텍스트용)
+            insight = self._build_weekly_insight(
+                strategy_stats, suggestions, week_trades,
             )
-            result.applied_suggestions = applied
-            result.rejected_suggestions = rejected
-
-            # 검증 통과 제안을 config에 적용
-            if valid_suggestions:
-                applied_count = await self._apply_verified_suggestions(valid_suggestions)
-                logger.info("주간 리뷰 제안 적용: %d건", applied_count)
+            result.weekly_insight = insight
+            self._store_weekly_insight(insight)
 
         # 주간 리포트 알림
         if self._notifier:
@@ -473,9 +467,13 @@ class ReviewEngine:
         prompt = (
             f"{lessons_section}"
             "아래는 암호화폐 자동매매 봇의 주간 성과 데이터입니다.\n"
-            "JSON으로 파라미터 조정 제안을 3개 이내로 해주세요.\n"
-            '각 제안: {"param": "파라미터명", "action": "increase/decrease",'
-            ' "delta": 숫자, "reason": "이유"}\n\n'
+            "성과를 분석하고 다음 JSON 형식으로 인사이트를 제공하세요.\n"
+            '{"summary": "전체 요약", '
+            '"weak_strategies": ["약한 전략명"], '
+            '"strong_strategies": ["강한 전략명"], '
+            '"sensitive_params": ["민감한 파라미터명"], '
+            '"risk_observations": ["리스크 관련 관측"], '
+            '"recommended_focus": "다음 주 집중해야 할 영역"}\n\n'
             f"데이터:\n{json.dumps(data_package, ensure_ascii=False, indent=2)}"
         )
 
@@ -530,130 +528,78 @@ class ReviewEngine:
                     pass
         return suggestions
 
-    # 검증 가능한 파라미터 목록과 허용 범위
-    _KNOWN_PARAMS: dict[str, tuple[float, float]] = {
-        "rsi_lower": (15.0, 45.0),
-        "rsi_upper": (55.0, 85.0),
-        "atr_mult": (0.5, 5.0),
-        "cutoff": (40.0, 95.0),
-        "tp_pct": (0.005, 0.10),
-        "sl_pct": (0.005, 0.05),
-        "sl_mult": (1.0, 15.0),
-        "tp_rr": (0.5, 5.0),
-    }
 
-    # delta 절대값 상한 (파라미터별)
-    _MAX_DELTA: dict[str, float] = {
-        "rsi_lower": 10.0,
-        "rsi_upper": 10.0,
-        "atr_mult": 1.0,
-        "cutoff": 10.0,
-        "tp_pct": 0.02,
-        "sl_pct": 0.02,
-        "sl_mult": 2.0,
-        "tp_rr": 1.0,
-    }
 
-    def _validate_suggestions(
-        self, suggestions: list[dict], trades: list[dict]
-    ) -> tuple[int, int, list[dict]]:
-        """제안의 타당성을 검증한다.
 
-        파라미터 존재 여부, 허용 범위, delta 크기를 확인하는 기본 검증이다.
-        전략을 재실행하는 완전한 백테스트 검증은 아니며, 다음 백테스트
-        사이클에서 실제 성과로 검증된다.
 
-        Returns:
-            (적용 건수, 기각 건수, 유효한 제안 목록).
-        """
-        applied = 0
-        rejected = 0
-        valid: list[dict] = []
-
-        for suggestion in suggestions:
-            param = suggestion.get("param", "")
-            delta = suggestion.get("delta")
-            action = suggestion.get("action", "")
-
-            # 1. 필수 필드 존재 확인
-            if not param or delta is None or not action:
-                rejected += 1
-                logger.info("DeepSeek 제안 기각 (필수 필드 누락): %s", suggestion)
-                continue
-
-            # 2. 알려진 파라미터인지 확인
-            if param not in self._KNOWN_PARAMS:
-                rejected += 1
-                logger.info("DeepSeek 제안 기각 (알 수 없는 파라미터): %s", suggestion)
-                continue
-
-            # 3. delta 크기 합리성 확인
-            max_delta = self._MAX_DELTA.get(param, 10.0)
-            try:
-                delta_val = abs(float(delta))
-            except (TypeError, ValueError):
-                rejected += 1
-                logger.info("DeepSeek 제안 기각 (유효하지 않은 delta): %s", suggestion)
-                continue
-
-            if delta_val > max_delta:
-                rejected += 1
-                logger.info(
-                    "DeepSeek 제안 기각 (delta %.2f > 상한 %.2f): %s",
-                    delta_val,
-                    max_delta,
-                    suggestion,
-                )
-                continue
-
-            # 4. action 유효성 확인
-            if action not in ("increase", "decrease"):
-                rejected += 1
-                logger.info("DeepSeek 제안 기각 (잘못된 action): %s", suggestion)
-                continue
-
-            applied += 1
-            valid.append(suggestion)
-            logger.info("DeepSeek 제안 적용: %s", suggestion)
-
-        return applied, rejected, valid
-
-    async def _apply_verified_suggestions(
+    def _build_weekly_insight(
         self,
+        strategy_stats: dict,
         suggestions: list[dict],
-    ) -> int:
-        """DeepSeek 제안을 기록한다. 백테스트 검증 후 적용은 향후 구현.
+        trades: list[dict],
+    ) -> dict:
+        """주간 성과 데이터에서 인사이트를 구성한다."""
+        now = datetime.now(KST)
+        week_ago = now - timedelta(days=7)
 
-        현재는 config.yaml에 직접 쓰지 않고 기록만 남긴다.
-        백테스터 API가 단일 파라미터 테스트를 지원하면 검증 후 적용 예정.
-        """
-        for suggestion in suggestions:
-            param = suggestion.get("param", "")
-            action = suggestion.get("action", "")
-            delta = suggestion.get("delta", 0)
+        # DeepSeek 응답이 새 형식(insight)이면 그대로 사용
+        insight: dict = {}
+        if suggestions and isinstance(suggestions[0], dict):
+            if "summary" in suggestions[0]:
+                insight = suggestions[0]
+            else:
+                # 기존 형식(param/action/delta) → 인사이트로 변환
+                insight = {
+                    "summary": "LLM 분석 결과",
+                    "weak_strategies": [],
+                    "strong_strategies": [],
+                    "sensitive_params": [
+                        s.get("param", "") for s in suggestions
+                        if s.get("param")
+                    ],
+                    "risk_observations": [],
+                    "recommended_focus": "",
+                }
 
-            if not param or not action or not delta:
-                continue
+        # 전략 통계 기반 보강
+        for strat, stats in strategy_stats.items():
+            exp = stats.get("expectancy", 0)
+            if exp < 0:
+                insight.setdefault("weak_strategies", []).append(strat)
+            elif exp > 0:
+                insight.setdefault("strong_strategies", []).append(strat)
 
-            logger.info(
-                "주간 리뷰 제안 기록 (미적용): %s %s %.4f",
-                param,
-                action,
-                delta,
+        insight["period"] = f"{week_ago.strftime('%Y-%m-%d')} ~ {now.strftime('%Y-%m-%d')}"
+        insight["total_trades"] = len(trades)
+        return insight
+
+    def _store_weekly_insight(self, insight: dict) -> None:
+        """주간 인사이트를 ExperimentStore에 기록한다."""
+        if self._experiment_store:
+            self._experiment_store.record(
+                source="weekly_insight",
+                strategy="",
+                params=insight,
+                pf=0.0,
+                mdd=0.0,
+                trades=insight.get("total_trades", 0),
+                verdict="insight",
             )
+            logger.info("주간 인사이트 저장 완료")
 
-            if self._experiment_store:
-                self._experiment_store.record(
-                    source="weekly_review",
-                    strategy="",
-                    params={param: delta},
-                    pf=0.0,
-                    mdd=0.0,
-                    trades=0,
-                    verdict="pending_verification",
-                )
+    def get_latest_insight(self) -> dict | None:
+        """가장 최근 주간 인사이트를 반환한다.
 
-        return 0
+        EvolutionOrchestrator Phase 3에서 가설 생성 컨텍스트로 사용.
+        """
+        if not self._experiment_store:
+            return None
+        records = self._experiment_store.get_history(
+            source="weekly_insight", limit=1,
+        )
+        if records:
+            return records[0].get("params") if isinstance(records[0], dict) else None
+        return None
 
     async def _send_weekly_report(
         self, result: WeeklyReviewResult, shadow_top3: list | None
@@ -675,10 +621,16 @@ class ReviewEngine:
             top_strs = [f"{s[0]}({s[1].total_pnl:+.0f})" for s in shadow_top3[:3]]
             lines.append(f"Shadow Top3: {', '.join(top_strs)}")
 
+        if result.weekly_insight:
+            focus = result.weekly_insight.get("recommended_focus", "")
+            if focus:
+                lines.append(f"주간 포커스: {focus}")
+            weak = result.weekly_insight.get("weak_strategies", [])
+            if weak:
+                lines.append(f"약한 전략: {', '.join(weak)}")
         if result.deepseek_suggestions:
             lines.append(
-                f"DeepSeek 제안: {result.applied_suggestions}건 적용,"
-                f" {result.rejected_suggestions}건 기각"
+                f"DeepSeek 분석: {len(result.deepseek_suggestions)}건 인사이트"
             )
 
         lines.append("=" * 20)

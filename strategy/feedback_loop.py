@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -102,12 +102,14 @@ class FeedbackLoop:
         self,
         patterns: list[FailurePattern],
         current_params: dict,
+        weekly_insight: dict | None = None,
     ) -> list[dict]:
         """실패 패턴 기반으로 DeepSeek에게 파라미터 수정 가설을 요청한다.
 
         Args:
             patterns: 분석할 실패 패턴 목록.
             current_params: 현재 전략 파라미터.
+            weekly_insight: ReviewEngine의 주간 분석 인사이트 (선택).
 
         Returns:
             파라미터 수정 제안 목록. 각 항목: {
@@ -135,8 +137,25 @@ class FeedbackLoop:
             for p in top3
         )
 
+        # 주간 인사이트 컨텍스트 추가
+        insight_section = ""
+        if weekly_insight:
+            weak = weekly_insight.get("weak_strategies", [])
+            focus = weekly_insight.get("recommended_focus", "")
+            risk_obs = weekly_insight.get("risk_observations", [])
+            if weak or focus or risk_obs:
+                insight_section = "## 주간 분석 인사이트\n"
+                if weak:
+                    insight_section += f"약한 전략: {', '.join(weak)}\n"
+                if focus:
+                    insight_section += f"집중 영역: {focus}\n"
+                if risk_obs:
+                    insight_section += f"리스크 관측: {'; '.join(risk_obs)}\n"
+                insight_section += "\n"
+
         prompt = (
             "당신은 암호화폐 거래 전략 최적화 전문가입니다.\n\n"
+            f"{insight_section}"
             "최근 7일 거래 실패 패턴:\n"
             f"{pattern_summary}\n\n"
             "현재 파라미터:\n"

@@ -211,6 +211,7 @@ class EvolutionOrchestrator:
         approval_workflow: ApprovalWorkflow,
         current_params: EvolvableParams,
         coins: list[str],
+        review_engine: Any = None,
         max_experiments: int = 10,
         held_out_days: int = 30,
         dsr_significance: float = 0.05,
@@ -227,6 +228,7 @@ class EvolutionOrchestrator:
         self._guard = guard_agent
         self._approval = approval_workflow
         self._current_params = current_params
+        self._review_engine = review_engine
         self._coins = coins
         self._max_experiments = max_experiments
         self._held_out_days = held_out_days
@@ -458,12 +460,20 @@ class EvolutionOrchestrator:
         """LLM 방향 제시 + 그리드 탐색 후보 생성."""
         candidates: list[ExperimentCandidate] = []
 
+        # 0. ReviewEngine 주간 인사이트 로드 (컨텍스트 강화)
+        weekly_insight: dict | None = None
+        if hasattr(self, "_review_engine") and self._review_engine:
+            weekly_insight = self._review_engine.get_latest_insight()
+            if weekly_insight:
+                logger.info("주간 인사이트 컨텍스트 로드: %s", weekly_insight.get("period", ""))
+
         # 1. FeedbackLoop LLM 가설
         try:
             patterns = self._feedback_loop.get_failure_patterns(days=7)
             if patterns:
                 hypotheses = await self._feedback_loop.generate_hypotheses(
-                    patterns, self._current_params.to_dict()
+                    patterns, self._current_params.to_dict(),
+                    weekly_insight=weekly_insight,
                 )
                 for hyp in hypotheses[:3]:
                     changes = {}

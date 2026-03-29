@@ -82,3 +82,29 @@ Darwinian 교체 판정 시 아래 검증 결과도 함께 확인:
 - Monte Carlo 하위 5% PnL > -2% 필수
 - 민감도 CV < 0.3인 파라미터만 교체 대상
 - 하나라도 미충족 시 교체 보류
+
+## 설계 원칙 (Multi-Agent Architecture)
+
+> Google Research MAS 논문 (180개 실험) 기반 아키텍처 가이드라인.
+
+### Shadow는 경량 파라미터 평가기로 유지
+- Shadow에 LLM 추론을 추가하지 않는다.
+- 근거: 에이전트 3~4개가 최적 한계, 초선형 통신 비용(지수 1.724).
+- 20~30개 Shadow에 LLM을 추가하면 비용 폭증 + 성능 저하.
+- LLM 기반 가설 생성은 EvolutionOrchestrator Phase 3에서만 수행.
+
+### config.yaml 쓰기 경로는 ApprovalWorkflow 단일 채널
+- 모든 파라미터 변경은 GuardAgent → ApprovalWorkflow를 경유한다.
+- BacktestDaemon, scripts/optimize.py 등에서 직접 config.yaml 수정을 금지한다.
+- 근거: 중앙 집중형 검증 병목이 오류 증폭을 4.4배로 억제 (vs 독립형 17.2배).
+
+### Full Autonomy 전환 시에도 검증 병목 유지
+- Phase 3 (Full Autonomy) 구현 시 인간 승인 게이트를 제거하더라도,
+  GuardAgent 구조적 검증은 반드시 유지한다.
+- 자동 승인 기준: risk_score < 0.1만 자동 승인, 0.1 이상은 인간 에스컬레이션.
+- 근거: 검증 병목 제거 시 오류 증폭 4.4배 → 17.2배 상승 위험.
+
+### 파라미터 변경 제안은 단일 파이프라인
+- ReviewEngine은 "관측 + 보고 + 인사이트 제공" 역할만 수행한다.
+- 파라미터 변경 제안 및 적용은 EvolutionOrchestrator → ApprovalWorkflow 단일 경로.
+- ReviewEngine의 주간 인사이트는 EvolutionOrchestrator Phase 3의 컨텍스트로 주입.

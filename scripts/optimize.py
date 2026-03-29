@@ -128,45 +128,31 @@ def format_report(
 
 
 def apply_to_config(results: dict[str, list], config_path: Path) -> None:
-    """최적 파라미터를 config.yaml에 적용한다.
+    """최적화 결과를 출력한다 (config.yaml 직접 수정 비활성화).
+
+    config.yaml 변경은 반드시 ApprovalWorkflow를 경유해야 한다.
+    이 함수는 결과만 출력하며, 실제 적용은 EvolutionOrchestrator
+    또는 BacktestDaemon의 ApprovalWorkflow 파이프라인을 사용할 것.
 
     Args:
         results: 전략별 OOS 결과 리스트.
-        config_path: config.yaml 파일 경로.
+        config_path: config.yaml 파일 경로 (참고용).
     """
-    import yaml
-
-    with open(config_path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-
-    sp = raw.get("strategy_params", {})
-
     for strategy, oos_list in results.items():
         if not oos_list:
             continue
         best = max(oos_list, key=lambda r: r.profit_factor)
         if best.trades < 10 or best.profit_factor < 0.5:
             continue
-        # Apply params
-        if strategy not in sp:
-            sp[strategy] = {}
-        for k, v in best.params.items():
-            if k == "cutoff_full":
-                continue  # cutoff는 별도 섹션
-            sp[strategy][k] = round(v, 4)
-
-    raw["strategy_params"] = sp
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            raw,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
+        logger.info(
+            "[%s] 최적 파라미터 (PF=%.2f, %d건): %s",
+            strategy, best.profit_factor, best.trades, best.params,
         )
 
-    logger.info("config.yaml 업데이트 완료")
+    logger.info(
+        "config.yaml 직접 수정 비활성화됨. "
+        "ApprovalWorkflow를 통해 적용하세요: /approve <change_id>"
+    )
 
 
 async def main() -> None:

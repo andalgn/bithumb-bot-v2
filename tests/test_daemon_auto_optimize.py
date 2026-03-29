@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import yaml
 
 from app.config import BacktestConfig
 from backtesting.daemon import BacktestDaemon
@@ -42,35 +41,58 @@ def test_collect_candles_no_store():
     assert result == 0
 
 
-def test_apply_params_creates_backup():
-    """config 적용 시 백업 파일이 생성된다."""
-    config = BacktestConfig(auto_apply_min_pf=1.0, auto_apply_min_trades=5)
+def test_propose_via_approval_creates_pending():
+    """_propose_via_approval이 ApprovalWorkflow에 PendingChange를 생성한다."""
+    from app.approval_workflow import ApprovalWorkflow
+    from strategy.guard_agent import GuardAgent
+    from strategy.strategy_params import EvolvableParams
+
     journal = MagicMock()
-    daemon = BacktestDaemon(journal=journal, config=config)
+    approval = ApprovalWorkflow(
+        pending_path=Path(tempfile.mktemp(suffix=".json")),
+    )
+    current = EvolvableParams()  # 기본값
+    daemon = BacktestDaemon(
+        journal=journal,
+        approval=approval,
+        guard=GuardAgent(),
+        current_params=current,
+    )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False,
-    ) as f:
-        yaml.dump({"strategy_params": {"trend_follow": {"sl_mult": 1.0}}}, f)
-        tmp_path = Path(f.name)
+    candidate = {
+        "strategy": "trend_follow",
+        "params": {"sl_mult": 3.0, "tp_rr": 2.0},
+        "pf": 1.8,
+        "source": "auto_optimize",
+        "trades": 50,
+    }
 
-    try:
-        daemon._apply_optimized_params(
-            strategy="trend_follow",
-            params={"sl_mult": 3.0, "tp_rr": 2.0},
-            config_path=tmp_path,
-        )
-        backups = list(tmp_path.parent.glob(f"{tmp_path.stem}*.bak.*"))
-        assert len(backups) >= 1
+    asyncio.get_event_loop().run_until_complete(
+        daemon._propose_via_approval(candidate)
+    )
 
-        with open(tmp_path) as f:
-            updated = yaml.safe_load(f)
-        assert updated["strategy_params"]["trend_follow"]["sl_mult"] == 3.0
-        assert updated["strategy_params"]["trend_follow"]["tp_rr"] == 2.0
-    finally:
-        tmp_path.unlink(missing_ok=True)
-        for b in tmp_path.parent.glob(f"{tmp_path.stem}*.bak.*"):
-            b.unlink(missing_ok=True)
+    pending = approval.list_pending()
+    assert len(pending) == 1
+    assert pending[0].risk_level in ("low", "medium", "high")
+    assert pending[0].status == "pending"
+
+
+def test_propose_via_approval_skips_without_approval():
+    """ApprovalWorkflow 미설정 시 건너뛴다."""
+    journal = MagicMock()
+    daemon = BacktestDaemon(journal=journal)
+
+    candidate = {
+        "strategy": "trend_follow",
+        "params": {"sl_mult": 3.0},
+        "pf": 1.5,
+        "source": "test",
+    }
+
+    # Should not raise
+    asyncio.get_event_loop().run_until_complete(
+        daemon._propose_via_approval(candidate)
+    )
 
 
 def test_parse_time():

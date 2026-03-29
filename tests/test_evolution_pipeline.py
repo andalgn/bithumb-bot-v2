@@ -1,7 +1,7 @@
 """Evolution Pipeline 통합 테스트.
 
 Auto-Optimize, Auto-Research, Darwin 후보를 비교하여
-최고 PF 1개만 config.yaml에 적용하는 파이프라인 검증.
+최고 PF 1개만 ApprovalWorkflow로 제안하는 파이프라인 검증.
 """
 
 from __future__ import annotations
@@ -79,17 +79,17 @@ def test_pipeline_selects_best_candidate():
         patch.object(daemon, "_run_auto_optimize", new_callable=AsyncMock, return_value=opt_candidates),
         patch.object(daemon, "_run_auto_research", new_callable=AsyncMock, return_value=research_candidates),
         patch.object(daemon, "_run_darwin_candidate", return_value=darwin_candidates),
-        patch.object(daemon, "_apply_optimized_params") as mock_apply,
+        patch.object(daemon, "_propose_via_approval", new_callable=AsyncMock) as mock_propose,
     ):
         asyncio.get_event_loop().run_until_complete(
             daemon._run_evolution_pipeline()
         )
 
         # PF 1.8 (auto_research)이 선택되어야 함
-        mock_apply.assert_called_once()
-        call_args = mock_apply.call_args
-        assert call_args[0][0] == "mean_reversion"
-        assert call_args[0][1] == {"sl_mult": 7.0}
+        mock_propose.assert_called_once()
+        candidate = mock_propose.call_args[0][0]
+        assert candidate["strategy"] == "mean_reversion"
+        assert candidate["params"] == {"sl_mult": 7.0}
 
 
 def test_pipeline_skips_when_all_worse_than_baseline():
@@ -109,12 +109,12 @@ def test_pipeline_skips_when_all_worse_than_baseline():
         patch.object(daemon, "_run_auto_optimize", new_callable=AsyncMock, return_value=weak_candidates),
         patch.object(daemon, "_run_auto_research", new_callable=AsyncMock, return_value=[]),
         patch.object(daemon, "_run_darwin_candidate", return_value=[]),
-        patch.object(daemon, "_apply_optimized_params") as mock_apply,
+        patch.object(daemon, "_propose_via_approval", new_callable=AsyncMock) as mock_propose,
     ):
         asyncio.get_event_loop().run_until_complete(
             daemon._run_evolution_pipeline()
         )
-        mock_apply.assert_not_called()
+        mock_propose.assert_not_called()
 
 
 def test_pipeline_applies_config_once_only():
@@ -134,12 +134,12 @@ def test_pipeline_applies_config_once_only():
         patch.object(daemon, "_run_auto_optimize", new_callable=AsyncMock, return_value=candidates[:1]),
         patch.object(daemon, "_run_auto_research", new_callable=AsyncMock, return_value=candidates[1:]),
         patch.object(daemon, "_run_darwin_candidate", return_value=[]),
-        patch.object(daemon, "_apply_optimized_params") as mock_apply,
+        patch.object(daemon, "_propose_via_approval", new_callable=AsyncMock) as mock_propose,
     ):
         asyncio.get_event_loop().run_until_complete(
             daemon._run_evolution_pipeline()
         )
-        assert mock_apply.call_count == 1
+        assert mock_propose.call_count == 1
 
 
 def test_pipeline_darwin_champion_replacement():
@@ -159,7 +159,7 @@ def test_pipeline_darwin_champion_replacement():
         patch.object(daemon, "_run_auto_optimize", new_callable=AsyncMock, return_value=[]),
         patch.object(daemon, "_run_auto_research", new_callable=AsyncMock, return_value=[]),
         patch.object(daemon, "_run_darwin_candidate", return_value=darwin_candidates),
-        patch.object(daemon, "_apply_optimized_params"),
+        patch.object(daemon, "_propose_via_approval", new_callable=AsyncMock),
     ):
         asyncio.get_event_loop().run_until_complete(
             daemon._run_evolution_pipeline()

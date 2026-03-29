@@ -34,6 +34,13 @@
 - docstring: 모든 public 함수에 한국어로
 - pre-review: 실제 버그와 보안 이슈만 집중
 
+### 아키텍처 원칙
+- config.yaml 변경은 반드시 ApprovalWorkflow 경유 (직접 쓰기 금지)
+- Darwin Shadow에 LLM 추론 추가 금지 (경량 파라미터 평가기 유지)
+- Full Autonomy 전환 시에도 GuardAgent 검증 병목은 유지
+- 파라미터 제안 경로: EvolutionOrchestrator → ApprovalWorkflow 단일 채널
+- ReviewEngine은 관측/보고 전용 (파라미터 변경 제안 금지)
+
 ## 프로젝트 구조
 
 <!-- AUTO-GENERATED-TREE: START -->

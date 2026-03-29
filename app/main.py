@@ -212,6 +212,9 @@ class TradingBot:
         # ExperimentStore + 파일럿 사이징
         self._experiment_store = ExperimentStore()
 
+        # 승인 워크플로우 (BacktestDaemon + EvolutionOrchestrator 공유)
+        self._approval_workflow = ApprovalWorkflow()
+
         # Phase 5: Darwin + BacktestDaemon
         self._darwin = DarwinEngine(
             population_size=20,
@@ -228,6 +231,9 @@ class TradingBot:
             deepseek_api_key=config.secrets.deepseek_api_key,
             experiment_store=self._experiment_store,
             darwin=self._darwin,
+            approval=self._approval_workflow,
+            guard=GuardAgent(),
+            current_params=EvolvableParams.from_config(config),
         )
 
         # Task 13: ReflectionStore
@@ -253,7 +259,6 @@ class TradingBot:
         self._last_feedback_inject: tuple | None = None
 
         # 자율 진화 시스템
-        self._approval_workflow = ApprovalWorkflow()
         self._evolution: EvolutionOrchestrator | None = None
         self._evolution_task: asyncio.Task | None = None
         if config.evolution.enabled:
@@ -276,6 +281,7 @@ class TradingBot:
                 guard_agent=GuardAgent(),
                 approval_workflow=self._approval_workflow,
                 current_params=EvolvableParams.from_config(config),
+                review_engine=self._review_engine,
                 coins=config.coins,
                 max_experiments=evo_cfg.max_experiments,
                 held_out_days=evo_cfg.held_out_days,

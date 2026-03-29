@@ -13,27 +13,31 @@ config.yaml의 backtest 섹션에서 스케줄 읽음.
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import logging
-import os
-import shutil
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
+from app.approval_workflow import ApprovalWorkflow, PendingChange
 from app.config import BacktestConfig
 from app.journal import Journal
 from app.notify import Notifier
 from backtesting.monte_carlo import MonteCarlo, MonteCarloResult
 from backtesting.sensitivity import SensitivityAnalyzer, SensitivityResult
 from backtesting.walk_forward import WalkForward, WalkForwardResult
+from strategy.guard_agent import GuardAgent
+from strategy.strategy_params import EvolvableParams
 
 if TYPE_CHECKING:
     from market.bithumb_api import BithumbClient
     from market.market_store import MarketStore
+
+# (strategy_name) → EvolvableParams 필드명 접두사 매핑
+_STRATEGY_PREFIX: dict[str, str] = {
+    "trend_follow": "tf",
+    "mean_reversion": "mr",
+    "breakout": "bo",
+    "dca": "dca",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,9 @@ class BacktestDaemon:
         deepseek_api_key: str = "",
         experiment_store: object | None = None,
         darwin: object | None = None,
+        approval: ApprovalWorkflow | None = None,
+        guard: GuardAgent | None = None,
+        current_params: EvolvableParams | None = None,
     ) -> None:
         """초기화.
 
@@ -77,6 +84,9 @@ class BacktestDaemon:
         self._deepseek_key = deepseek_api_key
         self._experiment_store = experiment_store
         self._darwin = darwin
+        self._approval = approval
+        self._guard = guard or GuardAgent()
+        self._current_params = current_params
         self._running = False
 
         c = self._config
@@ -567,12 +577,7 @@ class BacktestDaemon:
                 logger.info("Darwin 챔피언 교체 완료")
                 report_lines.append("Darwin 챔피언 교체 + Pilot 모드(50% × 20건)")
 
-            config_path = Path("configs/config.yaml")
-            self._apply_optimized_params(
-                selected["strategy"],
-                selected["params"],
-                config_path,
-            )
+            await self._propose_via_approval(selected)
             report_lines.append(
                 f"적용: {selected['source']} → {selected['strategy']} "
                 f"(PF {baseline_pf:.2f} → {selected['pf']:.2f})"
@@ -585,56 +590,100 @@ class BacktestDaemon:
         if self._notifier:
             await self._notifier.send("\n".join(report_lines), channel="backtest")
 
-    def _apply_optimized_params(
-        self,
-        strategy: str,
-        params: dict[str, float],
-        config_path: Path,
-    ) -> None:
-        """최적 파라미터를 config.yaml에 백업 후 적용한다 (파일 잠금 포함)."""
-        # 백업
-        backup_path = config_path.with_suffix(
-            f".yaml.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    async def _propose_via_approval(self, candidate: dict[str, Any]) -> None:
+        """진화 후보를 GuardAgent 검증 + ApprovalWorkflow 경유로 제안한다.
+
+        직접 config.yaml에 쓰지 않고, 검증 파이프라인을 거쳐
+        인간 승인 후에만 적용되도록 한다.
+
+        Args:
+            candidate: {"strategy", "params", "pf", "source", "trades"} 딕셔너리.
+        """
+        if not self._approval:
+            logger.warning("ApprovalWorkflow 미설정 — 후보 제안 건너뜀")
+            return
+
+        if not self._current_params:
+            logger.warning("current_params 미설정 — 후보 제안 건너뜀")
+            return
+
+        strategy = candidate["strategy"]
+        params = candidate["params"]
+
+        # (strategy, config_key) → EvolvableParams 필드명 변환
+        prefix = _STRATEGY_PREFIX.get(strategy)
+        if not prefix:
+            logger.warning("알 수 없는 전략: %s — 후보 제안 건너뜀", strategy)
+            return
+
+        changes: dict[str, float] = {}
+        for k, v in params.items():
+            if k == "cutoff_full":
+                continue
+            field_name = f"{prefix}_{k}"
+            if hasattr(self._current_params, field_name):
+                changes[field_name] = round(v, 4) if isinstance(v, float) else v
+            else:
+                logger.debug("매핑 없는 파라미터 무시: %s.%s", strategy, k)
+
+        if not changes:
+            logger.info("변경 사항 없음 — 후보 제안 건너뜀")
+            return
+
+        # EvolvableParams 생성 (범위 클램핑 + 교차 필드 검증 포함)
+        try:
+            proposed = self._current_params.apply_changes(changes)
+        except ValueError as e:
+            logger.warning("파라미터 교차 필드 제약 위반: %s", e)
+            return
+
+        # GuardAgent 검증
+        guard_result = self._guard.validate(self._current_params, proposed)
+        if not guard_result.is_valid:
+            logger.warning(
+                "GuardAgent 거부 (daemon): %s", guard_result.violations,
+            )
+            return
+        if guard_result.risk_level == "high":
+            logger.warning(
+                "GuardAgent 고위험 (daemon): risk=%.2f — 거부",
+                guard_result.risk_score,
+            )
+            return
+
+        # PendingChange 생성 → ApprovalWorkflow
+        from uuid import uuid4
+
+        change = PendingChange(
+            change_id=uuid4().hex[:8],
+            proposed_params=proposed.to_dict(),
+            current_params=self._current_params.to_dict(),
+            changes={
+                k: [float(old), float(new)]
+                for k, (old, new) in guard_result.changes.items()
+            },
+            risk_score=guard_result.risk_score,
+            risk_level=guard_result.risk_level,
+            fitness_improvement=candidate.get("pf", 0.0),
+            rationale=f"BacktestDaemon {candidate.get('source', 'auto')}: {strategy}",
+            experiment_count=1,
+            created_at=datetime.now().isoformat(),
         )
-        shutil.copy2(config_path, backup_path)
-        logger.info("config 백업: %s", backup_path)
 
-        # 파일 잠금 후 read-modify-write
-        with open(config_path, "r+", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            try:
-                raw = yaml.safe_load(f)
+        change_id = self._approval.propose(change)
+        logger.info(
+            "Daemon 후보 제안 완료: %s (strategy=%s, risk=%s)",
+            change_id, strategy, guard_result.risk_level,
+        )
 
-                sp = raw.setdefault("strategy_params", {})
-                if strategy not in sp:
-                    sp[strategy] = {}
-                for k, v in params.items():
-                    if k == "cutoff_full":
-                        continue
-                    sp[strategy][k] = round(v, 4) if isinstance(v, float) else v
-
-                # 원자적 쓰기: 임시 파일에 쓴 뒤 rename
-                tmp_fd, tmp_path = tempfile.mkstemp(
-                    dir=str(config_path.parent),
-                    suffix=".yaml.tmp",
-                )
-                try:
-                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
-                        yaml.dump(
-                            raw,
-                            tmp_f,
-                            default_flow_style=False,
-                            allow_unicode=True,
-                            sort_keys=False,
-                        )
-                    os.replace(tmp_path, str(config_path))
-                except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
-                    os.unlink(tmp_path)
-                    raise
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-        logger.info("config 업데이트: %s → %s", strategy, params)
+        if self._notifier:
+            await self._notifier.send(
+                f"**Daemon Evolution 제안** [{change_id}]\n"
+                f"전략: {strategy} | 위험도: {guard_result.risk_level} "
+                f"({guard_result.risk_score:.2f})\n"
+                f"`/approve {change_id}` | `/reject {change_id}`",
+                channel="backtest",
+            )
 
     # ═══════════════════════════════════════════
     # 리포트
