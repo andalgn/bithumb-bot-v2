@@ -307,11 +307,7 @@ class AutoResearcher:
         Returns:
             제안 딕셔너리 또는 None.
         """
-        try:
-            import httpx
-        except ImportError:
-            logger.warning("httpx 미설치, 제안 건너뜀")
-            return None
+        from app.llm_client import call_claude
 
         # research_program.md 내용 로딩
         program_content = ""
@@ -365,33 +361,12 @@ class AutoResearcher:
             '"hypothesis": "가설", "expected_impact": "예상 효과"}\n```'
         )
 
-        try:
-            # DeepSeek API는 직접 접속 (프록시 불필요 — 프록시는 한국 서버용)
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self._deepseek_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self._deepseek_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 500,
-                        "temperature": 0.7,
-                    },
-                )
-                if resp.status_code != 200:
-                    logger.warning("DeepSeek API 오류: %d", resp.status_code)
-                    return None
-
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                return self._parse_proposal(content)
-
-        except Exception:  # noqa: BLE001 — DeepSeek API 호출, 의도적 광역 포착
-            logger.exception("DeepSeek API 호출 실패")
+        response = await call_claude(prompt, model="sonnet", timeout=60)
+        if not response:
+            logger.warning("Claude 실험 제안 호출 실패")
             return None
+
+        return self._parse_proposal(response)
 
     def _parse_proposal(self, content: str) -> dict | None:
         """DeepSeek 응답에서 JSON 제안을 파싱한다.

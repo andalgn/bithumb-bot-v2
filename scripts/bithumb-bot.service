@@ -13,6 +13,7 @@ ExecStart=/home/bythejune/projects/bithumb-bot-v2/venv/bin/python run_bot.py
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/bythejune/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 # 로그 (journald 자동 로테이션)
 StandardOutput=journal
@@ -27,6 +28,7 @@ CPUQuota=80%
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/home/bythejune/projects/bithumb-bot-v2/data
+ReadWritePaths=/home/bythejune/.claude
 
 [Install]
 WantedBy=multi-user.target

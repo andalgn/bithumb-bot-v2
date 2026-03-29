@@ -399,8 +399,7 @@ class ReviewEngine:
             lessons_section += "\n"
 
         # DeepSeek API 호출
-        if self._deepseek_key:
-            suggestions = await self._call_deepseek(
+        suggestions = await self._call_deepseek(
                 strategy_stats=strategy_stats,
                 shadow_top3=shadow_top3,
                 wf_verdict=wf_verdict,
@@ -410,14 +409,14 @@ class ReviewEngine:
                 corr_pairs=corr_pairs,
                 lessons_section=lessons_section,
             )
-            result.deepseek_suggestions = suggestions
+        result.deepseek_suggestions = suggestions
 
-            # 주간 인사이트 저장 (EvolutionOrchestrator Phase 3 컨텍스트용)
-            insight = self._build_weekly_insight(
-                strategy_stats, suggestions, week_trades,
-            )
-            result.weekly_insight = insight
-            self._store_weekly_insight(insight)
+        # 주간 인사이트 저장 (EvolutionOrchestrator Phase 3 컨텍스트용)
+        insight = self._build_weekly_insight(
+            strategy_stats, suggestions, week_trades,
+        )
+        result.weekly_insight = insight
+        self._store_weekly_insight(insight)
 
         # 주간 리포트 알림
         if self._notifier:
@@ -442,12 +441,8 @@ class ReviewEngine:
         corr_pairs: list | None = None,
         lessons_section: str = "",
     ) -> list[dict]:
-        """DeepSeek API를 호출하여 분석 제안을 받는다."""
-        try:
-            import httpx
-        except ImportError:
-            logger.warning("httpx 미설치, DeepSeek 호출 건너뜀")
-            return []
+        """Claude CLI를 통해 주간 분석 인사이트를 받는다."""
+        from app.llm_client import call_claude
 
         # 데이터 패키지 구성
         data_package = {
@@ -477,34 +472,12 @@ class ReviewEngine:
             f"데이터:\n{json.dumps(data_package, ensure_ascii=False, indent=2)}"
         )
 
-        try:
-            # DeepSeek API는 직접 접속 (프록시 불필요 — 프록시는 한국 서버용)
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self._deepseek_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self._deepseek_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 1000,
-                        "temperature": 0.3,
-                    },
-                )
-                if resp.status_code != 200:
-                    logger.warning("DeepSeek API 오류: %d", resp.status_code)
-                    return []
-
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                # JSON 파싱 시도
-                return self._parse_suggestions(content)
-
-        except Exception:  # noqa: BLE001 — DeepSeek API 호출, 의도적 광역 포착
-            logger.exception("DeepSeek API 호출 실패")
+        response = await call_claude(prompt, model="sonnet", timeout=60)
+        if not response:
+            logger.warning("Claude 주간 분석 호출 실패")
             return []
+
+        return self._parse_suggestions(response)
 
     def _parse_suggestions(self, content: str) -> list[dict]:
         """DeepSeek 응답에서 제안을 파싱한다."""

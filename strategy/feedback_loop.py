@@ -121,14 +121,10 @@ class FeedbackLoop:
                 "cutoff": float,
             }
         """
-        if not patterns or not self._deepseek_key:
+        if not patterns:
             return []
 
-        try:
-            import httpx
-        except ImportError:
-            logger.warning("httpx 미설치, DeepSeek 가설 생성 건너뜀")
-            return []
+        from app.llm_client import call_claude
 
         top3 = patterns[:3]
         pattern_summary = "\n".join(
@@ -168,30 +164,9 @@ class FeedbackLoop:
 
         _param_keys = ("mr_sl_mult", "mr_tp_rr", "dca_sl_pct", "dca_tp_pct", "cutoff")
 
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self._deepseek_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self._deepseek_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 800,
-                        "temperature": 0.3,
-                    },
-                )
-                if resp.status_code != 200:
-                    logger.warning("DeepSeek API 오류: %d", resp.status_code)
-                    return []
-
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-
-        except Exception:  # noqa: BLE001 — DeepSeek API 호출 실패, 의도적 광역 포착
-            logger.exception("DeepSeek 가설 생성 API 호출 실패")
+        content = await call_claude(prompt, model="sonnet", timeout=60)
+        if not content:
+            logger.warning("Claude 가설 생성 호출 실패")
             return []
 
         # JSON 파싱

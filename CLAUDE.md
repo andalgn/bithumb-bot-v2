@@ -59,6 +59,7 @@ bithumb_auto_v2/
 │   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
 │   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
+│   ├── llm_client.py               ← Claude Code CLI 기반 LLM 클라이언트.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
