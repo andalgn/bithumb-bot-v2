@@ -462,10 +462,16 @@ class EvolutionOrchestrator:
 
         # 0. ReviewEngine 주간 인사이트 로드 (컨텍스트 강화)
         weekly_insight: dict | None = None
-        if hasattr(self, "_review_engine") and self._review_engine:
+        if self._review_engine:
             weekly_insight = self._review_engine.get_latest_insight()
-            if weekly_insight:
+            if weekly_insight is None:
+                logger.debug("주간 인사이트 없음 (ReviewEngine 미실행)")
+            elif not weekly_insight:
+                logger.debug("주간 인사이트가 비어있음")
+            else:
                 logger.info("주간 인사이트 컨텍스트 로드: %s", weekly_insight.get("period", ""))
+        else:
+            logger.debug("ReviewEngine 미설정 — 주간 인사이트 건너뜀")
 
         # 1. FeedbackLoop LLM 가설
         try:

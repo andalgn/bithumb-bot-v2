@@ -542,24 +542,30 @@ class ReviewEngine:
         now = datetime.now(KST)
         week_ago = now - timedelta(days=7)
 
-        # DeepSeek 응답이 새 형식(insight)이면 그대로 사용
-        insight: dict = {}
+        # DeepSeek 응답을 정규화하여 모든 필드가 존재하도록 보장
+        _INSIGHT_DEFAULTS: dict = {
+            "summary": "LLM 분석 결과",
+            "weak_strategies": [],
+            "strong_strategies": [],
+            "sensitive_params": [],
+            "risk_observations": [],
+            "recommended_focus": "",
+        }
+
+        insight: dict = dict(_INSIGHT_DEFAULTS)
         if suggestions and isinstance(suggestions[0], dict):
-            if "summary" in suggestions[0]:
-                insight = suggestions[0]
+            raw = suggestions[0]
+            if "summary" in raw:
+                # 새 형식: 기본값 위에 응답 필드 병합
+                for key in _INSIGHT_DEFAULTS:
+                    if key in raw:
+                        insight[key] = raw[key]
             else:
                 # 기존 형식(param/action/delta) → 인사이트로 변환
-                insight = {
-                    "summary": "LLM 분석 결과",
-                    "weak_strategies": [],
-                    "strong_strategies": [],
-                    "sensitive_params": [
-                        s.get("param", "") for s in suggestions
-                        if s.get("param")
-                    ],
-                    "risk_observations": [],
-                    "recommended_focus": "",
-                }
+                insight["sensitive_params"] = [
+                    s.get("param", "") for s in suggestions
+                    if s.get("param")
+                ]
 
         # 전략 통계 기반 보강
         for strat, stats in strategy_stats.items():

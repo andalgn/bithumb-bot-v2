@@ -613,8 +613,12 @@ class BacktestDaemon:
         # (strategy, config_key) → EvolvableParams 필드명 변환
         prefix = _STRATEGY_PREFIX.get(strategy)
         if not prefix:
-            logger.warning("알 수 없는 전략: %s — 후보 제안 건너뜀", strategy)
-            return
+            known = ", ".join(_STRATEGY_PREFIX.keys())
+            logger.error(
+                "알 수 없는 전략: %s (지원: %s) — _STRATEGY_PREFIX에 추가 필요",
+                strategy, known,
+            )
+            raise ValueError(f"알 수 없는 전략: {strategy}. 지원: {known}")
 
         changes: dict[str, float] = {}
         for k, v in params.items():
@@ -637,8 +641,11 @@ class BacktestDaemon:
             logger.warning("파라미터 교차 필드 제약 위반: %s", e)
             return
 
-        # GuardAgent 검증
+        # GuardAgent 검증 (risk_level 임계: low<0.2, medium<0.6, high≥0.6)
         guard_result = self._guard.validate(self._current_params, proposed)
+        logger.info("GuardAgent 검증 결과: %s (risk=%.2f, changes=%s)",
+                     guard_result.risk_level, guard_result.risk_score,
+                     list(guard_result.changes.keys()))
         if not guard_result.is_valid:
             logger.warning(
                 "GuardAgent 거부 (daemon): %s", guard_result.violations,
