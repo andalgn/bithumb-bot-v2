@@ -787,6 +787,8 @@ class TradingBot:
             data: 현재 사이클 시장 데이터 (orderbook, snapshots 참조용).
         """
         for signal in signals:
+            trace_id = f"{signal.symbol}_{int(time.time() * 1000)}"
+
             # 이미 포지션 있으면 스킵
             if signal.symbol in self._positions:
                 continue
@@ -795,6 +797,10 @@ class TradingBot:
             active_coins = list(self._positions.keys())
             corr_result = self._correlation.check_correlation(signal.symbol, active_coins)
             if not corr_result.allowed:
+                self._journal.record_pipeline_event(
+                    trace_id, "corr_rejected", signal.symbol,
+                    {"score": signal.score, "strategy": signal.strategy.value},
+                )
                 continue
 
             # 리스크 체크
@@ -821,6 +827,10 @@ class TradingBot:
             )
 
             if not check.allowed:
+                self._journal.record_pipeline_event(
+                    trace_id, "risk_rejected", signal.symbol,
+                    {"score": signal.score, "reason": check.reason},
+                )
                 logger.info(
                     "신호 거부: %s %s [%.0f점] -%s",
                     signal.direction.value,
@@ -867,6 +877,13 @@ class TradingBot:
                     self._live_risk_reduction = False
                     logger.info("LIVE risk_pct 축소 자동 해제 (7일 경과)")
 
+            # 사이징 결과를 파이프라인 이벤트로 기록
+            self._journal.record_pipeline_event(
+                trace_id, "sizing_done", signal.symbol,
+                {"size_krw": sizing.size_krw, "score": signal.score,
+                 "strategy": signal.strategy.value, **sizing.detail},
+            )
+
             if sizing.size_krw <= 0:
                 logger.info(
                     "사이징 0: %s %s [%.0f점] size_krw=%.0f",
@@ -912,6 +929,11 @@ class TradingBot:
                 )
 
                 if ticket.status == OrderStatus.FILLED:
+                    self._journal.record_pipeline_event(
+                        trace_id, "order_filled", signal.symbol,
+                        {"price": ticket.filled_price or signal.entry_price,
+                         "qty": ticket.filled_qty or qty, "size_krw": sizing.size_krw},
+                    )
                     self._risk_gate.record_entry(signal.symbol)
 
                     # 실제 체결가 사용 (LIVE: 거래소 체결가, DRY/PAPER: 신호가)
@@ -965,6 +987,10 @@ class TradingBot:
                         channel="trade",
                     )
                 else:
+                    self._journal.record_pipeline_event(
+                        trace_id, "order_failed", signal.symbol,
+                        {"status": ticket.status.value, "size_krw": sizing.size_krw},
+                    )
                     # 주문 실패 — Pool 할당 롤백
                     self._pool_manager.release(alloc_pool, sizing.size_krw)
                     logger.warning(

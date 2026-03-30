@@ -158,6 +158,22 @@ class Journal:
             )
         """)
         self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                symbol TEXT DEFAULT '',
+                data_json TEXT DEFAULT '{}',
+                created_at INTEGER NOT NULL
+            )
+        """)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pipe_trace ON pipeline_events(trace_id)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pipe_time ON pipeline_events(created_at)"
+        )
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS reflections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trade_id TEXT,
@@ -352,6 +368,26 @@ class Journal:
         )
         self._conn.commit()
 
+    def record_pipeline_event(
+        self, trace_id: str, event_type: str, symbol: str = "", data: dict | None = None,
+    ) -> None:
+        """파이프라인 이벤트를 기록한다."""
+        now = int(time.time() * 1000)
+        self._conn.execute(
+            "INSERT INTO pipeline_events (trace_id, event_type, symbol, data_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (trace_id, event_type, symbol, json.dumps(data or {}, ensure_ascii=False), now),
+        )
+        self._conn.commit()
+
+    def get_pipeline_stats(self, hours: int = 4) -> dict[str, int]:
+        """최근 N시간 파이프라인 이벤트 통계를 반환한다."""
+        cutoff = int((time.time() - hours * 3600) * 1000)
+        rows = self._conn.execute(
+            "SELECT event_type, COUNT(*) FROM pipeline_events WHERE created_at >= ? GROUP BY event_type",
+            (cutoff,),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def get_recent_health_checks(self, limit: int = 96) -> list[dict]:
         """최근 헬스 체크 결과를 반환한다."""
         rows = self._conn.execute(
@@ -407,7 +443,7 @@ class Journal:
         """
         cutoff = int(time.time() * 1000) - RETENTION_DAYS * DAY_MS
         total = 0
-        for table in ("signals", "executions", "risk_events", "shadow_trades", "feedback"):
+        for table in ("signals", "executions", "risk_events", "shadow_trades", "feedback", "pipeline_events"):
             cursor = self._conn.execute(
                 f"DELETE FROM {table} WHERE created_at < ?",  # noqa: S608
                 (cutoff,),

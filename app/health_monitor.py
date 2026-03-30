@@ -58,6 +58,7 @@ SCORE_WEIGHTS: dict[str, int] = {
     "system_resources": 5,
     "trading_metrics": 10,
     "discord": 5,
+    "pipeline": 10,
 }
 
 # 상관 억제: 이 카테고리가 critical이면 하위 카테고리 경보 억제
@@ -233,7 +234,7 @@ class HealthMonitor:
         self._running = False
 
     async def _run_all_checks(self) -> list[CheckResult]:
-        """8개 점검을 실행한다."""
+        """9개 점검을 실행한다."""
         return [
             self._check_heartbeat(),
             await self._check_event_loop_lag(),
@@ -243,6 +244,7 @@ class HealthMonitor:
             self._check_system_resources(),
             self._check_trading_metrics(),
             await self._check_discord(),
+            self._check_pipeline_health(),
         ]
 
     # ─── Check 1: 메인 루프 심장박동 ───
@@ -532,3 +534,61 @@ class HealthMonitor:
         if not getattr(self._notifier, "_webhooks", {}).get("system"):
             return CheckResult(name="discord", status="warn", message="system 채널 webhook 미설정")
         return CheckResult(name="discord", status="ok", message="알림 설정됨")
+
+    # ─── Check 9: 파이프라인 건전성 ───
+
+    def _check_pipeline_health(self) -> CheckResult:
+        """시그널→거래 파이프라인 전환율을 점검한다."""
+        if not self._journal:
+            return CheckResult(name="pipeline", status="ok", message="저널 미설정")
+
+        try:
+            stats = self._journal.get_pipeline_stats(hours=4)
+            sizing_done = stats.get("sizing_done", 0)
+            filled = stats.get("order_filled", 0)
+            risk_rejected = stats.get("risk_rejected", 0)
+            corr_rejected = stats.get("corr_rejected", 0)
+
+            # 사이징까지 도달한 시그널 수 (risk/corr 거절 제외)
+            total_signals = sizing_done + risk_rejected + corr_rejected
+            # 사이징 통과율 (size_krw > 0 → order_filled)
+            sizing_zero = sizing_done - filled  # sizing은 했지만 체결 안 된 수
+
+            if total_signals == 0:
+                return CheckResult(
+                    name="pipeline", status="ok",
+                    message="시그널 없음 (4h)", value=0,
+                )
+
+            if sizing_done == 0:
+                return CheckResult(
+                    name="pipeline", status="ok",
+                    message=f"사이징 도달 0건 (risk거절 {risk_rejected}, corr거절 {corr_rejected})",
+                )
+
+            conversion = filled / sizing_done if sizing_done > 0 else 0
+
+            # 사이징까지 도달했는데 전부 0원 → 파이프라인 교착
+            if filled == 0 and sizing_done >= 5:
+                return CheckResult(
+                    name="pipeline", status="critical",
+                    message=f"파이프라인 교착: 사이징 {sizing_done}건 전부 미진입 (4h)",
+                    value=conversion,
+                )
+            if filled == 0 and sizing_done >= 2:
+                return CheckResult(
+                    name="pipeline", status="warn",
+                    message=f"전환율 0%: 사이징 {sizing_done}건, 체결 0건 (4h)",
+                    value=conversion,
+                )
+
+            return CheckResult(
+                name="pipeline", status="ok",
+                message=f"전환율 {conversion:.0%}: 사이징 {sizing_done}→체결 {filled} (4h)",
+                value=conversion,
+            )
+        except Exception as e:
+            return CheckResult(
+                name="pipeline", status="warn",
+                message=f"파이프라인 점검 실패: {e}",
+            )
