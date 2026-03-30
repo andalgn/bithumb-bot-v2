@@ -1079,6 +1079,9 @@ class TradingBot:
         from datetime import datetime, timedelta
         from datetime import timezone as tz
 
+        # Pool↔포지션 정합성 검증 (매 사이클)
+        self._pool_manager.reconcile(self._positions)
+
         util = self._pool_manager.utilization_pct
         if self._cycle_count % 4 == 0:
             logger.info(

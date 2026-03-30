@@ -225,6 +225,38 @@ class PoolManager:
             },
         }
 
+    def reconcile(self, positions: dict) -> None:
+        """실제 포지션 기준으로 Pool 할당 상태를 재계산한다.
+
+        Args:
+            positions: 현재 활성 포지션 딕셔너리 {symbol: Position}.
+        """
+        actual_alloc: dict[Pool, float] = {p: 0.0 for p in Pool}
+        actual_count: dict[Pool, int] = {p: 0 for p in Pool}
+
+        for pos in positions.values():
+            pool = pos.pool if isinstance(pos.pool, Pool) else Pool(pos.pool)
+            actual_alloc[pool] += pos.size_krw
+            actual_count[pool] += 1
+
+        corrected = False
+        for pool in Pool:
+            state = self._pools[pool]
+            if (abs(state.allocated - actual_alloc[pool]) > 1.0
+                    or state.position_count != actual_count[pool]):
+                logger.warning(
+                    "Pool %s 정합성 보정: allocated %.0f→%.0f, count %d→%d",
+                    pool.value,
+                    state.allocated, actual_alloc[pool],
+                    state.position_count, actual_count[pool],
+                )
+                state.allocated = actual_alloc[pool]
+                state.position_count = actual_count[pool]
+                corrected = True
+
+        if corrected:
+            logger.info("Pool reconciliation 완료")
+
     def load_state(self, data: dict) -> None:
         """저장된 상태를 복원한다."""
         self._total_equity = data.get("total_equity", self._total_equity)

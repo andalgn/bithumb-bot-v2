@@ -151,14 +151,13 @@ class PositionManager:
             final *= corr.size_mult
             detail["corr_mult"] = corr.size_mult
 
-        # 파일럿 축소
-        if pilot_mult < 1.0:
-            final *= pilot_mult
-            detail["pilot_mult"] = pilot_mult
-
-        # 하한 체크
+        # 하한 체크 (pilot 적용 전에 기회 사이즈 자체가 부족한지 판단)
         if final < self._cfg.active_min_krw:
             final = 0
+        elif pilot_mult < 1.0:
+            # 파일럿 축소: 기회는 충분하지만 pilot 기간이므로 축소하되 최소금액 보장
+            final = max(final * pilot_mult, self._cfg.active_min_krw)
+            detail["pilot_mult"] = pilot_mult
 
         detail["final"] = final
         return SizingResult(pool=Pool.ACTIVE, size_krw=final, detail=detail)
