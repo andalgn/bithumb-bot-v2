@@ -15,14 +15,14 @@
 1. **수익성 강화** — Expectancy > 0, Profit Factor > 1.5
 2. **안전성 강화** — MDD < 15%, 일일 DD < 4%
 3. **자금 활용률 향상** — 50~60%
-4. **자가 학습** — 경량 Darwinian + 주간 DeepSeek 리뷰
+4. **자가 학습** — 경량 Darwinian + 주간 Claude 리뷰
 5. **24시간 무중단 자동매매**
 
 ## 기술 스택
 - Python 3.12+ / aiohttp / FastAPI / SQLite (WAL)
 - 빗썸 API (KRW 마켓, REST + 비동기)
 - discord.py (알림 Webhook + 슬래시 커맨드)
-- DeepSeek API (주간 리뷰만)
+- Claude CLI (파이프 모드) — LLM 추론 (DeepSeek 대체)
 - React + TypeScript (대시보드, 선택)
 
 ## 개발 규칙
@@ -56,10 +56,10 @@ bithumb_auto_v2/
 │   ├── cycle_data.py               ← 사이클 내 공유 데이터 컨테이너.
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
 │   ├── errors.py                   ← 커스텀 예외 계층.
-│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
-│   ├── journal.py                  ← 거래 기록 모듈.
+│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템 (Check 9 파이프라인 헬스).
+│   ├── journal.py                  ← 거래 기록 모듈 (파이프라인 이벤트 소싱).
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
-│   ├── llm_client.py               ← Claude Code CLI 기반 LLM 클라이언트.
+│   ├── llm_client.py               ← Claude CLI 파이프 모드 기반 LLM 클라이언트 (DeepSeek 대체).
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
@@ -113,13 +113,19 @@ bithumb_auto_v2/
 ├── bot_discord/
 │   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
+    ├── auto_fix.sh                 ← 자동 코드 수정 스크립트 (ruff, formatting).
     ├── compare_backtest.py         ← 현재 설정 vs 완화 설정 A/B 백테스트 비교.
+    ├── daily_report.sh             ← 일일 보고서 생성 (Claude 프롬프트 기반).
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
+    ├── fix_discord_proxy.sh        ← Discord 채널 플러그인 프록시 수정.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
-    ├── optimize.py                 ← 전략 파라미터 최적화 실행.
-    ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.
-    └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
+    ├── optimize.py                 ← 전략 파라미터 최적화 실행 (출력 전용).
+    ├── optimize_strategies.py      ← SL/TP 그리드 서치 + 필터 완화 통합 최적화.
+    ├── send_discord_report.py      ← Discord 웹훅으로 리포트 전송.
+    ├── simulate_relaxation.py      ← 4개 시나리오 파라미터 완화 비교 백테스트.
+    ├── sync_claude_md.py           ← CLAUDE.md 동기화 검증/갱신.
+    └── bithumb-bot.service        ← systemd 서비스 파일 (24시간 운영 관리).
 ├── configs/
 │   └── config.yaml              ← 통합 설정
 ├── tests/                       ← pytest 테스트
@@ -166,6 +172,55 @@ bithumb_auto_v2/
 BTC/KRW, ETH/KRW, XRP/KRW, SOL/KRW, RENDER/KRW,
 VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 
+## 실행 가이드
+
+### 스크립트 사용법
+
+<!-- AUTO-GENERATED: Scripts Reference -->
+
+| 스크립트 | 용도 | 사용법 |
+|---------|------|--------|
+| `python scripts/download_and_backtest.py` | 90일 캔들 다운로드 + 전략 백테스트 | `python scripts/download_and_backtest.py` |
+| `python scripts/optimize_strategies.py` | SL/TP 파라미터 그리드 서치 + 최적 설정 제안 | `python scripts/optimize_strategies.py` |
+| `python scripts/simulate_relaxation.py` | 4개 완화 시나리오 비교 백테스트 | `python scripts/simulate_relaxation.py` |
+| `python scripts/optimize.py` | 전략 파라미터 최적화 (출력 전용) | `python scripts/optimize.py` |
+| `python scripts/compare_backtest.py` | 현재 vs 완화 A/B 백테스트 비교 | `python scripts/compare_backtest.py` |
+| `python scripts/log_summary.py` | 봇 로그 자동 요약 | `python scripts/log_summary.py` |
+| `python scripts/send_discord_report.py` | Discord 웹훅으로 리포트 전송 | `python scripts/send_discord_report.py` |
+| `bash scripts/auto_fix.sh` | 코드 린팅 + 포매팅 (ruff) | `bash scripts/auto_fix.sh` |
+| `bash scripts/daily_report.sh` | 일일 보고서 생성 (Claude 프롬프트) | `bash scripts/daily_report.sh` |
+| `bash scripts/fix_discord_proxy.sh` | Discord 플러그인 프록시 패치 | `bash scripts/fix_discord_proxy.sh` |
+
+### 환경 변수
+
+`.env.example`에서 필요한 환경 변수:
+
+```bash
+# Bithumb API
+BITHUMB_API_KEY=your_api_key
+BITHUMB_API_SECRET=your_api_secret
+BITHUMB_API_URL=https://api.bithumb.com
+
+# Discord 알림 (6개 웹훅)
+DISCORD_WEBHOOK_TRADE=https://discord.com/api/webhooks/...      # 거래 알림
+DISCORD_WEBHOOK_REPORT=https://discord.com/api/webhooks/...    # 일일/주간 보고서
+DISCORD_WEBHOOK_BACKTEST=https://discord.com/api/webhooks/...  # 백테스트 결과
+DISCORD_WEBHOOK_SYSTEM=https://discord.com/api/webhooks/...    # 시스템 상태
+DISCORD_WEBHOOK_COMMAND=https://discord.com/api/webhooks/...   # 커맨드 응답
+DISCORD_WEBHOOK_LIVEGATE=https://discord.com/api/webhooks/...  # LIVE 승인
+
+# Discord 봇 (슬래시 커맨드)
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_GUILD_ID=your_guild_id
+
+# 대시보드 (선택)
+DASHBOARD_API_KEY=your_dashboard_key
+DASHBOARD_SECRET_KEY=your_secret_key
+
+# 운영 모드
+RUN_MODE=DRY  # DRY|PAPER|LIVE
+```
+
 ## Ubuntu 24시간 운영 참고
 - `systemd` 서비스로 등록 (`scripts/bithumb-bot.service`)
 - 설치: `sudo bash scripts/install_service_ubuntu.sh`
@@ -198,3 +253,56 @@ sudo cp scripts/bithumb-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl restart bithumb-bot
 ```
+
+## 최근 변경사항 (2026-03-31)
+
+### 주요 커밋
+
+| 커밋 | 설명 |
+|------|------|
+| `5c264f3` | feat: trade pipeline observability — event sourcing + watchdog 추가 |
+| `bdb640c` | fix: pilot sizing deadlock + pool allocation leak 해결 |
+| `149a838` | refactor: DeepSeek API → Claude CLI 파이프 모드로 대체 |
+| `6f36150` | fix: MAS 리팩터 코드 리뷰 반영 |
+| `1863c5a` | refactor: config.yaml 쓰기 경로 ApprovalWorkflow 통일 |
+
+### 신기능
+
+#### 1. 파이프라인 이벤트 소싱 (Event Sourcing)
+- **파일**: `app/journal.py`, `app/health_monitor.py`
+- **내용**: 
+  - `pipeline_events` 테이블로 전체 신호-거래 추적 (trace_id)
+  - 각 파이프라인 단계별 이벤트 기록 (corr_rejected, risk_rejected, sizing_done, order_filled)
+  - HealthMonitor Check 9: 4시간 funnel로 deadlock 감지
+
+#### 2. Claude CLI 파이프 모드
+- **파일**: `app/llm_client.py`
+- **대체**: DeepSeek API → `claude -p` stdin pipe
+- **영향**:
+  - `strategy/feedback_loop.py` — generate_hypotheses()
+  - `strategy/review_engine.py` — weekly insights
+  - `strategy/auto_researcher.py` — experiment proposals
+- **이점**: API 키 불필요, Claude Max 구독 활용, 네트워크 호출 최소화
+
+#### 3. Pilot 사이징 Deadlock 수정
+- **파일**: `strategy/position_manager.py`, `strategy/pool_manager.py`
+- **문제**: Pilot 모드에서 size_mult=0.5 적용 시 최소값 이하로 떨어져 0 거래 발생
+- **해결**:
+  - min_krw 체크를 pilot 적용 전에 수행
+  - pilot 중 최소값 floor 설정
+  - PoolManager.reconcile() — 할당/카운트 드리프트 정정
+
+#### 4. 새로운 최적화 스크립트
+- **`optimize_strategies.py`**: SL/TP 그리드 서치 + 필터 완화 통합
+- **`simulate_relaxation.py`**: 4개 완화 시나리오 A/B 백테스트 비교
+
+### 아키텍처 원칙 강화
+
+1. **ApprovalWorkflow 단일 채널**: 모든 config.yaml 변경은 반드시 ApprovalWorkflow 경유
+2. **ReviewEngine 관측 전용**: 파라미터 제안 금지 (EvolutionOrchestrator만 제안)
+3. **파이프라인 추적성**: 모든 거래의 신호-거래 경로를 trace_id로 추적 가능
+
+### 환경 변수 추가
+- 파일: `.env.example`
+- 신규: 모든 Discord 웹훅이 명시적으로 정의됨 (6개 채널)
+- 기존: RUN_MODE (DRY|PAPER|LIVE)
