@@ -22,8 +22,10 @@ DEFAULT_RATIOS: dict[Pool, float] = {
 
 # Pool별 동시 포지션 제한
 MAX_POSITIONS: dict[Pool, int] = {
-    Pool.CORE: 3,
-    Pool.ACTIVE: 5,
+    # Pool.CORE: 3,  # 원래 값
+    # Pool.ACTIVE: 5,
+    Pool.CORE: 5,  # 3→5 (D_적극 시나리오)
+    Pool.ACTIVE: 8,  # 5→8 (D_적극 시나리오)
     Pool.RESERVE: 1,
 }
 

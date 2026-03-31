@@ -43,19 +43,20 @@ class EnvironmentFilter:
             # 마지막 봉은 미완성일 수 있으므로 -2번째 사용
             avg_vol = float(np.mean(volumes[-22:-2]))
             current_vol = float(volumes[-2])
-            if avg_vol > 0 and current_vol < avg_vol * 0.8:
+            if avg_vol > 0 and current_vol < avg_vol * 0.4:  # 0.8→0.4 (D_적극 시나리오)
                 return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
 
         # 3. 스프레드 < Tier별 한도
         if snap.orderbook:
             spread = snap.orderbook.spread_pct
-            if spread > tier_params.spread_limit:
-                return False, f"L1: 스프레드 초과 ({spread:.4f} > {tier_params.spread_limit})"
+            if spread > tier_params.spread_limit * 2.0:  # 스프레드 한도 2배 완화 (D_적극 시나리오)
+                return False, f"L1: 스프레드 초과 ({spread:.4f} > {tier_params.spread_limit * 2.0})"
 
-        # 4. 시간대 필터 (00:00~06:00 KST → Tier 3 스킵)
-        now_kst = datetime.now(KST)
-        if 0 <= now_kst.hour < 6 and tier_params.tier == Tier.TIER3:
-            return False, "L1: 심야 시간대 Tier 3 거래 중단"
+        # 4. 시간대 필터 (00:00~06:00 KST → Tier 3: 사이징 30% 축소로 전환)
+        # now_kst = datetime.now(KST)
+        # if 0 <= now_kst.hour < 6 and tier_params.tier == Tier.TIER3:
+        #     return False, "L1: 심야 시간대 Tier 3 거래 중단"
+        # → 차단 대신 통과. 사이징 단계에서 심야 축소 적용 (D_적극 시나리오)
 
         # 5. 1H 급변동 억제: 직전 완성 1H 봉 변동 ≥ 1.5% → 급등/급락 직후 진입 차단
         if snap.candles_1h and len(snap.candles_1h) >= 2:

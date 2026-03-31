@@ -32,8 +32,8 @@ class TestPoolManager:
         assert pm.allocate(Pool.ACTIVE, 600_000) is False
 
     def test_allocate_max_positions(self, pm: PoolManager) -> None:
-        """최대 포지션 초과 할당 실패 (Active 최대 5건)."""
-        for _ in range(5):
+        """최대 포지션 초과 할당 실패 (Active 최대 8건, D_적극 시나리오)."""
+        for _ in range(8):
             pm.allocate(Pool.ACTIVE, 10_000)
         assert pm.allocate(Pool.ACTIVE, 10_000) is False
 
@@ -64,7 +64,7 @@ class TestPoolManager:
 
     def test_transfer_fails_when_full(self, pm: PoolManager) -> None:
         """도착 풀 포지션 초과 시 이관 실패."""
-        for _ in range(3):  # Core 최대 3건
+        for _ in range(5):  # Core 최대 5건 (D_적극 시나리오)
             pm.allocate(Pool.CORE, 10_000)
         pm.allocate(Pool.ACTIVE, 10_000)
         assert pm.transfer(Pool.ACTIVE, Pool.CORE, 10_000) is False

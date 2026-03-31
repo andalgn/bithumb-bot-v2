@@ -1,23 +1,35 @@
-"""Claude Code CLI 기반 LLM 클라이언트.
+"""DeepSeek API 기반 LLM 클라이언트.
 
-claude -p (파이프 모드)를 사용하여 Claude Max 구독 내에서 LLM 호출.
-API 키 불필요 — CLI 인증 사용.
+용도별 모델 분리:
+- deepseek-chat: 에러 진단 등 빠른 응답 필요 시
+- deepseek-reasoner: 전략 가설 생성, 성과 분석 등 깊은 추론 필요 시
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import shutil
+import os
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# claude CLI 절대 경로 (systemd 환경에서 PATH 누락 대비)
-_CLAUDE_PATH: str | None = shutil.which("claude") or "/home/bythejune/.local/bin/claude"
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+PROXY = os.getenv("PROXY", "http://127.0.0.1:1081")
 
-# 기본 설정
-DEFAULT_MODEL = "sonnet"
-DEFAULT_TIMEOUT = 60  # 초
+# 모델 별칭 매핑
+MODEL_ALIASES: dict[str, str] = {
+    "chat": "deepseek-chat",
+    "reasoner": "deepseek-reasoner",
+    # 하위 호환: 기존 호출에서 사용하던 Claude 모델명
+    "haiku": "deepseek-chat",
+    "sonnet": "deepseek-reasoner",
+    "opus": "deepseek-reasoner",
+}
+
+DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_TIMEOUT = 60
 
 
 async def call_claude(
@@ -26,62 +38,77 @@ async def call_claude(
     model: str = DEFAULT_MODEL,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> str | None:
-    """Claude Code CLI를 통해 LLM을 호출한다.
+    """DeepSeek API를 통해 LLM을 호출한다.
 
-    stdin으로 프롬프트를 전달하고, stdout에서 응답을 받는다.
-    Claude Max 구독 사용량으로 처리되며 API 키가 불필요하다.
+    기존 호출처와의 호환을 위해 함수명을 유지한다.
 
     Args:
         prompt: LLM에 전달할 프롬프트.
-        model: 사용할 모델 (sonnet, opus, haiku).
+        model: 모델 이름 또는 별칭 (chat, reasoner, haiku, sonnet).
         timeout: 최대 대기 시간 (초).
 
     Returns:
         LLM 응답 텍스트. 실패 시 None.
     """
-    if not _CLAUDE_PATH:
-        logger.error("claude CLI를 찾을 수 없음")
+    api_key = DEEPSEEK_API_KEY
+    if not api_key:
+        logger.error("DEEPSEEK_API_KEY 환경변수 미설정")
         return None
+
+    resolved_model = MODEL_ALIASES.get(model, model)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            _CLAUDE_PATH,
-            "-p",
-            "--model", model,
-            "--output-format", "text",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=prompt.encode("utf-8")),
-            timeout=timeout,
-        )
-
-        if proc.returncode != 0:
-            err_msg = stderr.decode("utf-8", errors="replace").strip()
-            logger.warning(
-                "claude CLI 오류 (exit=%d): %s",
-                proc.returncode, err_msg[:200],
+        async with aiohttp.ClientSession() as session:
+            resp = await session.post(
+                DEEPSEEK_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": resolved_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 2048,
+                },
+                proxy=PROXY or None,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             )
-            return None
 
-        result = stdout.decode("utf-8").strip()
-        if not result:
-            logger.warning("claude CLI 빈 응답")
-            return None
+            data = await resp.json()
 
-        return result
+            if resp.status != 200:
+                err = data.get("error", {}).get("message", str(data))
+                logger.warning("DeepSeek API 오류 (HTTP %d): %s", resp.status, err[:200])
+                return None
 
-    except asyncio.TimeoutError:
-        logger.warning("claude CLI 타임아웃 (%d초)", timeout)
-        if proc.returncode is None:
-            proc.kill()
+            choices = data.get("choices", [])
+            if not choices:
+                logger.warning("DeepSeek API 빈 응답")
+                return None
+
+            content = choices[0].get("message", {}).get("content", "").strip()
+            if not content:
+                logger.warning("DeepSeek API 빈 content")
+                return None
+
+            # 사용량 로깅
+            usage = data.get("usage", {})
+            if usage:
+                logger.debug(
+                    "DeepSeek [%s]: in=%d out=%d tokens",
+                    resolved_model,
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                )
+
+            return content
+
+    except TimeoutError:
+        logger.warning("DeepSeek API 타임아웃 (%d초)", timeout)
         return None
-    except FileNotFoundError:
-        logger.error("claude CLI 실행 파일 없음: %s", _CLAUDE_PATH)
+    except aiohttp.ClientError as e:
+        logger.warning("DeepSeek API 연결 오류: %s", e)
         return None
     except Exception:
-        logger.exception("claude CLI 호출 실패")
+        logger.exception("DeepSeek API 호출 실패")
         return None

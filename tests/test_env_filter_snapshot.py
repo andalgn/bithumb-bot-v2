@@ -95,12 +95,12 @@ def test_l1_reject_crisis(engine, tier1_params):
 def test_l1_reject_low_volume(engine, tier1_params):
     """거래량 부족 → L1 거부.
 
-    _check_layer1은 candles[-2] (마지막 완성봉)을 기준으로 평균 거래량 대비 80% 미만이면 거부한다.
+    _check_layer1은 candles[-2] (마지막 완성봉)을 기준으로 평균 거래량 대비 40% 미만이면 거부한다.
     앞 20봉의 평균 거래량을 유지하고, -2번째 봉만 50%로 낮춘다.
     """
     candles = range_candles()
     avg_vol = sum(c.volume for c in candles[-22:-2]) / 20
-    low_vol = avg_vol * 0.5  # 평균의 50% → 80% 기준 미달
+    low_vol = avg_vol * 0.3  # 평균의 30% → 40% 기준 미달 (D_적극 시나리오)
 
     # 마지막 완성봉(-2)만 거래량을 낮추고 나머지는 유지
     patched = list(candles)
@@ -130,8 +130,8 @@ def test_l1_reject_high_spread(engine, tier1_params):
     assert "스프레드" in reason
 
 
-def test_l1_reject_nighttime_tier3(engine, tier3_params):
-    """심야(03:00 KST) + Tier3 → L1 거부."""
+def test_l1_pass_nighttime_tier3(engine, tier3_params):
+    """심야(03:00 KST) + Tier3 → L1 통과 (사이징에서 30% 축소, D_적극 시나리오)."""
     candles = range_candles()
     snap = _make_snap(candles)
     ind = compute_indicators(candles)
@@ -139,5 +139,4 @@ def test_l1_reject_nighttime_tier3(engine, tier3_params):
     with patch("strategy.environment_filter.datetime") as mock_dt:
         mock_dt.now.return_value = night_kst
         passed, reason = engine._check_layer1(Regime.RANGE, snap, ind, tier3_params)
-    assert not passed
-    assert "심야" in reason or "Tier 3" in reason or "Tier3" in reason
+    assert passed

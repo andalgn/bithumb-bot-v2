@@ -174,6 +174,7 @@ class HealthMonitor:
             cooldown_warning_sec=getattr(config, "alert_cooldown_warning_min", 120) * 60,
         )
         self._running = False
+        self._start_time: float = time.time()
         self._last_heartbeat: float = time.time()
         self._api_consecutive_fails: int = 0
         self._last_reconciliation: float = 0.0
@@ -547,6 +548,7 @@ class HealthMonitor:
 
     _diagnosis_cooldown: dict[str, float] = {}
     _DIAGNOSIS_COOLDOWN_SEC = 1800  # 30분
+    _STARTUP_GRACE_SEC = 600  # 시작 후 10분간 진단 건너뛰기 (데이터 수집 대기)
 
     def _classify_tier(self, error_type: str, details: str = "") -> int:
         """오류를 Tier 1/2/3으로 분류한다."""
@@ -574,6 +576,12 @@ class HealthMonitor:
         if tier == 1:
             logger.debug("T1 오류 무시: %s — %s", error_type, details)
             return
+
+        # 시작 직후 워밍업 기간에는 T2 진단 건너뛰기 (T3 긴급만 허용)
+        if tier == 2 and hasattr(self, "_start_time"):
+            if time.time() - self._start_time < self._STARTUP_GRACE_SEC:
+                logger.debug("워밍업 기간 T2 진단 건너뛰기: %s", error_type)
+                return
 
         # 쿨다운 체크
         ctx = context or {}
@@ -623,7 +631,16 @@ class HealthMonitor:
                 pass
 
             prompt = (
-                "빗썸 자동매매 봇에서 오류가 발생했습니다. 근본 원인을 분석하고 수정안을 제시하세요.\n\n"
+                "당신은 빗썸 KRW 마켓 자동매매 봇의 운영 진단 전문가입니다.\n\n"
+                "## 시스템 구조\n"
+                "- Python asyncio 기반, 5분 주기 사이클\n"
+                "- 전략: mean_reversion (주력), DCA (BTC/ETH 매집)\n"
+                "- 파이프라인: 시장데이터 수집 → L1 필터 → 전략 점수 → 사이징 → 주문\n"
+                "- L1 필터: 거래량(20봉 평균×0.4), 스프레드(Tier별 한도×2), 1H 급변동\n"
+                "- 사이징: Active Pool 15%, 심야 T3 30% 축소\n"
+                "- 주문: normalize_price(tick 내림) + normalize_qty(소수점 내림) → validate_order(최소 4999원)\n"
+                "- HealthMonitor: 15분마다 9개 항목 점검\n"
+                "- 봇 시작 직후에는 캔들 데이터 미수집 상태가 정상\n\n"
                 "## 오류 정보\n"
                 "- 유형: " + error_type + "\n"
                 "- 상세: " + details + "\n"
@@ -632,10 +649,10 @@ class HealthMonitor:
                 "## 최근 파이프라인 이벤트\n"
                 + (recent_events or "(없음)") + "\n\n"
                 "## 요청사항\n"
-                "1. 근본 원인 (1~2줄)\n"
-                "2. 수정안 (구체적 코드 변경 또는 설정 변경)\n"
+                "1. 근본 원인 (이 시스템 구조 기반으로 구체적으로, 1~2줄)\n"
+                "2. 수정안 (이 프로젝트의 실제 파일/함수명 사용. 추측 금지)\n"
                 "3. 긴급도 (즉시/다음 점검/관찰 필요)\n\n"
-                "간결하게 답변하세요. 최대 10줄."
+                "간결하게 답변. 최대 10줄. 프로젝트에 없는 코드를 제안하지 마세요."
             )
 
             response = await call_claude(prompt, model="haiku", timeout=30)

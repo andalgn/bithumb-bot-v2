@@ -14,11 +14,11 @@ coins:
 - TAO
 - LDO
 sizing:
-  active_risk_pct: 0.07
+  active_risk_pct: 0.15  # 0.07→0.15 (D_적극 시나리오)
   core_risk_pct: 0.1
   reserve_risk_pct: 0.05
   dca_core_pct: 0.04
-  pool_cap_pct: 0.25
+  pool_cap_pct: 0.40  # 0.25→0.40 (D_적극 시나리오)
   active_min_krw: 5000
   core_min_krw: 10000
   vol_target_mult_min: 0.8
@@ -29,17 +29,23 @@ sizing:
   atr_target_pct: 0.01
 score_cutoff:
   group1:
-    full: 75
-    probe_min: 60
-    probe_max: 74
+    # full: 75  # 원래 값
+    # probe_min: 60
+    full: 60  # -15 (D_적극 시나리오)
+    probe_min: 45
+    probe_max: 59
   group2:
-    full: 80
-    probe_min: 65
-    probe_max: 79
+    # full: 80
+    # probe_min: 65
+    full: 65
+    probe_min: 50
+    probe_max: 64
   group3:
-    full: 75
-    probe_min: 68
-    probe_max: 74
+    # full: 75
+    # probe_min: 68
+    full: 60
+    probe_min: 53
+    probe_max: 59
   high_bonus:
     plus10_mult: 1.15
     plus20_mult: 1.25

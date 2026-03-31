@@ -105,6 +105,7 @@ class ReviewEngine:
         self._reflection_store = reflection_store
         self._last_daily: str = ""
         self._last_weekly: str = ""
+        self._last_monthly: str = ""
 
     # ═══════════════════════════════════════════
     # 일일 규칙 리뷰 (LLM 없음)
@@ -291,29 +292,35 @@ class ReviewEngine:
     ) -> None:
         """일일 리포트를 전송한다."""
         lines = [
-            f"<b>일일 리뷰 ({result.date})</b>",
-            "=" * 20,
-            f"거래: {result.total_trades}건 (승{result.wins}/패{result.losses})",
-            f"Net PnL: {result.net_pnl_krw:+,.0f}원 ({result.net_pnl_pct:+.1f}%)",
-            f"활성 포지션: {result.active_positions}건",
-            f"자금 활용률: {utilization_pct:.0%}",
+            "━━━ 일일 리뷰 (" + result.date + ") ━━━",
+            "",
+            "▶ 거래 실적",
+            f"  거래: {result.total_trades}건 (승{result.wins}/패{result.losses})",
+            f"  Net PnL: {result.net_pnl_krw:+,.0f}원 ({result.net_pnl_pct:+.1f}%)",
+            "",
+            "▶ 포트폴리오",
+            f"  활성 포지션: {result.active_positions}건",
+            f"  자금 활용률: {utilization_pct:.0%}",
         ]
 
         if promotions:
-            lines.append(f"승격: {', '.join(promotions)}")
+            lines.append(f"  승격: {', '.join(promotions)}")
 
         if result.adjustments:
+            lines.append("")
+            lines.append("▶ 조정 사항")
             for adj in result.adjustments:
                 if adj["type"] == "cutoff_increase":
                     lines.append(
-                        f"조정: {adj['strategy']} 임계값 +{adj['delta']:.0f}% ({adj['reason']})"
+                        f"  {adj['strategy']} 임계값 +{adj['delta']:.0f}% ({adj['reason']})"
                     )
                 elif adj["type"] == "coin_cooldown":
                     lines.append(
-                        f"조정: {adj['symbol']} {adj['cooldown_hours']}h 쿨다운 ({adj['reason']})"
+                        f"  {adj['symbol']} {adj['cooldown_hours']}h 쿨다운 ({adj['reason']})"
                     )
 
-        lines.append("=" * 20)
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
 
         if self._notifier:
             await self._notifier.send("\n".join(lines), channel="report")
@@ -623,6 +630,12 @@ class ReviewEngine:
 
     async def run_monthly_review(self) -> None:
         """월간 심층 리뷰 (deepseek-reasoner)."""
+        # 중복 방지
+        month_key = time.strftime("%Y-%m")
+        if self._last_monthly == month_key:
+            return
+        self._last_monthly = month_key
+
         if not self._deepseek_key:
             logger.info("월간 리뷰: DeepSeek API 키 미설정, 건너뜀")
             return
@@ -635,15 +648,44 @@ class ReviewEngine:
 
         strategy_stats = self._calc_strategy_stats(month_trades)
         total_pnl = sum(t.get("net_pnl_krw") or 0 for t in month_trades)
+        total_wins = sum(s["wins"] for s in strategy_stats.values())
+        total_count = sum(s["count"] for s in strategy_stats.values())
+        win_rate = total_wins / total_count * 100 if total_count > 0 else 0
+
+        # 전략별 포맷
+        strat_lines = []
+        strat_names = {
+            "trend_follow": "추세추종",
+            "mean_reversion": "반전포착",
+            "dca": "DCA 매집",
+            "breakout": "브레이크아웃",
+        }
+        for strat, s in sorted(strategy_stats.items()):
+            name = strat_names.get(strat, strat)
+            wr = s["win_rate"] * 100
+            exp = s["expectancy"]
+            strat_lines.append(
+                f"  {name}: {s['count']}건 "
+                f"(승률 {wr:.0f}%, PnL {s['total_pnl']:+,.0f}원, "
+                f"기대값 {exp:+,.0f}원/건)"
+            )
+
+        lines = [
+            "━━━ 월간 리뷰 (" + month_key + ") ━━━",
+            "",
+            "▶ 30일 실적",
+            f"  총 거래: {total_count}건 (승{total_wins}/패{total_count - total_wins})",
+            f"  승률: {win_rate:.1f}%",
+            f"  Net PnL: {total_pnl:+,.0f}원",
+            "",
+            "▶ 전략별 성과",
+        ] + strat_lines + [
+            "",
+            "━━━━━━━━━━━━━━━━━━━━",
+        ]
 
         if self._notifier:
-            await self._notifier.send(
-                f"<b>월간 리뷰</b>\n"
-                f"30일 거래: {len(month_trades)}건\n"
-                f"Net PnL: {total_pnl:+,.0f}원\n"
-                f"전략별: {json.dumps(strategy_stats, ensure_ascii=False)}",
-                channel="report",
-            )
+            await self._notifier.send("\n".join(lines), channel="report")
 
         logger.info("월간 심층 리뷰 완료: %d건, PnL=%.0f원", len(month_trades), total_pnl)
 
