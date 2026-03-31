@@ -584,12 +584,12 @@ class TestGenerateSignals:
 class TestRegimeStrategyMapping:
     """국면별 전략 허용 매핑 테스트."""
 
-    def test_strong_up_allows_a_and_b(self) -> None:
-        """STRONG_UP → A(추세추종) + B(반전포착) 모두 허용. Tier3 심야 제외는 L1 필터 담당."""
+    def test_strong_up_allows_b_only(self) -> None:
+        """STRONG_UP → B(반전포착)만 허용 (trend_follow PF<1 비활성화 2026-03-31)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
         allowed = REGIME_STRATEGY_MAP[Regime.STRONG_UP]
         assert Strategy.MEAN_REVERSION in allowed
-        assert Strategy.TREND_FOLLOW in allowed
+        assert Strategy.TREND_FOLLOW not in allowed
 
     def test_weak_up_allows_b(self) -> None:
         """WEAK_UP → B 허용."""

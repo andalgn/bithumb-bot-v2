@@ -94,11 +94,32 @@ class ExperimentStore:
         )
         self._conn.commit()
 
-    def get_history(self, strategy: str, limit: int = 50) -> list[dict]:
-        """전략별 실험 이력을 조회한다."""
+    def get_history(
+        self,
+        strategy: str | None = None,
+        limit: int = 50,
+        *,
+        source: str | None = None,
+    ) -> list[dict]:
+        """실험 이력을 조회한다.
+
+        Args:
+            strategy: 전략 이름으로 필터링. None이면 전체.
+            limit: 최대 조회 건수.
+            source: 소스 컬럼으로 필터링. None이면 무시.
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if strategy is not None:
+            clauses.append("strategy = ?")
+            params.append(strategy)
+        if source is not None:
+            clauses.append("source = ?")
+            params.append(source)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._conn.execute(
-            "SELECT * FROM experiments WHERE strategy = ? ORDER BY timestamp DESC LIMIT ?",
-            (strategy, limit),
+            f"SELECT * FROM experiments {where} ORDER BY timestamp DESC LIMIT ?",
+            (*params, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 

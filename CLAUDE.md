@@ -56,10 +56,11 @@ bithumb_auto_v2/
 │   ├── cycle_data.py               ← 사이클 내 공유 데이터 컨테이너.
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
 │   ├── errors.py                   ← 커스텀 예외 계층.
-│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템 (Check 9 파이프라인 헬스).
-│   ├── journal.py                  ← 거래 기록 모듈 (파이프라인 이벤트 소싱).
+│   ├── event_store.py              ← 시스템 이벤트 감사 로그 (Event Sourcing).
+│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
+│   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
-│   ├── llm_client.py               ← Claude CLI 파이프 모드 기반 LLM 클라이언트 (DeepSeek 대체).
+│   ├── llm_client.py               ← Claude Code CLI 기반 LLM 클라이언트.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
@@ -113,19 +114,15 @@ bithumb_auto_v2/
 ├── bot_discord/
 │   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
-    ├── auto_fix.sh                 ← 자동 코드 수정 스크립트 (ruff, formatting).
     ├── compare_backtest.py         ← 현재 설정 vs 완화 설정 A/B 백테스트 비교.
-    ├── daily_report.sh             ← 일일 보고서 생성 (Claude 프롬프트 기반).
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
-    ├── fix_discord_proxy.sh        ← Discord 채널 플러그인 프록시 수정.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
-    ├── optimize.py                 ← 전략 파라미터 최적화 실행 (출력 전용).
-    ├── optimize_strategies.py      ← SL/TP 그리드 서치 + 필터 완화 통합 최적화.
-    ├── send_discord_report.py      ← Discord 웹훅으로 리포트 전송.
-    ├── simulate_relaxation.py      ← 4개 시나리오 파라미터 완화 비교 백테스트.
-    ├── sync_claude_md.py           ← CLAUDE.md 동기화 검증/갱신.
-    └── bithumb-bot.service        ← systemd 서비스 파일 (24시간 운영 관리).
+    ├── optimize.py                 ← 전략 파라미터 최적화 실행.
+    ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 서치 + 필터 완화 통합.
+    ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.
+    ├── simulate_relaxation.py      ← 파라미터 완화 시뮬레이션 — 4개 시나리오 비교 백테스트.
+    └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
 ├── configs/
 │   └── config.yaml              ← 통합 설정
 ├── tests/                       ← pytest 테스트

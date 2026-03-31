@@ -30,7 +30,7 @@ from execution.reconciler import Reconciler
 from market.bithumb_api import BithumbClient
 from market.datafeed import DataFeed
 from market.market_store import MarketStore
-from market.normalizer import normalize_qty
+from market.normalizer import normalize_price, normalize_qty
 from risk.dd_limits import DDLimits
 from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
@@ -906,7 +906,8 @@ class TradingBot:
 
             # 주문
             if signal.direction == OrderSide.BUY and signal.entry_price > 0:
-                qty = normalize_qty(signal.symbol, sizing.size_krw / signal.entry_price)
+                order_price = normalize_price(signal.entry_price, side="bid")
+                qty = normalize_qty(signal.symbol, sizing.size_krw / order_price)
                 ticket = self._order_manager.create_ticket(
                     symbol=signal.symbol,
                     side=signal.direction,
@@ -1005,6 +1006,17 @@ class TradingBot:
                         f"Pool 할당 롤백: {sizing.size_krw:,.0f}원",
                         channel="system",
                     )
+                    # 자동 진단 트리거
+                    if self._health_monitor:
+                        await self._health_monitor.trigger_diagnosis(
+                            "order_failed",
+                            f"{signal.symbol} {signal.strategy.value} {ticket.status.value} "
+                            f"err={ticket.error_msg or 'unknown'}",
+                            {"symbol": signal.symbol, "strategy": signal.strategy.value,
+                             "score": signal.score, "size_krw": sizing.size_krw,
+                             "price": signal.entry_price, "qty": ticket.qty,
+                             "error_msg": ticket.error_msg or ""},
+                        )
 
     async def _manage_open_positions(self, data: "MarketData") -> None:
         """CRISIS 긴급 청산 + 트레일링 스톱/부분청산/시간 제한 청산.

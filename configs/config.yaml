@@ -78,16 +78,16 @@ strategy_params:
     w_rsi_pullback: 15
     w_supertrend: 10
   mean_reversion:
-    # 자율연구 결과: RSI<=35 + sl=7.0 + tp=1.5 → PF 1.11
+    # 그리드서치 최적화: tp_rr 1.5→2.5 (PF 0.97→1.83)
     sl_mult: 7.0
-    tp_rr: 1.5
+    tp_rr: 2.5
     regime_override:
       RANGE:
         sl_mult: 5.0
-        tp_rr: 2.0
+        tp_rr: 2.5
       WEAK_DOWN:
         sl_mult: 8.0
-        tp_rr: 1.2
+        tp_rr: 2.5
   breakout:
     sl_mult: 2.0
     tp_rr: 3.0
@@ -96,13 +96,13 @@ strategy_params:
     tp_pct: 0.03
     enabled: false
   dca:
-    # DCA T1에서 PF 2.22 달성 (넓은SL + 빠른 TP)
+    # 그리드서치 최적화: tp_pct 0.03→0.05 (PF 1.07→2.17)
     sl_pct: 0.05
-    tp_pct: 0.03
+    tp_pct: 0.05
     regime_override:
       WEAK_DOWN:
         sl_pct: 0.06
-        tp_pct: 0.025
+        tp_pct: 0.05
 promotion:
   profit_pct: 0.012
   profit_hold_bars: 2

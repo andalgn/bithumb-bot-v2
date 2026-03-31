@@ -17,6 +17,8 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from app.llm_client import call_claude
+
 if TYPE_CHECKING:
     from app.config import AppConfig
     from app.journal import Journal
@@ -213,6 +215,14 @@ class HealthMonitor:
                         self._alert_manager.add(alert)
 
                 alerts_sent = await self._alert_manager.flush(self._notifier)
+                # WARNING/CRITICAL 알림에 대해 자동 진단 트리거
+                for alert in alerts_sent:
+                    if alert.level in ("warning", "critical"):
+                        await self.trigger_diagnosis(
+                            alert.category,
+                            alert.message,
+                            {"level": alert.level, "source": "health_monitor"},
+                        )
                 alerts_data = [{"level": a.level, "category": a.category, "message": a.message} for a in alerts_sent]
 
                 # 저장
@@ -523,6 +533,136 @@ class HealthMonitor:
         except Exception:  # noqa: BLE001
             logger.exception("auto-fix 실행 실패 (무시)")
 
+
+    # ─── 자동 진단 시스템 ───
+
+    # Tier 분류 규칙
+    _TIER3_PATTERNS = frozenset({
+        "reconciliation_drift", "balance_mismatch", "mdd_exceeded",
+        "consecutive_loss_critical", "daily_dd_critical",
+    })
+    _TIER1_PATTERNS = frozenset({
+        "api_timeout", "network_error", "data_fetch_single",
+    })
+
+    _diagnosis_cooldown: dict[str, float] = {}
+    _DIAGNOSIS_COOLDOWN_SEC = 1800  # 30분
+
+    def _classify_tier(self, error_type: str, details: str = "") -> int:
+        """오류를 Tier 1/2/3으로 분류한다."""
+        if error_type in self._TIER3_PATTERNS:
+            return 3
+        if error_type in self._TIER1_PATTERNS:
+            return 1
+        return 2
+
+    async def trigger_diagnosis(
+        self,
+        error_type: str,
+        details: str,
+        context: dict | None = None,
+    ) -> None:
+        """오류 자동 진단을 실행한다.
+
+        Tier 분류 후:
+        - T1: 로그만 기록
+        - T2: Claude 진단 → Discord 보고
+        - T3: 긴급 알림 + Claude 진단
+        """
+        tier = self._classify_tier(error_type, details)
+
+        if tier == 1:
+            logger.debug("T1 오류 무시: %s — %s", error_type, details)
+            return
+
+        # 쿨다운 체크
+        ctx = context or {}
+        cooldown_key = error_type + ":" + ctx.get("symbol", "")
+        last = self._diagnosis_cooldown.get(cooldown_key, 0)
+        if time.time() - last < self._DIAGNOSIS_COOLDOWN_SEC:
+            logger.debug("진단 쿨다운: %s", cooldown_key)
+            return
+        self._diagnosis_cooldown[cooldown_key] = time.time()
+
+        # T3: 긴급 알림 먼저
+        if tier == 3 and self._notifier:
+            msg = "\U0001f6a8 **긴급** " + error_type + ": " + details + "\n자동 진단 시작..."
+            await self._notifier.send(msg, channel="system")
+
+        # Claude 진단 (비동기, 논블로킹)
+        task = asyncio.create_task(self._run_diagnosis(error_type, details, ctx, tier))
+        task.add_done_callback(
+            lambda t: logger.exception("진단 태스크 실패: %s", t.exception())
+            if t.exception() else None
+        )
+
+    async def _run_diagnosis(
+        self, error_type: str, details: str, context: dict, tier: int,
+    ) -> None:
+        """Claude CLI로 오류를 진단하고 결과를 Discord에 보고한다."""
+        try:
+            # 최근 파이프라인 이벤트 조회
+            recent_events = ""
+            try:
+                import sqlite3
+                db_path = str(Path(__file__).resolve().parent.parent / "data" / "journal.db")
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT event_type, symbol, data_json, "
+                    "datetime(created_at/1000, 'unixepoch', '+9 hours') as kst "
+                    "FROM pipeline_events ORDER BY created_at DESC LIMIT 10"
+                ).fetchall()
+                if rows:
+                    lines = []
+                    for r in rows:
+                        lines.append("  " + r["kst"] + " " + r["event_type"] + " " + r["symbol"] + " " + r["data_json"][:100])
+                    recent_events = "\n".join(lines)
+                conn.close()
+            except Exception:
+                pass
+
+            prompt = (
+                "빗썸 자동매매 봇에서 오류가 발생했습니다. 근본 원인을 분석하고 수정안을 제시하세요.\n\n"
+                "## 오류 정보\n"
+                "- 유형: " + error_type + "\n"
+                "- 상세: " + details + "\n"
+                "- 컨텍스트: " + str(context) + "\n"
+                "- 심각도: Tier " + str(tier) + "\n\n"
+                "## 최근 파이프라인 이벤트\n"
+                + (recent_events or "(없음)") + "\n\n"
+                "## 요청사항\n"
+                "1. 근본 원인 (1~2줄)\n"
+                "2. 수정안 (구체적 코드 변경 또는 설정 변경)\n"
+                "3. 긴급도 (즉시/다음 점검/관찰 필요)\n\n"
+                "간결하게 답변하세요. 최대 10줄."
+            )
+
+            response = await call_claude(prompt, model="haiku", timeout=30)
+
+            if not response:
+                logger.warning("진단 실패: Claude 응답 없음 (%s)", error_type)
+                if self._notifier:
+                    msg = "\u26a0 **" + error_type + "** 자동 진단 실패 (Claude 응답 없음)\n" + details
+                    await self._notifier.send(msg, channel="system")
+                return
+
+            # Discord 보고
+            tier_emoji = "\U0001f6a8" if tier == 3 else "\u26a0"
+            report = (
+                tier_emoji + " **자동 진단 보고**\n"
+                "오류: " + error_type + "\n"
+                "상세: " + details + "\n\n"
+                "\U0001f4cb **분석 결과:**\n" + response
+            )
+
+            if self._notifier:
+                await self._notifier.send(report, channel="system")
+
+            logger.info("자동 진단 완료: %s → %s", error_type, response[:100])
+
+        except Exception:
+            logger.exception("자동 진단 실행 중 오류 (%s)", error_type)
 
     # ─── Check 8: 디스코드 연결 ───
 

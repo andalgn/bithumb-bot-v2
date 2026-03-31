@@ -38,7 +38,8 @@ KST = timezone(timedelta(hours=9))
 
 # ─── 국면별 전략 허용 매핑 ───
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
-    Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A+B (심야 Tier3은 L1에서 차단)
+    # Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A+B (심야 Tier3은 L1에서 차단)
+    Regime.STRONG_UP: [Strategy.MEAN_REVERSION],  # B only (trend_follow PF<1 비활성화 2026-03-31)
     Regime.WEAK_UP: [Strategy.MEAN_REVERSION],  # B
     Regime.RANGE: [Strategy.MEAN_REVERSION],  # B
     Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],  # B + E

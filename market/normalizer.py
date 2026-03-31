@@ -130,7 +130,7 @@ def validate_order(coin: str, price: float, qty: float, side: str = "bid") -> No
             reject_reason="수량이 0 이하",
         )
 
-    if total_krw < MIN_ORDER_KRW:
+    if total_krw < MIN_ORDER_KRW - 1:  # 수량 내림 정규화로 인한 경계값 오차 허용
         return NormalizedOrder(
             coin=coin,
             price=norm_price,
