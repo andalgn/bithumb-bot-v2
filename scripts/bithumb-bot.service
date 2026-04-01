@@ -15,6 +15,7 @@ RestartSec=10
 Environment=PYTHONUNBUFFERED=1
 Environment=CLAUDECODE=1
 Environment=DEEPSEEK_API_KEY=REDACTED_DEEPSEEK_KEY
+Environment=ANTHROPIC_API_KEY=REDACTED_ANTHROPIC_KEY
 Environment=PATH=/home/bythejune/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 # 로그 (journald 자동 로테이션)
