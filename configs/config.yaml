@@ -1,4 +1,4 @@
-proxy: "http://127.0.0.1:1081"
+proxy: http://127.0.0.1:1081
 run_mode: LIVE
 cycle_interval_sec: 300
 paper_test: false
@@ -14,11 +14,11 @@ coins:
 - TAO
 - LDO
 sizing:
-  active_risk_pct: 0.15  # 0.07→0.15 (D_적극 시나리오)
+  active_risk_pct: 0.15
   core_risk_pct: 0.1
   reserve_risk_pct: 0.05
   dca_core_pct: 0.04
-  pool_cap_pct: 0.40  # 0.25→0.40 (D_적극 시나리오)
+  pool_cap_pct: 0.4
   active_min_krw: 5000
   core_min_krw: 10000
   vol_target_mult_min: 0.8
@@ -29,20 +29,14 @@ sizing:
   atr_target_pct: 0.01
 score_cutoff:
   group1:
-    # full: 75  # 원래 값
-    # probe_min: 60
-    full: 60  # -15 (D_적극 시나리오)
+    full: 60
     probe_min: 45
     probe_max: 59
   group2:
-    # full: 80
-    # probe_min: 65
     full: 65
     probe_min: 50
     probe_max: 64
   group3:
-    # full: 75
-    # probe_min: 68
     full: 60
     probe_min: 53
     probe_max: 59
@@ -65,7 +59,6 @@ regime:
   aux_flag_confirm_bars: 2
 strategy_params:
   trend_follow:
-    # Tier별 최적화 파라미터 (넓은SL + 낮은TP)
     tier1:
       sl_mult: 4.0
       tp_rr: 2.0
@@ -75,7 +68,6 @@ strategy_params:
     tier3:
       sl_mult: 5.0
       tp_rr: 1.0
-    # 공통 (tier 미지정 시 기본값)
     sl_mult: 5.0
     tp_rr: 1.5
     w_trend_align: 30
@@ -84,7 +76,6 @@ strategy_params:
     w_rsi_pullback: 15
     w_supertrend: 10
   mean_reversion:
-    # 그리드서치 최적화: tp_rr 1.5→2.5 (PF 0.97→1.83)
     sl_mult: 7.0
     tp_rr: 2.5
     regime_override:
@@ -102,7 +93,6 @@ strategy_params:
     tp_pct: 0.03
     enabled: false
   dca:
-    # 그리드서치 최적화: tp_pct 0.03→0.05 (PF 1.07→2.17)
     sl_pct: 0.05
     tp_pct: 0.05
     regime_override:
@@ -209,14 +199,14 @@ backtest:
   auto_optimize:
     enabled: true
     day: sunday
-    time: "02:00"
+    time: 02:00
     min_pf: 1.0
     min_trades: 30
-  data_collect_time: "00:00"
+  data_collect_time: 00:00
   auto_research:
     enabled: true
     day: sunday
-    time: "03:00"
+    time: 03:00
     max_experiments: 50
     max_consecutive_failures: 5
 market_store:
@@ -258,7 +248,7 @@ bithumb:
   min_order_krw: 5000
   max_candle_count: 1000
 discord:
-  admin_role: "admin"
+  admin_role: admin
   timeout_sec: 5
 health_monitor:
   enabled: true
@@ -279,8 +269,11 @@ health_monitor:
   reconciliation_interval_sec: 3600
   discord_check_interval_sec: 14400
   wal_warn_mb: 100
-  auto_fix_win_rate_threshold: 0.30
+  auto_fix_win_rate_threshold: 0.3
   auto_fix_min_trades: 10
+  utilization_warn_pct: 10
+  utilization_warn_duration_h: 6
+  balance_check_interval_sec: 3600
 momentum_ranking:
   enabled: true
   top_n: 10
@@ -290,7 +283,7 @@ coin_universe:
   refresh_hour: 0
 evolution:
   enabled: true
-  run_time: "00:30"
+  run_time: 00:30
   max_experiments: 50
   held_out_days: 30
   dsr_significance: 0.05

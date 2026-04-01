@@ -56,11 +56,13 @@ SCORE_WEIGHTS: dict[str, int] = {
     "event_loop": 10,
     "api": 20,
     "data_freshness": 15,
-    "reconciliation": 15,
+    "reconciliation": 10,
     "system_resources": 5,
     "trading_metrics": 10,
     "discord": 5,
-    "pipeline": 10,
+    "pipeline": 5,
+    "utilization": 5,
+    "balance_check": 5,
 }
 
 # 상관 억제: 이 카테고리가 critical이면 하위 카테고리 경보 억제
@@ -178,6 +180,8 @@ class HealthMonitor:
         self._last_heartbeat: float = time.time()
         self._api_consecutive_fails: int = 0
         self._last_reconciliation: float = 0.0
+        self._low_util_since: float = 0.0
+        self._last_balance_check: float = 0.0
 
         # 외부에서 주입하는 상태 참조
         self._get_last_candle_ts: Callable[[], float] | None = None
@@ -245,7 +249,7 @@ class HealthMonitor:
         self._running = False
 
     async def _run_all_checks(self) -> list[CheckResult]:
-        """9개 점검을 실행한다."""
+        """11개 점검을 실행한다."""
         return [
             self._check_heartbeat(),
             await self._check_event_loop_lag(),
@@ -256,6 +260,8 @@ class HealthMonitor:
             self._check_trading_metrics(),
             await self._check_discord(),
             self._check_pipeline_health(),
+            self._check_utilization(),
+            await self._check_balance_integrity(),
         ]
 
     # ─── Check 1: 메인 루프 심장박동 ───
@@ -534,6 +540,130 @@ class HealthMonitor:
         except Exception:  # noqa: BLE001
             logger.exception("auto-fix 실행 실패 (무시)")
 
+
+    # ─── Check 10: 자본 활용률 ───
+
+    def _check_utilization(self) -> CheckResult:
+        """자본 활용률이 임계값 이상인지 확인한다."""
+        if not self._get_positions or not self._get_equity:
+            return CheckResult(name="utilization", status="ok", message="활용률 검사 미설정")
+
+        try:
+            positions = self._get_positions()
+            total_equity = self._get_equity()
+
+            if total_equity <= 0:
+                return CheckResult(name="utilization", status="ok", message="자본금 정보 없음")
+
+            # 포지션의 size_krw 합산
+            total_allocated = 0.0
+            for symbol, pos in positions.items():
+                if isinstance(pos, dict):
+                    total_allocated += pos.get("size_krw", 0)
+                else:
+                    total_allocated += getattr(pos, "size_krw", 0)
+
+            util_pct = (total_allocated / total_equity) * 100 if total_equity > 0 else 0
+            warn_threshold = getattr(self._config, "utilization_warn_pct", 10)
+            warn_duration_h = getattr(self._config, "utilization_warn_duration_h", 6)
+
+            if util_pct < warn_threshold:
+                now = time.time()
+                if self._low_util_since == 0:
+                    self._low_util_since = now
+                    return CheckResult(
+                        name="utilization", status="ok",
+                        message=f"저활용 시작: {util_pct:.1f}% (임계값 {warn_threshold}%)",
+                        value=util_pct,
+                    )
+
+                elapsed_h = (now - self._low_util_since) / 3600
+                if elapsed_h >= warn_duration_h:
+                    return CheckResult(
+                        name="utilization", status="warn",
+                        message=f"활용률 {util_pct:.1f}% < {warn_threshold}% ({elapsed_h:.1f}h 지속)",
+                        value=util_pct,
+                    )
+                return CheckResult(
+                    name="utilization", status="ok",
+                    message=f"저활용: {util_pct:.1f}% ({elapsed_h:.1f}h/{warn_duration_h}h)",
+                    value=util_pct,
+                )
+            else:
+                # 활용률이 정상으로 돌아옴
+                self._low_util_since = 0
+                return CheckResult(
+                    name="utilization", status="ok",
+                    message=f"정상: {util_pct:.1f}% > {warn_threshold}%",
+                    value=util_pct,
+                )
+        except Exception as e:
+            return CheckResult(
+                name="utilization", status="warn",
+                message=f"활용률 점검 실패: {e}",
+            )
+
+    # ─── Check 11: 잔고 정합성 ───
+
+    async def _check_balance_integrity(self) -> CheckResult:
+        """거래소 잔고가 봇 포지션과 일치하는지 확인한다."""
+        if not self._get_positions or not self._get_exchange_balances:
+            return CheckResult(name="balance_check", status="ok", message="잔고 점검 미설정")
+
+        # 주기 제한 (1시간마다)
+        now = time.time()
+        interval = getattr(self._config, "balance_check_interval_sec", 3600)
+        if now - self._last_balance_check < interval:
+            return CheckResult(name="balance_check", status="ok", message="주기 미도래")
+        self._last_balance_check = now
+
+        try:
+            positions = self._get_positions()
+            balances = await self._get_exchange_balances()
+            issues = []
+
+            # Check 1: 봇이 포지션을 보유하는데 거래소 잔고가 50% 미만
+            for symbol, pos in positions.items():
+                local_qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
+                if local_qty > 0:
+                    # balances 키는 "available_btc" 형식
+                    exchange_qty = float(balances.get(f"available_{symbol.lower()}", 0))
+                    if exchange_qty < local_qty * 0.5:
+                        issues.append(
+                            f"{symbol}: 거래소={exchange_qty:.4f} < 봇={local_qty:.4f}*0.5"
+                        )
+
+            if issues:
+                msg = "CRITICAL 잔고 불일치: " + ", ".join(issues)
+                return CheckResult(name="balance_check", status="critical", message=msg)
+
+            # Check 2: 거래소에 봇 포지션 외에 먼지 잔고(> 100 KRW) 존재
+            dust_coins = []
+            for key, value in balances.items():
+                if key.startswith("available_"):
+                    coin = key.replace("available_", "").upper()
+                    qty = float(value)
+                    if qty > 0 and coin not in positions:
+                        # 가격 추정: avg_buy_price 사용
+                        avg_price_key = f"avg_buy_price_{coin.lower()}"
+                        avg_price = float(balances.get(avg_price_key, 0))
+                        value_krw = qty * avg_price if avg_price > 0 else 0
+                        if value_krw > 100:
+                            dust_coins.append(f"{coin} {qty:.4f} ≈ {value_krw:.0f}원")
+
+            if dust_coins:
+                msg = "WARNING 미관리 잔고: " + ", ".join(dust_coins)
+                return CheckResult(name="balance_check", status="warn", message=msg)
+
+            return CheckResult(
+                name="balance_check", status="ok",
+                message=f"잔고 정합성 정상 ({len(positions)}종 추적)",
+            )
+        except Exception as e:
+            return CheckResult(
+                name="balance_check", status="warn",
+                message=f"잔고 점검 실패: {e}",
+            )
 
     # ─── 자동 진단 시스템 ───
 
