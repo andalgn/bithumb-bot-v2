@@ -30,7 +30,7 @@ from execution.reconciler import Reconciler
 from market.bithumb_api import BithumbClient
 from market.datafeed import DataFeed
 from market.market_store import MarketStore
-from market.normalizer import normalize_price, normalize_qty
+from market.normalizer import MIN_ORDER_KRW, normalize_price, normalize_qty
 from risk.dd_limits import DDLimits
 from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
@@ -250,6 +250,7 @@ class TradingBot:
         self._review_engine._risk_gate = self._risk_gate
         self._pilot_remaining: int = 0
         self._pilot_size_mult: float = 1.0
+        self._dust_coins: dict[str, float] = {}  # 최소주문 미달 더스트 {symbol: qty}
 
         # Phase 3 Task 12: FeedbackLoop
         self._feedback_loop = FeedbackLoop(
@@ -436,6 +437,7 @@ class TradingBot:
         # 파일럿 상태 복원
         self._pilot_remaining = self._storage.get("pilot_remaining", 0)
         self._pilot_size_mult = self._storage.get("pilot_size_mult", 1.0)
+        self._dust_coins = self._storage.get("dust_coins", {})
 
         # PAPER 모드 시작 시간 복원 (없으면 현재 시간으로 초기화)
         stored_paper_start = self._storage.get("paper_start_time", 0.0)
@@ -503,6 +505,9 @@ class TradingBot:
         # 파일럿 상태 영속화
         self._storage.set("pilot_remaining", self._pilot_remaining)
         self._storage.set("pilot_size_mult", self._pilot_size_mult)
+
+        # 더스트 잔고 영속화
+        self._storage.set("dust_coins", self._dust_coins)
 
         self._storage.save()
 
@@ -1212,6 +1217,9 @@ class TradingBot:
             if now_kst.day == 1 and now_kst.hour == 0 and now_kst.minute < 15:
                 await self._review_engine.run_monthly_review()
 
+        # 더스트 잔고 청소 (매 사이클)
+        await self._cleanup_dust(data)
+
         # 롤백 모니터링 (매 사이클)
         await self._check_rollback()
 
@@ -1273,13 +1281,40 @@ class TradingBot:
         exit_qty = pos.qty * ratio
         exit_krw = pos.size_krw * ratio
 
-        # 부분 매도 주문
+        # 정규화 후 실제 주문 금액으로 최소 주문금액 검증
+        norm_exit_price = normalize_price(exit_price, side="ask")
+        norm_exit_qty = normalize_qty(symbol, exit_qty)
+        actual_exit_krw = norm_exit_price * norm_exit_qty
+
+        MIN_ORDER = 5000
+        if actual_exit_krw < MIN_ORDER:
+            total_krw = norm_exit_price * normalize_qty(symbol, pos.qty)
+            if total_krw >= MIN_ORDER:
+                logger.info(
+                    "부분청산 %.0f원 < 최소 %d원 → 전체 청산 전환: %s",
+                    actual_exit_krw, MIN_ORDER, symbol,
+                )
+                await self._close_position(symbol, exit_price, exit_reason)
+                return
+            else:
+                # 전체도 불가 → 포지션 장부 제거 + Pool 복귀
+                logger.warning(
+                    "포지션 %.0f원 < 최소 %d원 → 장부 제거 + Pool 복귀: %s",
+                    total_krw, MIN_ORDER, symbol,
+                )
+                self._pool_manager.release(pos.pool, total_krw)
+                del self._positions[symbol]
+                self._exit_manager.clear_position(symbol)
+                return
+
+        # 부분 매도 주문 (정규화된 가격/수량 사용)
+        exit_qty = norm_exit_qty
         if self._run_mode == RunMode.LIVE:
             ticket = self._order_manager.create_ticket(
                 symbol=symbol,
                 side=OrderSide.SELL,
-                price=exit_price,
-                qty=exit_qty,
+                price=norm_exit_price,
+                qty=norm_exit_qty,
             )
             ticket = await self._order_manager.execute_order(ticket)
             if ticket.status == OrderStatus.FAILED:
@@ -1334,6 +1369,40 @@ class TradingBot:
         # 남은 수량이 최소 주문금액 미만이면 전량 청산
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
+
+    async def _cleanup_dust(self, data: "MarketData") -> None:
+        """더스트 잔고를 확인하여 매도 가능하면 시장가 매도한다."""
+        if not self._dust_coins or self._run_mode != RunMode.LIVE:
+            return
+
+        MIN_ORDER = 5000
+        cleaned = []
+        for symbol, qty in list(self._dust_coins.items()):
+            # 시장 데이터에서 현재가 조회
+            snapshot = data.snapshots.get(symbol)
+            if snapshot is None:
+                continue
+            price = snapshot.current_price
+            value = price * qty
+            if value >= MIN_ORDER:
+                try:
+                    result = await self._client.market_sell(symbol, qty)
+                    logger.info(
+                        "더스트 매도 완료: %s %.6f개 (%.0f원)",
+                        symbol, qty, value,
+                    )
+                    await self._notifier.send(
+                        f"🧹 **더스트 매도 완료: {symbol}**\n"
+                        f"수량: {qty:.6f}개 | {value:,.0f}원\n"
+                        f"시장가 매도",
+                        channel="trade",
+                    )
+                    cleaned.append(symbol)
+                except Exception as exc:
+                    logger.warning("더스트 매도 실패: %s — %s", symbol, exc)
+
+        for symbol in cleaned:
+            del self._dust_coins[symbol]
 
     async def _check_rollback(self) -> None:
         """파라미터 변경 모니터링 + 자동 롤백."""
@@ -1403,12 +1472,33 @@ class TradingBot:
                 qty=pos.qty,
             )
             ticket = await self._order_manager.execute_order(ticket)
-            if ticket.status == OrderStatus.FAILED:
+            if ticket.status not in (OrderStatus.FILLED, OrderStatus.PARTIAL):
                 logger.warning(
-                    "청산 실패 — 포지션 유지: %s %s",
+                    "청산 실패 — 포지션 유지: %s status=%s %s",
                     symbol,
-                    ticket.error_msg,
+                    ticket.status.value,
+                    ticket.error_msg or "",
                 )
+                # 최소주문 미달 더스트인 경우 더스트 목록에 등록
+                if pos.qty * exit_price < MIN_ORDER_KRW:
+                    self._dust_coins[symbol] = pos.qty
+                    self._positions.pop(symbol, None)
+                    logger.info("더스트 등록: %s %.6f개 — 가격 상승 시 자동 매도", symbol, pos.qty)
+                return
+            if ticket.filled_qty > 0 and ticket.filled_qty < pos.qty * 0.99:
+                # 부분 체결: 체결된 만큼만 차감, 나머지 유지
+                logger.warning(
+                    "부분 체결: %s %.4f/%.4f — 체결분 처리 후 잔여 포지션 유지",
+                    symbol, ticket.filled_qty, pos.qty,
+                )
+                sold_ratio = ticket.filled_qty / pos.qty
+                sold_krw = pos.size_krw * sold_ratio
+                gross = (ticket.filled_price - pos.entry_price) * ticket.filled_qty
+                fee = pos.entry_price * ticket.filled_qty * 0.0025 + ticket.filled_price * ticket.filled_qty * 0.0025
+                net = gross - fee
+                pos.qty -= ticket.filled_qty
+                pos.size_krw -= sold_krw
+                self._pool_manager.release(pos.pool, sold_krw, pnl=net)
                 return
             if ticket.filled_price > 0:
                 exit_price = ticket.filled_price
