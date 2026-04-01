@@ -217,7 +217,7 @@ backtest:
     enabled: true
     day: sunday
     time: "03:00"
-    max_experiments: 10
+    max_experiments: 50
     max_consecutive_failures: 5
 market_store:
   candle_5m_retention_days: 180
@@ -291,7 +291,7 @@ coin_universe:
 evolution:
   enabled: true
   run_time: "00:30"
-  max_experiments: 10
+  max_experiments: 50
   held_out_days: 30
   dsr_significance: 0.05
   is_oos_max_ratio: 1.5

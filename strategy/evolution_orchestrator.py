@@ -246,7 +246,15 @@ class EvolutionOrchestrator:
         # Phase 1: Monitor
         baseline = await self._phase_monitor()
         if not baseline.should_continue:
-            await self._notify(f"진화 중단: {baseline.reason}")
+            await self._notify(
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 세션 중단\n"
+                "  사유: " + baseline.reason + "\n"
+                "\n▶ 해석\n"
+                "  거래 데이터가 부족하여 성과를 평가할 수 없습니다.\n"
+                "  거래가 축적되면 자동으로 재개됩니다.\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
             return EvolutionResult(
                 success=False, reason=baseline.reason,
                 baseline_fitness=baseline.fitness,
@@ -255,7 +263,14 @@ class EvolutionOrchestrator:
         # Phase 2: Diagnose
         weak_areas = await self._phase_diagnose(baseline)
         if not weak_areas:
-            await self._notify("진단: 개선 필요 영역 없음 (현재 성과 양호)")
+            await self._notify(
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 현행 유지\n"
+                "  현재 성과가 양호하여 개선 필요 영역 없음\n"
+                "\n▶ 현재 성과\n"
+                "  fitness: " + f"{baseline.fitness:.3f}" + "\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
             return EvolutionResult(
                 success=False, reason="no_weak_areas",
                 baseline_fitness=baseline.fitness,
@@ -264,7 +279,16 @@ class EvolutionOrchestrator:
         # Phase 3: Hypothesize
         candidates = await self._phase_hypothesize(weak_areas)
         if not candidates:
-            await self._notify("가설 생성 실패: 후보 없음")
+            await self._notify(
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 현행 유지\n"
+                "  가설 후보를 생성하지 못함\n"
+                "\n▶ 진행 내역\n"
+                "  1. 성과 분석: fitness " + f"{baseline.fitness:.3f}" + "\n"
+                "  2. 약점 진단: " + ", ".join(weak_areas) + "\n"
+                "  3. 후보 생성: 실패 (LLM 응답 없음 또는 그리드 해당 없음)\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
             return EvolutionResult(
                 success=False, reason="no_candidates",
                 baseline_fitness=baseline.fitness,
@@ -275,8 +299,18 @@ class EvolutionOrchestrator:
         kept = [r for r in results if not r.rejected and r.fitness > baseline.fitness]
         if not kept:
             await self._notify(
-                f"실험 {len(results)}회 완료, 개선 후보 없음 "
-                f"(baseline fitness={baseline.fitness:.3f})"
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 현행 유지\n"
+                "  현재 파라미터가 최적 — 변경 불필요\n"
+                "\n▶ 진행 내역\n"
+                "  1. 성과 분석: fitness " + f"{baseline.fitness:.3f}" + " (기준선)\n"
+                "  2. 약점 진단: " + ", ".join(weak_areas) + "\n"
+                "  3. 후보 생성: " + f"{len(candidates)}" + "개 파라미터 조합\n"
+                "  4. 백테스트: " + f"{len(results)}" + "회 실행 → 기준선 초과 후보 없음\n"
+                "\n▶ 해석\n"
+                "  테스트한 대안이 현재 설정보다 성과가 낮음.\n"
+                "  시장 변화 시 재평가 예정 (다음 세션: 내일 00:30)\n"
+                "━━━━━━━━━━━━━━━━━━━━"
             )
             return EvolutionResult(
                 success=False, reason="no_improvement",
@@ -290,8 +324,17 @@ class EvolutionOrchestrator:
         validation = await self._phase_validate(best, baseline)
         if not validation.passed:
             await self._notify(
-                f"검증 실패: {validation.reason} "
-                f"(fitness={best.fitness:.3f})"
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 현행 유지 (검증 미통과)\n"
+                "  사유: " + validation.reason + "\n"
+                "\n▶ 진행 내역\n"
+                "  1. 성과 분석: fitness " + f"{baseline.fitness:.3f}" + "\n"
+                "  2. 최선 후보: fitness " + f"{best.fitness:.3f}" + "\n"
+                "  3. 검증: 과적합 또는 통계 유의성 미달\n"
+                "\n▶ 해석\n"
+                "  개선 후보가 있었으나 검증을 통과하지 못했습니다.\n"
+                "  과적합 위험이 있어 안전하게 현행을 유지합니다.\n"
+                "━━━━━━━━━━━━━━━━━━━━"
             )
             return EvolutionResult(
                 success=False, reason=f"validation_{validation.reason}",
@@ -305,7 +348,16 @@ class EvolutionOrchestrator:
         guard_result = self._guard.validate(self._current_params, best.params)
         if not guard_result.is_valid:
             await self._notify(
-                f"GuardAgent 거부: {', '.join(guard_result.violations)}"
+                "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━\n"
+                "\n▶ 결과: 현행 유지 (안전 검증 거부)\n"
+                "\n▶ 진행 내역\n"
+                "  1. 성과 분석: fitness " + f"{baseline.fitness:.3f}" + "\n"
+                "  2. 최선 후보: fitness " + f"{best.fitness:.3f}" + "\n"
+                "  3. GuardAgent 거부 사유:\n"
+                + "\n".join("    - " + v for v in guard_result.violations) + "\n"
+                "\n▶ 해석\n"
+                "  후보가 안전 제약을 위반하여 적용할 수 없습니다.\n"
+                "━━━━━━━━━━━━━━━━━━━━"
             )
             return EvolutionResult(
                 success=False, reason="guard_rejected",
@@ -481,7 +533,7 @@ class EvolutionOrchestrator:
                     patterns, self._current_params.to_dict(),
                     weekly_insight=weekly_insight,
                 )
-                for hyp in hypotheses[:3]:
+                for hyp in hypotheses[:5]:  # 최대 5개 가설
                     changes = {}
                     rationale = hyp.get("rationale", "LLM 가설")
                     for key in ("mr_sl_mult", "mr_tp_rr", "dca_sl_pct",
@@ -500,15 +552,12 @@ class EvolutionOrchestrator:
         except Exception:
             logger.warning("LLM 가설 생성 실패", exc_info=True)
 
-        # 2. 약한 영역 기반 그리드 서치 후보
-        if "strategy_params" in weak_areas:
-            candidates.extend(self._grid_strategy_candidates())
-        if "entry_cutoff" in weak_areas:
-            candidates.extend(self._grid_cutoff_candidates())
-        if "risk_thresholds" in weak_areas:
-            candidates.extend(self._grid_risk_candidates())
-        if "sizing_params" in weak_areas:
-            candidates.extend(self._grid_sizing_candidates())
+        # 2. 그리드 서치 후보 (모든 영역 탐색)
+        candidates.extend(self._grid_strategy_candidates())
+        candidates.extend(self._grid_cutoff_candidates())
+        candidates.extend(self._grid_risk_candidates())
+        candidates.extend(self._grid_sizing_candidates())
+        candidates.extend(self._grid_regime_candidates())
 
         logger.info("가설 생성: %d개 후보", len(candidates))
         return candidates[:self._max_experiments]
@@ -526,28 +575,49 @@ class EvolutionOrchestrator:
         return mapping.get(key)
 
     def _grid_strategy_candidates(self) -> list[ExperimentCandidate]:
-        """전략 SL/TP 그리드 후보."""
+        """전략 SL/TP 그리드 후보 (전 전략 대상)."""
         base = self._current_params
         candidates = []
-        for delta in (-0.5, 0.5, -1.0, 1.0):
+        # mean_reversion (주력 전략)
+        for sl_d in (-2.0, -1.0, 1.0, 2.0):
             candidates.append(ExperimentCandidate(
-                changes={"tf_sl_mult": base.tf_sl_mult + delta},
+                changes={"mr_sl_mult": base.mr_sl_mult + sl_d},
                 source="grid_search",
-                rationale=f"tf_sl_mult {base.tf_sl_mult} → {base.tf_sl_mult + delta}",
+                rationale=f"mr_sl_mult {base.mr_sl_mult} → {base.mr_sl_mult + sl_d}",
             ))
-        for delta in (-0.3, 0.3):
+        for tp_d in (-0.5, -0.3, 0.3, 0.5, 1.0):
             candidates.append(ExperimentCandidate(
-                changes={"tf_tp_rr": base.tf_tp_rr + delta},
+                changes={"mr_tp_rr": base.mr_tp_rr + tp_d},
                 source="grid_search",
-                rationale=f"tf_tp_rr {base.tf_tp_rr} → {base.tf_tp_rr + delta}",
+                rationale=f"mr_tp_rr {base.mr_tp_rr} → {base.mr_tp_rr + tp_d}",
+            ))
+        # mr SL+TP 조합
+        for sl_d, tp_d in [(-1.0, 0.5), (1.0, -0.3), (-2.0, 1.0), (1.0, 0.5)]:
+            candidates.append(ExperimentCandidate(
+                changes={"mr_sl_mult": base.mr_sl_mult + sl_d, "mr_tp_rr": base.mr_tp_rr + tp_d},
+                source="grid_search",
+                rationale=f"mr SL/TP 조합: sl {base.mr_sl_mult+sl_d}, tp {base.mr_tp_rr+tp_d}",
+            ))
+        # DCA
+        for sl_d in (-0.01, -0.02, 0.01, 0.02):
+            candidates.append(ExperimentCandidate(
+                changes={"dca_sl_pct": base.dca_sl_pct + sl_d},
+                source="grid_search",
+                rationale=f"dca_sl_pct {base.dca_sl_pct} → {base.dca_sl_pct + sl_d}",
+            ))
+        for tp_d in (-0.01, 0.01, 0.02, 0.03):
+            candidates.append(ExperimentCandidate(
+                changes={"dca_tp_pct": base.dca_tp_pct + tp_d},
+                source="grid_search",
+                rationale=f"dca_tp_pct {base.dca_tp_pct} → {base.dca_tp_pct + tp_d}",
             ))
         return candidates
 
     def _grid_cutoff_candidates(self) -> list[ExperimentCandidate]:
-        """진입 cutoff 그리드 후보."""
+        """진입 cutoff 그리드 후보 (tf + mr)."""
         base = self._current_params
         candidates = []
-        for delta in (-5, -3, 3, 5):
+        for delta in (-10, -7, -5, -3, 3, 5, 7, 10):
             candidates.append(ExperimentCandidate(
                 changes={"tf_cutoff": base.tf_cutoff + delta},
                 source="grid_search",
@@ -558,34 +628,69 @@ class EvolutionOrchestrator:
     def _grid_risk_candidates(self) -> list[ExperimentCandidate]:
         """리스크 파라미터 그리드 후보."""
         base = self._current_params
-        return [
-            ExperimentCandidate(
-                changes={"daily_dd_pct": base.daily_dd_pct - 0.005},
+        candidates = []
+        for dd_d in (-0.01, -0.005, 0.005, 0.01):
+            candidates.append(ExperimentCandidate(
+                changes={"daily_dd_pct": base.daily_dd_pct + dd_d},
                 source="grid_search",
-                rationale="daily DD 축소 (보수적)",
-            ),
-            ExperimentCandidate(
-                changes={"cooldown_min": base.cooldown_min + 15},
+                rationale=f"daily_dd {base.daily_dd_pct} → {base.daily_dd_pct + dd_d}",
+            ))
+        for cd_d in (-15, 15, 30, 60):
+            candidates.append(ExperimentCandidate(
+                changes={"cooldown_min": base.cooldown_min + cd_d},
                 source="grid_search",
-                rationale="쿨다운 증가 (과매매 방지)",
-            ),
-        ]
+                rationale=f"cooldown {base.cooldown_min} → {base.cooldown_min + cd_d}",
+            ))
+        for cl_d in (-1, 1, 2):
+            candidates.append(ExperimentCandidate(
+                changes={"consecutive_loss_limit": base.consecutive_loss_limit + cl_d},
+                source="grid_search",
+                rationale=f"consecutive_loss {base.consecutive_loss_limit} → {base.consecutive_loss_limit + cl_d}",
+            ))
+        return candidates
 
     def _grid_sizing_candidates(self) -> list[ExperimentCandidate]:
         """사이징 파라미터 그리드 후보."""
         base = self._current_params
-        return [
-            ExperimentCandidate(
-                changes={"active_risk_pct": base.active_risk_pct - 0.01},
+        candidates = []
+        for ar_d in (-0.03, -0.02, -0.01, 0.01, 0.02, 0.03):
+            candidates.append(ExperimentCandidate(
+                changes={"active_risk_pct": base.active_risk_pct + ar_d},
                 source="grid_search",
-                rationale="active_risk 축소 (보수적)",
-            ),
-            ExperimentCandidate(
-                changes={"pool_cap_pct": base.pool_cap_pct - 0.03},
+                rationale=f"active_risk {base.active_risk_pct} → {base.active_risk_pct + ar_d}",
+            ))
+        for pc_d in (-0.05, -0.03, 0.03, 0.05):
+            candidates.append(ExperimentCandidate(
+                changes={"pool_cap_pct": base.pool_cap_pct + pc_d},
                 source="grid_search",
-                rationale="pool_cap 축소",
-            ),
-        ]
+                rationale=f"pool_cap {base.pool_cap_pct} → {base.pool_cap_pct + pc_d}",
+            ))
+        # 방어 배수 조합
+        for dm_d in (-0.1, 0.1, 0.2):
+            candidates.append(ExperimentCandidate(
+                changes={"defense_mult_min": base.defense_mult_min + dm_d},
+                source="grid_search",
+                rationale=f"defense_min {base.defense_mult_min} → {base.defense_mult_min + dm_d}",
+            ))
+        return candidates
+
+    def _grid_regime_candidates(self) -> list[ExperimentCandidate]:
+        """국면/환경 파라미터 그리드 후보."""
+        base = self._current_params
+        candidates = []
+        for vol_d in (-0.1, 0.1, 0.2):
+            candidates.append(ExperimentCandidate(
+                changes={"l1_volume_ratio": base.l1_volume_ratio + vol_d},
+                source="grid_search",
+                rationale=f"l1_volume_ratio {base.l1_volume_ratio} → {base.l1_volume_ratio + vol_d}",
+            ))
+        for adx_d in (-3, 3, 5):
+            candidates.append(ExperimentCandidate(
+                changes={"regime_adx_strong": base.regime_adx_strong + adx_d},
+                source="grid_search",
+                rationale=f"adx_strong {base.regime_adx_strong} → {base.regime_adx_strong + adx_d}",
+            ))
+        return candidates
 
     # ═══════════════════════════════════════════════════
     # Phase 4: Experiment
@@ -919,30 +1024,29 @@ class EvolutionOrchestrator:
         experiments_kept: int,
     ) -> str:
         """Discord 진화 보고서 포맷."""
-        lines = [
-            "━━━ Evolution Report ━━━",
-            f"세션: {datetime.now().strftime('%Y-%m-%d %H:%M KST')}",
-            f"실험: {experiments_run}회 ({experiments_kept} keep, "
-            f"{experiments_run - experiments_kept} revert)",
-            f"베이스라인 fitness: {baseline.fitness:.3f}",
-            f"최선 후보 fitness: {best.fitness:.3f} "
-            f"(+{(best.fitness - baseline.fitness):.3f})",
-            "",
-            "변경 내용:",
-        ]
+        param_lines = []
         for param, (old, new) in change.changes.items():
-            lines.append(f"  {param}: {old} → {new}")
+            param_lines.append(f"  {param}: {old} → {new}")
 
-        lines.extend([
+        lines = [
+            "━━━ 진화 세션 보고 (" + datetime.now().strftime("%Y-%m-%d %H:%M") + ") ━━━",
             "",
-            "검증:",
+            "▶ 결과: 개선 후보 발견 — 승인 대기",
+            f"  fitness: {baseline.fitness:.3f} → {best.fitness:.3f} (+{best.fitness - baseline.fitness:.3f})",
+            "",
+            "▶ 진행 내역",
+            f"  실험: {experiments_run}회 (통과 {experiments_kept}, 탈락 {experiments_run - experiments_kept})",
             f"  Walk-Forward: {validation.wf_verdict}",
             f"  IS/OOS 괴리: {validation.is_oos_ratio:.2f}",
             f"  DSR p-value: {validation.dsr_p_value:.3f}",
             "",
-            f"위험도: {change.risk_level} ({change.risk_score:.2f})",
+            "▶ 변경 내용",
+        ] + param_lines + [
+            "",
+            f"▶ 위험도: {change.risk_level} ({change.risk_score:.2f})",
+            "",
             "━━━━━━━━━━━━━━━━━━━━",
-        ])
+        ]
         return "\n".join(lines)
 
     async def _notify(self, message: str) -> None:
