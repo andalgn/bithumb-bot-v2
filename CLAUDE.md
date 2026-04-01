@@ -60,7 +60,7 @@ bithumb_auto_v2/
 │   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
 │   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
-│   ├── llm_client.py               ← DeepSeek API 기반 LLM 클라이언트.
+│   ├── llm_client.py               ← Anthropic Claude API 기반 LLM 클라이언트.
 │   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
@@ -87,12 +87,14 @@ bithumb_auto_v2/
 │   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 │   ├── self_reflection.py          ← SelfReflection — 거래 후 자동 반성 생성 모듈.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
+│   ├── spread_profiler.py          ← SpreadProfiler — 코인별 동적 스프레드 임계값 관리.
 │   ├── strategy_params.py          ← 진화 가능 파라미터 단일 관리 모듈.
 │   ├── strategy_scorer.py          ← StrategyScorer — 전략 점수 계산.
 │   └── trade_tagger.py             ← TradeTagger — 거래 결과를 실패 유형으로 분류한다.
 ├── market/
 │   ├── bithumb_api.py              ← 빗썸 REST API 클라이언트.
 │   ├── datafeed.py                 ← 데이터 수집 모듈.
+│   ├── impact_model.py             ← Square-Root Impact 거래비용 모델.
 │   ├── market_store.py             ← 장기 시장 데이터 축적 모듈.
 │   └── normalizer.py               ← 가격/수량 정규화 모듈.
 ├── risk/
@@ -114,7 +116,7 @@ bithumb_auto_v2/
 ├── bot_discord/
 │   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
-    ├── audit_bot.py                ← 정기 봇 감사 스크립트 — 시스템 로그 + 상태 + 거래소 잔고 + 거래 성과 수집. Claude Code 분석용 구조화 프롬프트 생성.
+    ├── audit_bot.py                ← 정기 봇 감사 스크립트.
     ├── backtest_utilization.py     ← 자금 활용률 개선 백테스트 — 3가지 개선안 비교.
     ├── compare_backtest.py         ← 현재 설정 vs 완화 설정 A/B 백테스트 비교.
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.

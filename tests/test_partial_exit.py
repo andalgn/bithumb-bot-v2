@@ -208,3 +208,106 @@ class TestFeeTracking:
         em.add_fee("BTC", 100)
         em.remove_position("BTC")
         assert em.get_cumulative_fee("BTC") == 0
+
+
+class TestRollbackPartialExit:
+    """부분청산 실패 시 롤백 테스트."""
+
+    def test_bb_rollback_allows_retry(self, em: PartialExitManager) -> None:
+        """BB 부분청산 실패 → 롤백 → 재시도 가능."""
+        pos = _make_position(symbol="SOL", strategy=Strategy.MEAN_REVERSION, entry_price=100_000)
+        em.init_position("SOL")
+        bb_mid = 103_000
+
+        # 1차 시도: BB 중간선 도달 → 부분청산 결정
+        d1 = em.evaluate(pos, 103_500, atr_value=2000, bb_middle=bb_mid)
+        assert d1.action == ExitAction.PARTIAL_EXIT
+        assert d1.exit_ratio == pytest.approx(0.5)
+
+        # 주문 실패 시뮬레이션 → 롤백
+        em.rollback_partial_exit("SOL")
+
+        # 2차 시도: 같은 조건 → 재시도 가능
+        d2 = em.evaluate(pos, 103_500, atr_value=2000, bb_middle=bb_mid)
+        assert d2.action == ExitAction.PARTIAL_EXIT
+
+    def test_bb_max_retries_gives_up(self, em: PartialExitManager) -> None:
+        """BB 부분청산 3회 실패 → 포기."""
+        pos = _make_position(symbol="SOL", strategy=Strategy.MEAN_REVERSION, entry_price=100_000)
+        em.init_position("SOL")
+        bb_mid = 103_000
+
+        for i in range(3):
+            d = em.evaluate(pos, 103_500, atr_value=2000, bb_middle=bb_mid)
+            assert d.action == ExitAction.PARTIAL_EXIT, f"시도 {i+1} 실패"
+            em.rollback_partial_exit("SOL")
+
+        # 4차: 한도 초과 → 더 이상 부분청산 안 됨
+        d = em.evaluate(pos, 103_500, atr_value=2000, bb_middle=bb_mid)
+        assert d.action == ExitAction.NONE
+
+    def test_trench1_rollback(self, em: PartialExitManager) -> None:
+        """전략A 1차 trench 롤백."""
+        pos = _make_position(strategy=Strategy.TREND_FOLLOW, entry_price=50_000_000)
+        em.init_position("BTC")
+
+        # +3% 도달 → 1차 부분청산
+        price_3pct = 51_500_000
+        d1 = em.evaluate(pos, price_3pct, atr_value=500_000)
+        assert d1.action == ExitAction.PARTIAL_EXIT
+        assert d1.exit_ratio == pytest.approx(0.3)
+
+        # 롤백
+        em.rollback_partial_exit("BTC")
+
+        # 재시도 가능
+        d2 = em.evaluate(pos, price_3pct, atr_value=500_000)
+        assert d2.action == ExitAction.PARTIAL_EXIT
+
+    def test_trench2_rollback(self, em: PartialExitManager) -> None:
+        """전략A 2차 trench 롤백 (1차 성공 후)."""
+        pos = _make_position(strategy=Strategy.TREND_FOLLOW, entry_price=50_000_000)
+        em.init_position("BTC")
+
+        # 1차 성공: +3%
+        d1 = em.evaluate(pos, 51_500_000, atr_value=500_000)
+        assert d1.action == ExitAction.PARTIAL_EXIT
+        # 1차는 성공으로 간주 (롤백 안 함)
+
+        # 2차 시도: +6%
+        price_6pct = 53_000_000
+        d2 = em.evaluate(pos, price_6pct, atr_value=500_000)
+        assert d2.action == ExitAction.PARTIAL_EXIT
+        assert d2.exit_ratio == pytest.approx(0.3)
+
+        # 2차 롤백
+        em.rollback_partial_exit("BTC")
+
+        # 2차 재시도 가능
+        d3 = em.evaluate(pos, price_6pct, atr_value=500_000)
+        assert d3.action == ExitAction.PARTIAL_EXIT
+
+    def test_remaining_ratio_restored(self, em: PartialExitManager) -> None:
+        """롤백 시 remaining_ratio가 복원된다."""
+        pos = _make_position(symbol="SOL", strategy=Strategy.MEAN_REVERSION, entry_price=100_000)
+        em.init_position("SOL")
+
+        state = em.get_partial_state("SOL")
+        assert state is not None
+        assert state.remaining_ratio == pytest.approx(1.0)
+
+        # 부분청산 결정 → remaining_ratio 감소
+        em.evaluate(pos, 103_500, atr_value=2000, bb_middle=103_000)
+        assert state.remaining_ratio == pytest.approx(0.5)
+
+        # 롤백 → remaining_ratio 복원
+        em.rollback_partial_exit("SOL")
+        assert state.remaining_ratio == pytest.approx(1.0)
+
+    def test_rollback_noop_without_flag(self, em: PartialExitManager) -> None:
+        """플래그가 없으면 롤백은 무시된다."""
+        em.init_position("ETH")
+        em.rollback_partial_exit("ETH")  # 아무 일도 안 일어남
+        state = em.get_partial_state("ETH")
+        assert state is not None
+        assert state.remaining_ratio == pytest.approx(1.0)

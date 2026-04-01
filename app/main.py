@@ -44,6 +44,7 @@ from strategy.promotion_manager import PromotionManager
 from strategy.review_engine import ReviewEngine
 from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
+from strategy.spread_profiler import SpreadProfiler
 from strategy.trade_tagger import tag_trade
 from strategy.self_reflection import ReflectionStore
 from strategy.coin_universe import CoinUniverse
@@ -123,6 +124,7 @@ class TradingBot:
         )
         self._last_universe_refresh_hour: int = -1
         self._market_store = MarketStore(db_path="data/market_data.db")
+        self._spread_profiler = SpreadProfiler(db_path="data/market_data.db")
         self._journal = Journal(db_path="data/journal.db")
         self._storage = StateStorage(path="data/app_state.json")
         self._state_store = self._storage.state_store  # None if migration not yet complete
@@ -145,6 +147,7 @@ class TradingBot:
         self._risk_gate = RiskGate(
             dd_limits=self._dd_limits,
             quarantine=self._quarantine,
+            spread_profiler=self._spread_profiler,
             max_exposure_pct=config.risk_gate.max_exposure_pct,
             consecutive_loss_limit=config.risk_gate.consecutive_loss_limit,
             cooldown_min=config.risk_gate.cooldown_min,
@@ -179,6 +182,7 @@ class TradingBot:
             regime_config=config.regime,
             execution_config=config.execution,
             strategy_params=config.strategy_params,
+            spread_profiler=self._spread_profiler,
         )
 
         # Phase 3: Pool + Position + Promotion
@@ -1323,6 +1327,7 @@ class TradingBot:
                     symbol,
                     ticket.error_msg,
                 )
+                self._exit_manager.rollback_partial_exit(symbol)
                 return
 
         # 부분 매도 후 거래소 잔고 재검증
@@ -1333,6 +1338,7 @@ class TradingBot:
             position_backup=None,  # 부분 청산이므로 전체 복원 불필요
         )
         if not verified:
+            self._exit_manager.rollback_partial_exit(symbol)
             return
 
         # PnL 계산 (부분) — 진입·청산 양쪽 수수료 차감

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from app.data_types import ExitReason, Position, Strategy, Tier
@@ -24,6 +24,8 @@ ACTIVE_TRAIL_MULT: dict[Tier, float] = {
 TRAILING_ACTIVATION_PCT = 0.03
 # 콜백률
 TRAILING_CALLBACK_PCT = 0.01
+# 부분청산 최대 재시도 횟수
+MAX_PARTIAL_RETRIES = 3
 
 
 class ExitAction(str, Enum):
@@ -72,6 +74,10 @@ class PartialExitState:
     remaining_ratio: float = 1.0
     # 누적 수수료
     cumulative_fee_krw: float = 0.0
+    # 롤백 추적: 마지막 세팅된 플래그
+    _last_flag: str = ""
+    # 플래그별 재시도 횟수
+    _retry_counts: dict[str, int] = field(default_factory=dict)
 
 
 class PartialExitManager:
@@ -91,6 +97,48 @@ class PartialExitManager:
         """포지션 종료 시 상태를 제거한다."""
         self._trailing.pop(symbol, None)
         self._partial.pop(symbol, None)
+
+    # _partial_close_position에서 사용하는 별칭
+    clear_position = remove_position
+
+    def rollback_partial_exit(self, symbol: str) -> None:
+        """부분청산 실패 시 플래그를 되돌린다.
+
+        최대 MAX_PARTIAL_RETRIES회까지 재시도를 허용하고,
+        초과 시 플래그를 유지하여 무한 재시도를 방지한다.
+        """
+        state = self._partial.get(symbol)
+        if state is None or not state._last_flag:
+            return
+
+        flag = state._last_flag
+        count = state._retry_counts.get(flag, 0) + 1
+        state._retry_counts[flag] = count
+
+        if count >= MAX_PARTIAL_RETRIES:
+            logger.warning(
+                "부분청산 재시도 한도 초과 — 포기: %s %s (%d회)",
+                symbol, flag, count,
+            )
+            state._last_flag = ""
+            return
+
+        # 플래그 리셋 + 비율 복원
+        if flag == "bb":
+            state.bb_exit_done = False
+            state.remaining_ratio += 0.5
+        elif flag == "trench_1":
+            state.trench_1_done = False
+            state.remaining_ratio += 0.3
+        elif flag == "trench_2":
+            state.trench_2_done = False
+            state.remaining_ratio += 0.3
+
+        state._last_flag = ""
+        logger.info(
+            "부분청산 플래그 롤백: %s %s (재시도 %d/%d)",
+            symbol, flag, count, MAX_PARTIAL_RETRIES,
+        )
 
     def evaluate(
         self,
@@ -289,6 +337,7 @@ class PartialExitManager:
             if pnl_pct >= 0.06 and not state.trench_2_done:
                 state.trench_2_done = True
                 state.remaining_ratio -= 0.3
+                state._last_flag = "trench_2"
                 return ExitDecision(
                     action=ExitAction.PARTIAL_EXIT,
                     exit_ratio=0.3,
@@ -299,6 +348,7 @@ class PartialExitManager:
             if pnl_pct >= 0.03 and not state.trench_1_done:
                 state.trench_1_done = True
                 state.remaining_ratio -= 0.3
+                state._last_flag = "trench_1"
                 return ExitDecision(
                     action=ExitAction.PARTIAL_EXIT,
                     exit_ratio=0.3,
@@ -312,6 +362,7 @@ class PartialExitManager:
             if bb_middle > 0 and current_price >= bb_middle and not state.bb_exit_done:
                 state.bb_exit_done = True
                 state.remaining_ratio -= 0.5
+                state._last_flag = "bb"
                 return ExitDecision(
                     action=ExitAction.PARTIAL_EXIT,
                     exit_ratio=0.5,
