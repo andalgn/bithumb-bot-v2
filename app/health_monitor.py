@@ -737,7 +737,7 @@ class HealthMonitor:
     async def _run_diagnosis(
         self, error_type: str, details: str, context: dict, tier: int,
     ) -> None:
-        """Claude CLI로 오류를 진단하고 결과를 Discord에 보고한다."""
+        """DeepSeek API로 오류를 진단하고 결과를 Discord에 보고한다."""
         try:
             # 최근 파이프라인 이벤트 조회
             recent_events = ""
@@ -762,15 +762,19 @@ class HealthMonitor:
 
             prompt = (
                 "당신은 빗썸 KRW 마켓 자동매매 봇의 운영 진단 전문가입니다.\n\n"
-                "## 시스템 구조\n"
-                "- Python asyncio 기반, 5분 주기 사이클\n"
-                "- 전략: mean_reversion (주력), DCA (BTC/ETH 매집)\n"
-                "- 파이프라인: 시장데이터 수집 → L1 필터 → 전략 점수 → 사이징 → 주문\n"
-                "- L1 필터: 거래량(20봉 평균×0.4), 스프레드(Tier별 한도×2), 1H 급변동\n"
-                "- 사이징: Active Pool 15%, 심야 T3 30% 축소\n"
-                "- 주문: normalize_price(tick 내림) + normalize_qty(소수점 내림) → validate_order(최소 4999원)\n"
-                "- HealthMonitor: 15분마다 9개 항목 점검\n"
-                "- 봇 시작 직후에는 캔들 데이터 미수집 상태가 정상\n\n"
+                "## 시스템 아키텍처\n"
+                "- Python asyncio, 5분 주기 사이클, LIVE 모드 운영 중\n"
+                "- 전략: mean_reversion (주력), DCA (BTC/ETH 매집), breakout\n"
+                "- 파이프라인: 시장데이터 → L1 환경필터 → 전략 점수 → RiskGate → 사이징 → 주문 → 검증\n\n"
+                "## 이미 구현된 안전장치 (수정 제안하지 말 것)\n"
+                "- 최소주문금액 검증: normalize_price/qty 정규화 후 실제 금액으로 MIN_ORDER(5000원) 체크\n"
+                "- 부분청산 → 전체청산 전환: 부분 금액 < 5000원이면 자동으로 전체 청산\n"
+                "- 더스트 관리: dust_coins 딕셔너리에 등록, 매 사이클 _cleanup_dust()로 가격 상승 시 시장가 매도\n"
+                "- 매도 후 검증: _verify_sell_execution()으로 거래소 잔고 교차검증, 불일치 시 포지션 자동 복원\n"
+                "- 주문 상태 체크: FILLED/PARTIAL 외 모든 상태(EXPIRED, CANCELED) 차단\n"
+                "- 부분 체결 처리: filled_qty < pos.qty면 체결분만 차감, 나머지 유지\n"
+                "- HealthMonitor 11개 체크: heartbeat, API, data_freshness, reconciliation, trading_metrics, "
+                "pipeline, utilization, balance_check 등\n\n"
                 "## 오류 정보\n"
                 "- 유형: " + error_type + "\n"
                 "- 상세: " + details + "\n"
@@ -778,23 +782,28 @@ class HealthMonitor:
                 "- 심각도: Tier " + str(tier) + "\n\n"
                 "## 최근 파이프라인 이벤트\n"
                 + (recent_events or "(없음)") + "\n\n"
-                "## 요청사항\n"
-                "1. 근본 원인 (이 시스템 구조 기반으로 구체적으로, 1~2줄)\n"
-                "2. 수정안 (이 프로젝트의 실제 파일/함수명 사용. 추측 금지)\n"
-                "3. 긴급도 (즉시/다음 점검/관찰 필요)\n\n"
-                "간결하게 답변. 최대 10줄. 프로젝트에 없는 코드를 제안하지 마세요."
+                "## 답변 규칙\n"
+                "1. 위 \'이미 구현된 안전장치\'에 해당하는 문제면 → \'기존 로직으로 처리됨. 추가 조치 불필요.\' 라고 답하라\n"
+                "2. 새로운 문제면 → 근본 원인 + 구체적 수정안 제시 (파일명/함수명 포함)\n"
+                "3. 확실하지 않으면 → \'관찰 필요\'로 분류하라\n"
+                "4. 존재하지 않는 파일/함수를 추측하여 제안하지 마라\n\n"
+                "## 출력 형식 (최대 8줄)\n"
+                "📋 근본 원인: (1줄)\n"
+                "🔧 수정안: (이미 해결됨 / 구체적 조치)\n"
+                "⏰ 긴급도: (즉시 / 다음 점검 / 관찰 필요)"
             )
 
             response = await call_claude(prompt, model="haiku", timeout=30)
 
             if not response:
-                logger.warning("진단 실패: Claude 응답 없음 (%s)", error_type)
+                logger.warning("진단 실패: DeepSeek 응답 없음 (%s)", error_type)
                 if self._notifier:
-                    msg = "\u26a0 **" + error_type + "** 자동 진단 실패 (Claude 응답 없음)\n" + details
-                    await self._notifier.send(msg, channel="system")
+                    await self._notifier.send(
+                        "\u26a0 **" + error_type + "** 자동 진단 실패 (응답 없음)\n" + details,
+                        channel="system",
+                    )
                 return
 
-            # Discord 보고
             tier_emoji = "\U0001f6a8" if tier == 3 else "\u26a0"
             report = (
                 tier_emoji + " **자동 진단 보고**\n"

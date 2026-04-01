@@ -368,88 +368,114 @@ def _build_prompt(
     pilot_remaining = state.get("pilot_remaining", 0)
     pilot_size_mult = state.get("pilot_size_mult", 1.0)
 
-    prompt = f"""📊 빗썸봇 정기 감사 ({timestamp_str} KST)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    prompt = f"""빗썸 자동매매 봇 정기 감사. 아래 데이터를 분석하여 문제를 찾고 개선안을 제시하라.
+현재 시각: {timestamp_str} KST
 
-## 시스템 상태
+## 봇 아키텍처 요약
+- 5분 주기 사이클, 3풀 자금관리 (Active/Core/Reserve)
+- 전략: mean_reversion, DCA, breakout (trend_follow 비활성)
+- 자금 활용률 목표: 50~60%
+- 최소 주문금액: 5,000 KRW (빗썸 제한)
 
-### 봇 운영 상태
-- 마지막 사이클: {cycle_ago:.1f}분 전 (15분 주기 예상)
+## 구현된 자동 보호 기능 (수정 제안하지 말 것)
+- 더스트 관리: 최소주문 미달 잔고는 dust_coins에 등록, 가격 상승 시 자동 매도 (_cleanup_dust)
+- 매도 후 검증: 거래소 잔고 교차검증으로 유령 포지션 방지 (_verify_sell_execution)
+- 부분청산 전환: 부분 금액 < 5000원 → 자동 전체 청산
+- 주문 상태 체크: FILLED/PARTIAL 외 모든 상태 차단 + 부분 체결 처리
+- HealthMonitor: 15분마다 11개 항목 자동 점검 (utilization, balance_check 포함)
+이 기능들이 이미 있으므로 같은 내용을 수정안으로 제시하지 마라.
+
+## 봇 운영 상태
+- 마지막 사이클: {f"{cycle_ago:.1f}분 전" if cycle_ago is not None else "확인 불가"}
 - 활성 포지션: {active_positions}개
-- Pilot 남은 횟수: {pilot_remaining}회
-- Pilot 사이징 배수: {pilot_size_mult:.2f}x
+- Pilot: 남은 {pilot_remaining}회, 배수 {pilot_size_mult:.2f}x
 - 사이클 누적: {state.get('cycle_count', 'N/A')}회
 
-### 자금 현황
+## 자금 현황
 {_format_pool_summary(pool_manager)}
 
-### 거래 성과 (최근 12시간)
-- 거래: {performance.get('trade_count', 0)}건
-- PnL: {performance.get('total_pnl_krw', 0):,.0f} KRW
-- 승률: {performance.get('win_rate', 0):.1f}%
-- 손익률: {performance.get('profit_factor', 0):.2f}
-- 승: {performance.get('wins', 0)}건 / 패: {performance.get('losses', 0)}건
+## 거래 성과 (12시간)
+- 거래: {performance.get('trade_count', 0)}건 | PnL: {performance.get('total_pnl_krw', 0):,.0f}원
+- 승률: {performance.get('win_rate', 0):.1f}% | PF: {performance.get('profit_factor', 0):.2f}
 
-### 거래소 잔고 (0초과만)
+## 거래소 잔고
 {_format_balance_summary(balance)}
 
-### ⚠️ 이상 신호 및 체크리스트
+## 더스트 현황
+{f"등록된 더스트: {dust_coins}" if dust_coins else "더스트 없음"}
 
-체크할 항목:
-1. **봇 활성 여부**: 마지막 사이클이 {cycle_ago:.1f}분 전 — 정상이면 < 20분, 비정상이면 > 30분
-2. **거래소 잔고 vs 봇 포지션 불일치**: {active_positions}개 포지션과 거래소 잔고 대조
-3. **반복 에러 패턴**: 아래 로그에서 동일 에러가 3회 이상 발생?
-4. **거래 빈도**: 12시간에 {performance.get('trade_count', 0)}건 — 비정상적으로 많거나 적음?
-5. **손익률**: {performance.get('profit_factor', 0):.2f} — 목표 > 1.5
-6. **Dust 포지션**: {len(dust_coins)}개 — 정리 필요?
-7. **활성 자금**: Pool 자금 활용률 확인
-8. **미체결 주문**: 거래소 미체결 주문 확인 (> 2시간 경고)
-9. **일일 DD**: 최근 일일 낙폭 점검
-10. **API 연결**: 최근 API 오류 있는지 확인
-
-## 시스템 로그 (최근 12시간 ERROR/WARNING/CRITICAL)
-
-```
+## 에러/경고 로그 (집계)
 {_aggregate_logs(logs) if logs else "(로그 없음 — 정상)"}
-```
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 점검 항목
+1. 봇 정상 작동 여부 (마지막 사이클 < 20분이면 정상)
+2. 거래소 잔고 vs 봇 포지션 불일치
+3. 반복 에러 패턴 (3회 이상 동일 에러)
+4. 매매 빈도 적정성
+5. 수익성 (PF > 1.5 목표)
+6. 자금 활용률 (목표 50~60%)
+7. 더스트 잔고 현황
 
-## 분석 요청
+## 출력 형식
+🔴 CRITICAL (즉시 조치) — 없으면 "없음"
+🟡 WARNING (주의 필요) — 없으면 "없음"
+💡 SUGGESTION (개선 제안) — 없으면 "없음"
+📈 성과 요약 (1~2줄)
 
-중요: 도구(Bash, Read, Grep 등)를 사용하지 말고, 위에 제공된 데이터만으로 분석하라.
-
-위 체크리스트를 기반으로:
-1. **🔴 CRITICAL** (즉시 조치): 봇 불능, API 인증 실패, 거래소 잔고 불일치 등
-2. **🟡 WARNING** (주의): 거래 부진, 손익률 악화, 에러 반복 등
-3. **💡 SUGGESTION** (개선): 파라미터 조정, 전략 재검토 등
-
-각 항목에 대해 **원인 분석** 후 **수정 제안**을 제시하라. 도구 호출 없이 바로 보고서를 출력하라.
+각 항목: 문제 + 근거 + 조치안. 이미 구현된 기능은 제안하지 말 것.
 """
 
     return prompt
 
 
+async def _call_deepseek(prompt: str) -> str:
+    """DeepSeek API로 분석을 요청한다."""
+    from app.llm_client import call_claude
+    response = await call_claude(prompt, model="sonnet", timeout=120)
+    return response or ""
+
+
+async def _send_discord(text: str) -> None:
+    """Discord SYSTEM 채널로 전송한다."""
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env")
+
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_SYSTEM") or os.environ.get("DISCORD_WEBHOOK_REPORT")
+    if not webhook_url:
+        print("DISCORD_WEBHOOK 미설정", file=sys.stderr)
+        return
+
+    import aiohttp
+    proxy = os.environ.get("PROXY", "http://127.0.0.1:1081")
+
+    # 2000자 단위로 분할 전송
+    chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
+    async with aiohttp.ClientSession() as session:
+        for chunk in chunks:
+            await session.post(webhook_url, json={"content": chunk}, proxy=proxy)
+            await asyncio.sleep(0.5)
+
+
 async def main() -> None:
-    """메인 진입점."""
+    """메인 진입점: 데이터 수집 → DeepSeek 분석 → Discord 전송."""
     try:
-        # 1. 로그 수집
         logs = _collect_logs()
-
-        # 2. 봇 상태 수집
         state = _collect_bot_state()
-
-        # 3. 거래소 잔고 수집 (비동기)
         balance = await _collect_exchange_balance()
-
-        # 4. 거래 성과 수집
         performance = _collect_trade_performance()
-
-        # 5. 프롬프트 생성
         prompt = _build_prompt(logs, state, balance, performance)
 
-        # 6. 표준 출력
-        print(prompt)
+        # DeepSeek API 분석
+        now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+        response = await _call_deepseek(prompt)
+        if not response:
+            print("DeepSeek 응답 없음", file=sys.stderr)
+            sys.exit(1)
+
+        # Discord 전송
+        report = f"📊 **빗썸봇 정기 감사** ({now_str} KST)\n━━━━━━━━━━━━━━━\n{response}"
+        await _send_discord(report)
+        print(f"감사 완료: {len(response)}자 → Discord 전송")
 
     except Exception as e:
         print(f"감사 실패: {e}", file=sys.stderr)
