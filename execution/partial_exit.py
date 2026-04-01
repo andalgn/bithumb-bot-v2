@@ -25,9 +25,6 @@ TRAILING_ACTIVATION_PCT = 0.03
 # 콜백률
 TRAILING_CALLBACK_PCT = 0.01
 
-# 최소 주문금액 (Bithumb KRW)
-MIN_ORDER_KRW = 5000
-
 
 class ExitAction(str, Enum):
     """청산 액션 유형."""
@@ -280,7 +277,7 @@ class PartialExitManager:
         pnl_pct: float,
         bb_middle: float,
     ) -> ExitDecision:
-        """전략별 부분청산을 확인한다. 최소 주문금액 검증 포함."""
+        """전략별 부분청산을 확인한다."""
         if symbol not in self._partial:
             self._partial[symbol] = PartialExitState()
 
@@ -290,97 +287,41 @@ class PartialExitManager:
         # ─── 전략 A (추세추종): +3%→30%, +6%→30% ───
         if strategy == Strategy.TREND_FOLLOW:
             if pnl_pct >= 0.06 and not state.trench_2_done:
-                ratio = self._safe_exit_ratio(position, current_price, 0.3)
-                if ratio > 0:
-                    state.trench_2_done = True
-                    state.remaining_ratio -= ratio
-                    return ExitDecision(
-                        action=ExitAction.PARTIAL_EXIT if ratio < 1.0 else ExitAction.TAKE_PROFIT,
-                        exit_ratio=ratio,
-                        exit_price=current_price,
-                        reason=ExitReason.TP,
-                        detail=f"전략A 2차 {'부분' if ratio < 1.0 else '전체'}청산 +{pnl_pct:.1%} ({ratio:.0%})",
-                    )
+                state.trench_2_done = True
+                state.remaining_ratio -= 0.3
+                return ExitDecision(
+                    action=ExitAction.PARTIAL_EXIT,
+                    exit_ratio=0.3,
+                    exit_price=current_price,
+                    reason=ExitReason.TP,
+                    detail=f"전략A 2차 부분청산 +{pnl_pct:.1%}",
+                )
             if pnl_pct >= 0.03 and not state.trench_1_done:
-                ratio = self._safe_exit_ratio(position, current_price, 0.3)
-                if ratio > 0:
-                    state.trench_1_done = True
-                    state.remaining_ratio -= ratio
-                    return ExitDecision(
-                        action=ExitAction.PARTIAL_EXIT if ratio < 1.0 else ExitAction.TAKE_PROFIT,
-                        exit_ratio=ratio,
-                        exit_price=current_price,
-                        reason=ExitReason.TP,
-                        detail=f"전략A 1차 {'부분' if ratio < 1.0 else '전체'}청산 +{pnl_pct:.1%} ({ratio:.0%})",
-                    )
+                state.trench_1_done = True
+                state.remaining_ratio -= 0.3
+                return ExitDecision(
+                    action=ExitAction.PARTIAL_EXIT,
+                    exit_ratio=0.3,
+                    exit_price=current_price,
+                    reason=ExitReason.TP,
+                    detail=f"전략A 1차 부분청산 +{pnl_pct:.1%}",
+                )
 
         # ─── 전략 B (반전포착): BB 중간선→50% ───
         elif strategy == Strategy.MEAN_REVERSION:
             if bb_middle > 0 and current_price >= bb_middle and not state.bb_exit_done:
-                ratio = self._safe_exit_ratio(position, current_price, 0.5)
-                if ratio > 0:
-                    state.bb_exit_done = True
-                    state.remaining_ratio -= ratio
-                    return ExitDecision(
-                        action=ExitAction.PARTIAL_EXIT if ratio < 1.0 else ExitAction.TAKE_PROFIT,
-                        exit_ratio=ratio,
-                        exit_price=current_price,
-                        reason=ExitReason.TP,
-                        detail=f"전략B BB중간선 {'부분' if ratio < 1.0 else '전체'}청산 @ {current_price:.0f} ({ratio:.0%})",
+                state.bb_exit_done = True
+                state.remaining_ratio -= 0.5
+                return ExitDecision(
+                    action=ExitAction.PARTIAL_EXIT,
+                    exit_ratio=0.5,
+                    exit_price=current_price,
+                    reason=ExitReason.TP,
+                    detail=f"전략B BB중간선 부분청산 @ {current_price:.0f}",
                 )
 
         # 전략 C, D: 부분청산 없음
         return ExitDecision(action=ExitAction.NONE)
-
-    def _safe_exit_ratio(
-        self,
-        position: Position,
-        current_price: float,
-        desired_ratio: float,
-    ) -> float:
-        """최소 주문금액을 고려한 안전한 청산 비율을 반환한다.
-
-        전략 2: 청산 전 검증
-        전략 3: 부분 불가 시 전체 청산 전환
-        전략 4: 동적 트렌치 조정
-
-        Returns:
-            0.0: 청산 불가 (포지션 전체가 최소 미만)
-            desired_ratio: 정상 부분청산
-            조정된 비율: 동적 트렌치
-            1.0: 전체 청산 전환
-        """
-        total_krw = position.size_krw
-        desired_krw = total_krw * desired_ratio
-
-        # 전략 2: 부분청산 금액이 최소 이상이면 정상 진행
-        if desired_krw >= MIN_ORDER_KRW:
-            # 잔여 금액도 최소 이상인지 체크
-            remaining_krw = total_krw - desired_krw
-            if remaining_krw >= MIN_ORDER_KRW or remaining_krw <= 0:
-                return desired_ratio
-            # 잔여가 최소 미만 → 전체 청산이 더 안전 (전략 3)
-            logger.info(
-                "부분청산 후 잔여 %.0f원 < 최소 %d원 → 전체 청산 전환: %s",
-                remaining_krw, MIN_ORDER_KRW, position.symbol,
-            )
-            return 1.0
-
-        # 전략 4: 동적 트렌치 — 최소 주문금액을 만족하는 비율 계산
-        if total_krw >= MIN_ORDER_KRW:
-            # 전체 포지션은 최소 이상 → 전체 청산 (전략 3)
-            logger.info(
-                "부분청산 %.0f원 < 최소 %d원 → 전체 청산 전환: %s",
-                desired_krw, MIN_ORDER_KRW, position.symbol,
-            )
-            return 1.0
-
-        # 포지션 전체가 최소 미만 → 청산 불가
-        logger.debug(
-            "포지션 %.0f원 < 최소 %d원 → 청산 불가: %s",
-            total_krw, MIN_ORDER_KRW, position.symbol,
-        )
-        return 0.0
 
     def _get_remaining(self, symbol: str) -> float:
         """남은 포지션 비율을 반환한다."""

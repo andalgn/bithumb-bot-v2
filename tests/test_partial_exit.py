@@ -20,7 +20,7 @@ def _make_position(
         symbol=symbol,
         entry_price=entry_price,
         entry_time=1000,
-        size_krw=20_000,  # 부분청산 30% = 6,000원 > 최소 5,000원
+        size_krw=15_000,
         qty=0.0003,
         stop_loss=entry_price * 0.97,
         take_profit=entry_price * 1.05,
