@@ -7,6 +7,7 @@ import pytest
 from app.data_types import OrderSide, Regime, Signal, Strategy, Tier
 from execution.quarantine import QuarantineManager
 from risk.dd_limits import DDLimits
+from strategy.spread_profiler import SpreadProfiler
 from risk.risk_gate import RiskGate
 
 
@@ -40,6 +41,7 @@ def risk_gate(tmp_path) -> RiskGate:
     return RiskGate(
         dd_limits=dd,
         quarantine=quarantine,
+        spread_profiler=SpreadProfiler(),
         max_exposure_pct=0.90,
         consecutive_loss_limit=5,
         cooldown_min=60,

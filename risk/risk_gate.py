@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 
 from app.data_types import Orderbook, OrderSide, Signal, Tier
 from execution.quarantine import QuarantineManager
+from market.impact_model import estimate_slippage
 from risk.dd_limits import DDLimits
+from strategy.spread_profiler import SpreadProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +34,6 @@ ORDERBOOK_DEPTH_MULT: dict[Tier, int] = {
     Tier.TIER1: 5,
     Tier.TIER2: 3,
     Tier.TIER3: 2,
-}
-
-# Tier별 스프레드 한도
-SPREAD_LIMIT: dict[Tier, float] = {
-    Tier.TIER1: 0.0018,
-    Tier.TIER2: 0.0025,
-    Tier.TIER3: 0.0035,
 }
 
 
@@ -73,6 +68,7 @@ class RiskGate:
         self,
         dd_limits: DDLimits,
         quarantine: QuarantineManager,
+        spread_profiler: SpreadProfiler,
         max_exposure_pct: float = 0.90,
         consecutive_loss_limit: int = 5,
         cooldown_min: int = 60,
@@ -83,6 +79,7 @@ class RiskGate:
         Args:
             dd_limits: DD Kill Switch.
             quarantine: 격리 관리자.
+            spread_profiler: 코인별 동적 스프레드 임계값 관리자.
             max_exposure_pct: 최대 익스포저 비율.
             consecutive_loss_limit: 연속 손실 한도.
             cooldown_min: 쿨다운(분).
@@ -90,6 +87,7 @@ class RiskGate:
         """
         self._dd = dd_limits
         self._quarantine = quarantine
+        self._spread_profiler = spread_profiler
         self._max_exposure_pct = max_exposure_pct
         self._consecutive_loss_limit = consecutive_loss_limit
         self._cooldown_sec = cooldown_min * 60
@@ -227,7 +225,7 @@ class RiskGate:
         # 호가 잔량 필터
         if is_buy and orderbook and order_krw > 0:
             ob_ok, ob_reason = self._check_orderbook_depth(
-                signal.tier, orderbook, order_krw, signal.entry_price,
+                signal.symbol, signal.tier, orderbook, order_krw, signal.entry_price,
             )
             if not ob_ok:
                 return RiskCheckResult(
@@ -254,7 +252,14 @@ class RiskGate:
         if expectancy is None:
             return True, ""
 
-        slippage = SLIPPAGE_BY_TIER.get(signal.tier, 0.002)
+        if signal.adv_krw > 0:
+            slippage = estimate_slippage(
+                order_krw=30_000,
+                adv_krw=signal.adv_krw,
+                volatility=signal.volatility if signal.volatility > 0 else 0.03,
+            ) * 2  # 왕복
+        else:
+            slippage = SLIPPAGE_BY_TIER.get(signal.tier, 0.002)
         failure_penalty = self._state.strategy_failure_penalty.get(strat_key, 0)
         expected_edge = expectancy - (TOTAL_FEE_PCT + slippage + failure_penalty)
 
@@ -268,6 +273,7 @@ class RiskGate:
 
     def _check_orderbook_depth(
         self,
+        symbol: str,
         tier: Tier,
         orderbook: Orderbook,
         order_krw: float,
@@ -281,8 +287,10 @@ class RiskGate:
         Returns:
             (통과 여부, 거부 사유).
         """
-        # 스프레드 확인
-        spread_limit = SPREAD_LIMIT.get(tier, 0.0035)
+        # 스프레드 확인 (코인별 동적 임계값)
+        spread_limit = self._spread_profiler.get_threshold(
+            symbol, tier,
+        )
         if orderbook.spread_pct > spread_limit:
             return False, (
                 f"호가 스프레드 초과: {orderbook.spread_pct:.4f}"

@@ -13,6 +13,7 @@ from app.data_types import (
 )
 from strategy.coin_profiler import TierParams
 from strategy.environment_filter import EnvironmentFilter
+from strategy.spread_profiler import SpreadProfiler
 from tests.fixtures.candles import range_candles, strong_up_candles
 from tests.fixtures.indicators import indicators_from_candles
 
@@ -65,7 +66,7 @@ def test_check_pass_normal_conditions():
     ind = indicators_from_candles(candles)
     snap = _make_snap(candles, spread_pct=0.001)
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is True
     assert reason == ""
@@ -77,7 +78,7 @@ def test_check_reject_crisis_regime():
     ind = indicators_from_candles(candles)
     snap = _make_snap(candles, spread_pct=0.001)
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.CRISIS, snap, ind, tier_params)
     assert passed is False
     assert "CRISIS" in reason
@@ -90,7 +91,7 @@ def test_check_reject_high_spread():
     # 스프레드 0.5% — Tier1 한도(0.18%) 훨씬 초과
     snap = _make_snap(candles, spread_pct=0.005)
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is False
     assert "스프레드" in reason
@@ -114,7 +115,7 @@ def test_check_reject_1h_momentum_burst():
         orderbook=snap.orderbook,
     )
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is False
     assert "1H" in reason
@@ -136,7 +137,7 @@ def test_check_pass_1h_small_move():
         orderbook=_make_snap(candles).orderbook,
     )
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is True
     assert reason == ""
@@ -149,7 +150,7 @@ def test_check_pass_no_1h_candles():
     # candles_1h 미제공 (기본값 빈 리스트)
     snap = _make_snap(candles)
     tier_params = _make_tier_params(tier=Tier.TIER1, spread_limit=0.0018)
-    ef = EnvironmentFilter()
+    ef = EnvironmentFilter(SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
     passed, reason = ef.check(Regime.STRONG_UP, snap, ind, tier_params)
     assert passed is True
     assert reason == ""

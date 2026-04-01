@@ -4,13 +4,14 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone  # noqa: F401 (datetime: test mock 대상)
 
 import numpy as np
 
-from app.data_types import MarketSnapshot, Regime, Tier
+from app.data_types import MarketSnapshot, Regime
 from strategy.coin_profiler import TierParams
 from strategy.indicators import IndicatorPack
+from strategy.spread_profiler import SpreadProfiler
 
 KST = timezone(timedelta(hours=9))
 
@@ -18,8 +19,13 @@ KST = timezone(timedelta(hours=9))
 class EnvironmentFilter:
     """L1 환경 필터 담당."""
 
-    def __init__(self) -> None:
-        """초기화."""
+    def __init__(self, spread_profiler: SpreadProfiler) -> None:
+        """초기화.
+
+        Args:
+            spread_profiler: 코인별 동적 스프레드 임계값 관리자.
+        """
+        self._spread_profiler = spread_profiler
 
     def check(
         self,
@@ -46,11 +52,12 @@ class EnvironmentFilter:
             if avg_vol > 0 and current_vol < avg_vol * 0.4:  # 0.8→0.4 (D_적극 시나리오)
                 return False, f"L1: 거래량 부족 ({current_vol:.0f} < {avg_vol * 0.8:.0f})"
 
-        # 3. 스프레드 < Tier별 한도
+        # 3. 스프레드 < 코인별 동적 한도
         if snap.orderbook:
             spread = snap.orderbook.spread_pct
-            if spread > tier_params.spread_limit * 2.0:  # 스프레드 한도 2배 완화 (D_적극 시나리오)
-                return False, f"L1: 스프레드 초과 ({spread:.4f} > {tier_params.spread_limit * 2.0})"
+            limit = self._spread_profiler.get_threshold(snap.symbol, tier_params.tier)
+            if spread > limit:
+                return False, f"L1: 스프레드 초과 ({spread:.4f} > {limit:.4f})"
 
         # 4. 시간대 필터 (00:00~06:00 KST → Tier 3: 사이징 30% 축소로 전환)
         # now_kst = datetime.now(KST)

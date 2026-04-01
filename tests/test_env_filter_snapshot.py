@@ -13,6 +13,7 @@ from app.data_types import Candle, MarketSnapshot, Orderbook, OrderbookEntry, Re
 from strategy.coin_profiler import TierParams
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
+from strategy.spread_profiler import SpreadProfiler
 from tests.fixtures.candles import range_candles
 
 
@@ -21,7 +22,7 @@ KST = timezone(timedelta(hours=9))
 
 @pytest.fixture
 def engine():
-    return RuleEngine()
+    return RuleEngine(spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
 
 
 @pytest.fixture

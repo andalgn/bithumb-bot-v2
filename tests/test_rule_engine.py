@@ -14,6 +14,7 @@ from app.data_types import (
 )
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import AuxFlags, RuleEngine, SizeDecision
+from strategy.spread_profiler import SpreadProfiler
 
 
 def _make_candles(
@@ -49,7 +50,7 @@ def _make_orderbook(spread_pct: float = 0.001, depth_qty: float = 100.0) -> Orde
 @pytest.fixture
 def engine() -> RuleEngine:
     """테스트용 RuleEngine."""
-    return RuleEngine()
+    return RuleEngine(spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
 
 
 # ═══════════════════════════════════════════

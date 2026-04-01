@@ -23,6 +23,7 @@ from app.data_types import (
 )
 from strategy.coin_profiler import CoinProfiler, TierParams
 from strategy.environment_filter import EnvironmentFilter
+from strategy.spread_profiler import SpreadProfiler
 from strategy.indicators import IndicatorPack, compute_indicators
 from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
 from strategy.regime_classifier import RegimeClassifier
@@ -83,6 +84,7 @@ class RuleEngine:
         regime_config: object | None = None,
         execution_config: object | None = None,
         strategy_params: dict | None = None,
+        spread_profiler: SpreadProfiler | None = None,
     ) -> None:
         """초기화.
 
@@ -99,7 +101,8 @@ class RuleEngine:
         self._exec_config = execution_config
         self._strategy_params = strategy_params or {}
         self._regime_classifier = RegimeClassifier()
-        self._environment_filter = EnvironmentFilter()
+        self._spread_profiler = spread_profiler or SpreadProfiler()
+        self._environment_filter = EnvironmentFilter(self._spread_profiler)
         self._strategy_scorer = StrategyScorer(strategy_params=self._strategy_params)
         self._size_decider = SizeDecider(score_cutoff=self._score_cutoff)
 
