@@ -28,6 +28,7 @@ from app.data_types import Candle, MarketSnapshot, Regime, Strategy, OrderSide, 
 from market.bithumb_api import BithumbClient
 from market.market_store import MarketStore
 from strategy.coin_profiler import CoinProfiler
+from market.impact_model import estimate_slippage
 from strategy.rule_engine import RuleEngine
 
 logging.basicConfig(
@@ -41,7 +42,7 @@ logging.getLogger("strategy.coin_profiler").setLevel(logging.WARNING)
 
 KST = timezone(timedelta(hours=9))
 FEE_RATE = 0.0025
-SLIPPAGE_RATE = 0.001
+SLIPPAGE_RATE = 0.001  # √(Q/V) 미사용 시 폴백
 
 
 # ═══════════════════════════════════════════
@@ -160,8 +161,16 @@ def run_backtest(
 
                 if hit_sl or hit_tp:
                     exit_price = position.stop_loss if hit_sl else position.take_profit
-                    entry_adj = position.entry_price * (1 + SLIPPAGE_RATE)
-                    exit_adj = exit_price * (1 - SLIPPAGE_RATE)
+                    # √(Q/V) 임팩트 모델 슬리피지 (과거 캔들 기반, look-ahead 방지)
+                    _lookback = candles_15m[max(0, i - 14):i]
+                    _adv = (float(sum(c.volume * c.close for c in _lookback))
+                            / max(len(_lookback), 1)) if _lookback else 0
+                    _vol = (float(np.std([c.close / c.open - 1 for c in _lookback]))
+                            if len(_lookback) > 1 else 0.03)
+                    _order = position.entry_price  # 1주 기준
+                    _slip = estimate_slippage(_order, _adv, _vol) if _adv > 0 else SLIPPAGE_RATE
+                    entry_adj = position.entry_price * (1 + _slip)
+                    exit_adj = exit_price * (1 - _slip)
                     fee = entry_adj * FEE_RATE + exit_adj * FEE_RATE
                     pnl = (exit_adj - entry_adj) - fee
                     pnl_pct = pnl / entry_adj * 100 if entry_adj > 0 else 0

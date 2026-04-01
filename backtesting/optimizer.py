@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from app.data_types import Candle, MarketSnapshot
+from market.impact_model import estimate_slippage
 from strategy.coin_profiler import CoinProfiler
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
@@ -206,20 +207,32 @@ class ParameterOptimizer:
 
     @staticmethod
     def _simulate_exit(
-        entry: float, sl: float, tp: float, future_candles: list[Candle],
+        entry: float,
+        sl: float,
+        tp: float,
+        future_candles: list[Candle],
+        adv_krw: float = 0,
+        volatility: float = 0,
+        order_krw: float = 0,
     ) -> float | None:
         """진입 이후 캔들에서 SL/TP 도달 시 PnL을 반환한다."""
         for candle in future_candles:
             hit_sl = candle.low <= sl
             hit_tp = candle.high >= tp
             if hit_sl or hit_tp:
-                # SL/TP 동시 피격 시 보수적으로 SL 우선 (worst-case assumption)
                 exit_p = sl if hit_sl else tp
-                entry_adj = entry * (1 + SLIPPAGE_RATE)
-                exit_adj = exit_p * (1 - SLIPPAGE_RATE)
+                if adv_krw > 0 and order_krw > 0:
+                    slip = estimate_slippage(
+                        order_krw, adv_krw,
+                        volatility if volatility > 0 else 0.03,
+                    )
+                else:
+                    slip = SLIPPAGE_RATE
+                entry_adj = entry * (1 + slip)
+                exit_adj = exit_p * (1 - slip)
                 gross = (exit_adj - entry_adj) / entry_adj
                 return gross - FEE_RATE * 2
-        return None  # 미도달 (타임아웃)
+        return None
 
     # ═══════════════════════════════════════════
     # 통합 최적화 (scan + replay)

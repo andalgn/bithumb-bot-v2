@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from market.impact_model import estimate_slippage
+
 logger = logging.getLogger(__name__)
 
 FEE_RATE = 0.0025  # 편도 0.25%
@@ -55,7 +57,7 @@ class Backtester:
         """초기화.
 
         Args:
-            slippage_pct: 슬리피지 비율 (편도).
+            slippage_pct: 고정 슬리피지 비율 (편도). adv_krw 미제공 시 사용.
             fee_rate: 수수료 비율 (편도).
         """
         self._slippage = slippage_pct
@@ -93,9 +95,16 @@ class Backtester:
             exit_p = t["exit_price"]
             qty = t.get("qty", 1.0)
 
-            # 슬리피지 적용
-            entry_adj = entry * (1 + self._slippage)
-            exit_adj = exit_p * (1 - self._slippage)
+            # 슬리피지 적용 (√(Q/V) 임팩트 모델 또는 고정)
+            adv = t.get("adv_krw", 0)
+            vol = t.get("volatility", 0)
+            order_krw = entry * qty
+            if adv > 0:
+                slip = estimate_slippage(order_krw, adv, vol if vol > 0 else 0.03)
+            else:
+                slip = self._slippage
+            entry_adj = entry * (1 + slip)
+            exit_adj = exit_p * (1 - slip)
 
             # 수수료
             entry_fee = entry_adj * qty * self._fee_rate

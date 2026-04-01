@@ -201,6 +201,8 @@ class Signal:
     stop_loss: float
     take_profit: float
     timestamp: int = 0
+    adv_krw: float = 0.0  # 일평균 거래대금 (슬리피지 동적 계산용)
+    volatility: float = 0.0  # 일일 변동성 (슬리피지 동적 계산용)
 
 
 @dataclass
