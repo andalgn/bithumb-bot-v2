@@ -1325,6 +1325,16 @@ class TradingBot:
                 )
                 return
 
+        # 부분 매도 후 거래소 잔고 재검증
+        verified = await self._verify_sell_execution(
+            symbol=symbol,
+            sold_qty=exit_qty,
+            pre_sell_qty=pos.qty,  # 아직 차감 전
+            position_backup=None,  # 부분 청산이므로 전체 복원 불필요
+        )
+        if not verified:
+            return
+
         # PnL 계산 (부분) — 진입·청산 양쪽 수수료 차감
         gross = (exit_price - pos.entry_price) * exit_qty
         entry_fee = pos.entry_price * exit_qty * 0.0025
@@ -1369,6 +1379,81 @@ class TradingBot:
         # 남은 수량이 최소 주문금액 미만이면 전량 청산
         if pos.qty * exit_price < 5000:
             await self._close_position(symbol, exit_price, exit_reason)
+
+    async def _verify_sell_execution(
+        self,
+        symbol: str,
+        sold_qty: float,
+        pre_sell_qty: float,
+        position_backup: Position | None,
+    ) -> bool:
+        """매도 후 거래소 잔고를 검증한다.
+
+        Args:
+            symbol: 코인 심볼.
+            sold_qty: 매도한 수량.
+            pre_sell_qty: 매도 전 보유 수량.
+            position_backup: 불일치 시 복원할 포지션 (전량 청산 시).
+
+        Returns:
+            True면 검증 통과, False면 불일치 감지.
+        """
+        if self._run_mode != RunMode.LIVE:
+            return True
+
+        try:
+            balance = await self._client.get_balance()
+        except Exception:
+            logger.warning("매도 검증 실패 (API 오류) — 검증 스킵: %s", symbol)
+            return True
+
+        key = symbol.lower()
+        actual_available = float(balance.get(f"available_{key}", 0))
+        actual_locked = float(balance.get(f"locked_{key}", 0))
+        actual_total = actual_available + actual_locked
+
+        expected_remaining = max(pre_sell_qty - sold_qty, 0)
+
+        # 허용 오차 0.1%
+        tolerance = pre_sell_qty * 0.001
+        diff = actual_total - expected_remaining
+
+        if abs(diff) <= tolerance:
+            return True
+
+        if diff > tolerance:
+            # 거래소에 코인이 더 많음 → 매도 안 됨
+            logger.error(
+                "매도 검증 실패: %s 거래소=%.6f 기대=%.6f (차이=+%.6f) — 매도 미체결",
+                symbol, actual_total, expected_remaining, diff,
+            )
+            if position_backup is not None and symbol not in self._positions:
+                self._positions[symbol] = position_backup
+                self._pool_manager.reclaim(position_backup.pool, position_backup.size_krw)
+                logger.info("포지션 복원: %s %.6f개", symbol, position_backup.qty)
+
+            await self._notifier.send(
+                f"⚠️ **매도 검증 실패: {symbol}**\n"
+                f"거래소 잔고: {actual_total:.6f}\n"
+                f"기대 잔량: {expected_remaining:.6f}\n"
+                f"→ 매도가 실제로 체결되지 않음. 포지션 복원됨.",
+                channel="system",
+            )
+            return False
+
+        # diff < -tolerance: 거래소에 코인이 더 적음
+        logger.warning(
+            "매도 검증 이상: %s 거래소=%.6f 기대=%.6f (차이=%.6f)",
+            symbol, actual_total, expected_remaining, diff,
+        )
+        await self._notifier.send(
+            f"⚠️ **매도 검증 이상: {symbol}**\n"
+            f"거래소 잔고: {actual_total:.6f}\n"
+            f"기대 잔량: {expected_remaining:.6f}\n"
+            f"→ 예상보다 더 많이 매도됨. 확인 필요.",
+            channel="system",
+        )
+        return False
 
     async def _cleanup_dust(self, data: "MarketData") -> None:
         """더스트 잔고를 확인하여 매도 가능하면 시장가 매도한다."""
@@ -1502,6 +1587,25 @@ class TradingBot:
                 return
             if ticket.filled_price > 0:
                 exit_price = ticket.filled_price
+
+            # 매도 후 거래소 잔고 재검증
+            pos_backup = Position(
+                symbol=pos.symbol, entry_price=pos.entry_price,
+                entry_time=pos.entry_time, size_krw=pos.size_krw,
+                qty=pos.qty, stop_loss=pos.stop_loss, take_profit=pos.take_profit,
+                strategy=pos.strategy, pool=pos.pool, tier=pos.tier,
+                regime=pos.regime, promoted=pos.promoted,
+                entry_score=pos.entry_score, signal_price=pos.signal_price,
+                entry_fee_krw=pos.entry_fee_krw, order_id=pos.order_id,
+            )
+            verified = await self._verify_sell_execution(
+                symbol=symbol,
+                sold_qty=pos.qty,
+                pre_sell_qty=pos.qty,
+                position_backup=pos_backup,
+            )
+            if not verified:
+                return
 
         self._positions.pop(symbol, None)
 

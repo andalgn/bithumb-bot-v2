@@ -142,6 +142,17 @@ class PoolManager:
         # PnL 반영
         state.total_balance += pnl
 
+    def reclaim(self, pool: Pool, amount: float) -> None:
+        """반환된 자금을 다시 할당 상태로 되돌린다 (포지션 복원 시 사용).
+
+        Args:
+            pool: 풀 유형.
+            amount: 복원할 금액.
+        """
+        state = self._pools[pool]
+        state.allocated += amount
+        state.position_count += 1
+
     def transfer(self, from_pool: Pool, to_pool: Pool, amount: float) -> bool:
         """풀 간 자금을 이동한다 (승격/강등 시).
 
