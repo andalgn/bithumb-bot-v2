@@ -6,3 +6,6 @@ __pycache__/
 .ruff_cache/
 *.db
 .worktrees/
+
+# API 키 환경변수 파일
+scripts/bithumb-bot.env
