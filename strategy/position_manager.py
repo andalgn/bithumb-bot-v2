@@ -33,7 +33,7 @@ REGIME_DEFENSE_MULT: dict[Regime, float] = {
 # 점수 결정별 사이즈 배수
 SCORE_MULT: dict[str, float] = {
     SizeDecision.FULL: 1.0,
-    SizeDecision.PROBE: 0.4,
+    SizeDecision.PROBE: 0.7,  # 0.4→0.7 (소자본 활용률 개선)
     SizeDecision.HOLD: 0.0,
 }
 

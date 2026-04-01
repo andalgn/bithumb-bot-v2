@@ -57,11 +57,11 @@ bithumb_auto_v2/
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
 │   ├── errors.py                   ← 커스텀 예외 계층.
 │   ├── event_store.py              ← 시스템 이벤트 감사 로그 (Event Sourcing).
-│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템 (10 checks).
-│   ├── journal.py                  ← 거래 기록 + 파이프라인 이벤트 추적 모듈.
+│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
+│   ├── journal.py                  ← 거래 기록 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
 │   ├── llm_client.py               ← DeepSeek API 기반 LLM 클라이언트.
-│   ├── main.py                     ← 오케스트레이터 — 15분 주기 메인 루프.
+│   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
 │   ├── state_store.py              ← SQLite 기반 단일 상태 저장소.
@@ -72,19 +72,19 @@ bithumb_auto_v2/
 │   ├── coin_universe.py            ← CoinUniverse — 빗썸 거래량 기준 동적 코인 유니버스 관리.
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
-│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터 (완화된 임계값).
-│   ├── evolution_orchestrator.py   ← EvolutionOrchestrator — 자율 진화 7단계 루프 (최대 50 실험).
+│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
+│   ├── evolution_orchestrator.py   ← EvolutionOrchestrator — 자율 진화 7단계 루프.
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── feedback_loop.py            ← FeedbackLoop — 거래 실패 패턴을 집계하고 가설을 생성한다.
 │   ├── guard_agent.py              ← GuardAgent — 진화 변경의 구조적 검증 모듈.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
 │   ├── momentum_ranker.py          ← MomentumRanker — 코인 간 횡단면 모멘텀 점수 계산 및 순위 결정.
-│   ├── pool_manager.py             ← 3풀 자금 관리 모듈 (할당/카운트 동기화).
-│   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈 (최소값 floor).
+│   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
+│   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
 │   ├── promotion_manager.py        ← 승격/강등 시스템.
 │   ├── regime_classifier.py        ← 국면 분류기 — 히스테리시스 적용 국면 판정.
-│   ├── review_engine.py            ← ReviewEngine — 일일/주간/월간 리뷰 (구조화된 보고서).
-│   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 필터.
+│   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
+│   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
 │   ├── self_reflection.py          ← SelfReflection — 거래 후 자동 반성 생성 모듈.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
 │   ├── strategy_params.py          ← 진화 가능 파라미터 단일 관리 모듈.
@@ -114,12 +114,13 @@ bithumb_auto_v2/
 ├── bot_discord/
 │   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
+    ├── backtest_utilization.py     ← 자금 활용률 개선 백테스트 — 3가지 개선안 비교.
     ├── compare_backtest.py         ← 현재 설정 vs 완화 설정 A/B 백테스트 비교.
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
-    ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 + 완화 통합 (5h 풀 그리드).
+    ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 서치 + 필터 완화 통합.
     ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.
     ├── simulate_relaxation.py      ← 파라미터 완화 시뮬레이션 — 4개 시나리오 비교 백테스트.
     └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
