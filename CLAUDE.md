@@ -114,6 +114,7 @@ bithumb_auto_v2/
 ├── bot_discord/
 │   └── bot.py                      ← 디스코드 슬래시 커맨드 처리기.
 └── scripts/
+    ├── audit_bot.py                ← 정기 봇 감사 스크립트 — 시스템 로그 + 상태 + 거래소 잔고 + 거래 성과 수집. Claude Code 분석용 구조화 프롬프트 생성.
     ├── backtest_utilization.py     ← 자금 활용률 개선 백테스트 — 3가지 개선안 비교.
     ├── compare_backtest.py         ← 현재 설정 vs 완화 설정 A/B 백테스트 비교.
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
