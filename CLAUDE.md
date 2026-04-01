@@ -15,14 +15,14 @@
 1. **수익성 강화** — Expectancy > 0, Profit Factor > 1.5
 2. **안전성 강화** — MDD < 15%, 일일 DD < 4%
 3. **자금 활용률 향상** — 50~60%
-4. **자가 학습** — 경량 Darwinian + 주간 Claude 리뷰
+4. **자가 학습** — 경량 Darwinian + 주간 DeepSeek 리뷰
 5. **24시간 무중단 자동매매**
 
 ## 기술 스택
 - Python 3.12+ / aiohttp / FastAPI / SQLite (WAL)
 - 빗썸 API (KRW 마켓, REST + 비동기)
 - discord.py (알림 Webhook + 슬래시 커맨드)
-- Claude CLI (파이프 모드) — LLM 추론 (DeepSeek 대체)
+- DeepSeek API (deepseek-chat / deepseek-reasoner)
 - React + TypeScript (대시보드, 선택)
 
 ## 개발 규칙
@@ -57,11 +57,11 @@ bithumb_auto_v2/
 │   ├── data_types.py               ← 공통 데이터 타입 정의.
 │   ├── errors.py                   ← 커스텀 예외 계층.
 │   ├── event_store.py              ← 시스템 이벤트 감사 로그 (Event Sourcing).
-│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템.
-│   ├── journal.py                  ← 거래 기록 모듈.
+│   ├── health_monitor.py           ← HealthMonitor — 봇 건강 감시 시스템 (10 checks).
+│   ├── journal.py                  ← 거래 기록 + 파이프라인 이벤트 추적 모듈.
 │   ├── live_gate.py                ← LIVE 승인 자동 검증 모듈.
-│   ├── llm_client.py               ← Claude Code CLI 기반 LLM 클라이언트.
-│   ├── main.py                     ← 오케스트레이터 -15분 주기 메인 루프.
+│   ├── llm_client.py               ← DeepSeek API 기반 LLM 클라이언트.
+│   ├── main.py                     ← 오케스트레이터 — 15분 주기 메인 루프.
 │   ├── notify.py                   ← 디스코드 Webhook 알림 모듈.
 │   ├── protocols.py                ← 봇 핵심 컴포넌트 Protocol 인터페이스.
 │   ├── state_store.py              ← SQLite 기반 단일 상태 저장소.
@@ -72,19 +72,19 @@ bithumb_auto_v2/
 │   ├── coin_universe.py            ← CoinUniverse — 빗썸 거래량 기준 동적 코인 유니버스 관리.
 │   ├── correlation_monitor.py      ← 코인 간 상관관계 모니터링.
 │   ├── darwin_engine.py            ← Darwinian 자가 학습 엔진.
-│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터.
-│   ├── evolution_orchestrator.py   ← EvolutionOrchestrator — 자율 진화 7단계 루프.
+│   ├── environment_filter.py       ← EnvironmentFilter — L1 환경 필터 (완화된 임계값).
+│   ├── evolution_orchestrator.py   ← EvolutionOrchestrator — 자율 진화 7단계 루프 (최대 50 실험).
 │   ├── experiment_store.py         ← 실험 기록 + 파라미터 변경 로그 저장소.
 │   ├── feedback_loop.py            ← FeedbackLoop — 거래 실패 패턴을 집계하고 가설을 생성한다.
 │   ├── guard_agent.py              ← GuardAgent — 진화 변경의 구조적 검증 모듈.
 │   ├── indicators.py               ← 기술적 지표 계산 모듈.
 │   ├── momentum_ranker.py          ← MomentumRanker — 코인 간 횡단면 모멘텀 점수 계산 및 순위 결정.
-│   ├── pool_manager.py             ← 3풀 자금 관리 모듈.
-│   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈.
+│   ├── pool_manager.py             ← 3풀 자금 관리 모듈 (할당/카운트 동기화).
+│   ├── position_manager.py         ← Pool 기반 2단계 사이징 모듈 (최소값 floor).
 │   ├── promotion_manager.py        ← 승격/강등 시스템.
 │   ├── regime_classifier.py        ← 국면 분류기 — 히스테리시스 적용 국면 판정.
-│   ├── review_engine.py            ← ReviewEngine - 일일/주간/월간 리뷰.
-│   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 환경 필터.
+│   ├── review_engine.py            ← ReviewEngine — 일일/주간/월간 리뷰 (구조화된 보고서).
+│   ├── rule_engine.py              ← 전략 엔진 — 5국면 분류 + 전략 A/B/C/D 점수제 + Layer 1 필터.
 │   ├── self_reflection.py          ← SelfReflection — 거래 후 자동 반성 생성 모듈.
 │   ├── size_decider.py             ← SizeDecider — 포지션 사이즈 결정.
 │   ├── strategy_params.py          ← 진화 가능 파라미터 단일 관리 모듈.
@@ -119,7 +119,7 @@ bithumb_auto_v2/
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
-    ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 서치 + 필터 완화 통합.
+    ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 + 완화 통합 (5h 풀 그리드).
     ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.
     ├── simulate_relaxation.py      ← 파라미터 완화 시뮬레이션 — 4개 시나리오 비교 백테스트.
     └── sync_claude_md.py           ← CLAUDE.md와 실제 프로젝트 구조의 동기화를 검증/갱신하는 스크립트.
@@ -173,8 +173,6 @@ VIRTUAL/KRW, EIGEN/KRW, ONDO/KRW, TAO/KRW, LDO/KRW
 
 ### 스크립트 사용법
 
-<!-- AUTO-GENERATED: Scripts Reference -->
-
 | 스크립트 | 용도 | 사용법 |
 |---------|------|--------|
 | `python scripts/download_and_backtest.py` | 90일 캔들 다운로드 + 전략 백테스트 | `python scripts/download_and_backtest.py` |
@@ -209,6 +207,9 @@ DISCORD_WEBHOOK_LIVEGATE=https://discord.com/api/webhooks/...  # LIVE 승인
 # Discord 봇 (슬래시 커맨드)
 DISCORD_BOT_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=your_guild_id
+
+# DeepSeek API
+DEEPSEEK_API_KEY=sk-xxxx  # systemd 서비스 필수
 
 # 대시보드 (선택)
 DASHBOARD_API_KEY=your_dashboard_key
@@ -251,55 +252,167 @@ sudo systemctl daemon-reload
 sudo systemctl restart bithumb-bot
 ```
 
-## 최근 변경사항 (2026-03-31)
+## 최근 변경사항 (2026-04-01)
 
-### 주요 커밋
+### 최신 커밋 (3개 — 전략 최적화 + 필터 완화 + 진화 확장)
 
-| 커밋 | 설명 |
-|------|------|
-| `5c264f3` | feat: trade pipeline observability — event sourcing + watchdog 추가 |
-| `bdb640c` | fix: pilot sizing deadlock + pool allocation leak 해결 |
-| `149a838` | refactor: DeepSeek API → Claude CLI 파이프 모드로 대체 |
-| `6f36150` | fix: MAS 리팩터 코드 리뷰 반영 |
-| `1863c5a` | refactor: config.yaml 쓰기 경로 ApprovalWorkflow 통일 |
+| 커밋 | 날짜 | 설명 |
+|------|------|------|
+| `cd6b3cf` | 2026-04-01 | feat: expand evolution search space and improve report format |
+| `0965a84` | 2026-03-31 | feat: relax filters + DeepSeek LLM + fix review reports |
+| `0a318e0` | 2026-03-31 | feat: optimize strategy params + add auto-diagnosis system |
 
-### 신기능
+### 1. 전략 파라미터 최적화 (0a318e0)
 
-#### 1. 파이프라인 이벤트 소싱 (Event Sourcing)
-- **파일**: `app/journal.py`, `app/health_monitor.py`
-- **내용**: 
-  - `pipeline_events` 테이블로 전체 신호-거래 추적 (trace_id)
-  - 각 파이프라인 단계별 이벤트 기록 (corr_rejected, risk_rejected, sizing_done, order_filled)
-  - HealthMonitor Check 9: 4시간 funnel로 deadlock 감지
+**목표**: SL/TP 비율 최적화로 손익률 개선
 
-#### 2. Claude CLI 파이프 모드
-- **파일**: `app/llm_client.py`
-- **대체**: DeepSeek API → `claude -p` stdin pipe
-- **영향**:
-  - `strategy/feedback_loop.py` — generate_hypotheses()
-  - `strategy/review_engine.py` — weekly insights
-  - `strategy/auto_researcher.py` — experiment proposals
-- **이점**: API 키 불필요, Claude Max 구독 활용, 네트워크 호출 최소화
+| 전략 | 변경 | 효과 | 가설 |
+|------|------|------|------|
+| mean_reversion | tp_rr 1.5 → 2.5 | PF 0.97 → 1.83 (+89%) | 높은 수익 배수로 큰 이익 건 포착 |
+| DCA | tp_pct 0.03 → 0.05 | PF 1.07 → 2.17 (+103%) | 강한 추세에서 더 높은 익절 |
+| trend_follow | **비활성화** | PF < 1 (모든 SL/TP) | 현 강도로 수익성 미달, 코드 유지만 |
 
-#### 3. Pilot 사이징 Deadlock 수정
-- **파일**: `strategy/position_manager.py`, `strategy/pool_manager.py`
-- **문제**: Pilot 모드에서 size_mult=0.5 적용 시 최소값 이하로 떨어져 0 거래 발생
-- **해결**:
-  - min_krw 체크를 pilot 적용 전에 수행
-  - pilot 중 최소값 floor 설정
-  - PoolManager.reconcile() — 할당/카운트 드리프트 정정
+**파일**: `configs/config.yaml` (strategies 섹션)
 
-#### 4. 새로운 최적화 스크립트
-- **`optimize_strategies.py`**: SL/TP 그리드 서치 + 필터 완화 통합
-- **`simulate_relaxation.py`**: 4개 완화 시나리오 A/B 백테스트 비교
+**명령어**:
+```bash
+python scripts/optimize_strategies.py  # 전체 그리드 재최적화 (5시간)
+```
 
-### 아키텍처 원칙 강화
+### 2. 필터 완화 + DeepSeek LLM (0965a84)
 
-1. **ApprovalWorkflow 단일 채널**: 모든 config.yaml 변경은 반드시 ApprovalWorkflow 경유
-2. **ReviewEngine 관측 전용**: 파라미터 제안 금지 (EvolutionOrchestrator만 제안)
-3. **파이프라인 추적성**: 모든 거래의 신호-거래 경로를 trace_id로 추적 가능
+**시나리오**: D_적극 (공격적 필터 완화) — 백테스트 PF 1.30
 
-### 환경 변수 추가
-- 파일: `.env.example`
-- 신규: 모든 Discord 웹훅이 명시적으로 정의됨 (6개 채널)
-- 기존: RUN_MODE (DRY|PAPER|LIVE)
+#### 환경 필터 (L1) 완화
+| 파라미터 | 기존 | 완화 | 목적 |
+|---------|------|------|------|
+| volume_ratio (L1) | 0.8 | 0.4 | 저유동성 코인도 진입 |
+| spread_x | 1x | 2x | 스프레드 넓은 코인 허용 |
+| night_t3_block | BLOCK | 30% 사이징 | 야간 T3도 제한적 진입 |
+| probe_min_cutoff | -10 | -15 | 약한 신호도 허용 |
+| full_min_cutoff | -10 | -15 | 약한 신호도 허용 |
+
+#### 포지션 정책
+| 파라미터 | 기존 | 완화 |
+|---------|------|------|
+| active_positions | 5 | 8 |
+| core_positions | 3 | 5 |
+| active_risk | 7% | 15% |
+| pool_cap | 25% | 40% |
+
+**파일**: `configs/config.yaml` (environment_filter, sizing)
+
+**테스트**:
+```bash
+python scripts/simulate_relaxation.py  # D_적극 vs D_중도 vs D_보수 A/B 비교
+```
+
+#### LLM 백엔드 전환
+- **기존**: Claude CLI 파이프 모드 (claude -p)
+- **신규**: DeepSeek API (systemd 호환성)
+
+**모델 라우팅**:
+- `deepseek-chat`: 에러 진단 (HealthMonitor T2 진단)
+- `deepseek-reasoner`: 가설 생성, 주간 리뷰 (깊은 추론)
+
+**환경 변수**:
+```bash
+DEEPSEEK_API_KEY=sk-xxxx
+```
+
+**파일**: `app/llm_client.py`
+
+### 3. 자동 진단 시스템 (0a318e0)
+
+**계층별 대응**:
+- **T1 (일시적)**: 로그만 기록
+- **T2 (경고)**: DeepSeek 진단 + Discord 보고 + 근본 원인 + 수정 제안
+- **T3 (위험)**: 즉시 경고 + 진단
+
+**특징**:
+- 30분 cooldown (진단 폭주 방지)
+- 10분 startup grace (초기 false alarm 억제)
+- 비동기 & non-blocking (메인 루프 영향 없음)
+
+**파일**: `app/health_monitor.py` (Check 10 추가, startup grace)
+
+### 4. 진화 루프 확장 (cd6b3cf)
+
+**확장 범위**:
+- max_experiments: 10 → 50 (병목 해제)
+- LLM 가설: 3 → 5 (더 다양한 아이디어)
+- **전략 그리드**: 6 → 21 후보 (SL/TP + DCA params)
+- **컷오프 그리드**: 4 → 8 후보
+- **리스크 그리드**: 2 → 11 후보 (dd, cooldown, consecutive_loss)
+- **사이징 그리드**: 2 → 13 후보 (risk, cap, defense)
+- **국면 그리드**: NEW 6 후보 (volume_ratio, adx)
+- **총 후보**: ~3-9 → 최대 64 (cap 50)
+
+**탐색 전략**:
+- 모든 영역 항상 탐색 (약한 영역만 X)
+- 구조화된 리포트 (evolution/daily/monthly 일관성)
+
+**파일**: `strategy/evolution_orchestrator.py` (StrategyGridBuilder 확장)
+
+### 5. 추가 변경사항
+
+#### HealthMonitor Check 10개
+| Check | 기능 | 임계값 |
+|-------|------|--------|
+| 1 | API 연결 | 3회 연속 실패 → WARNING |
+| 2 | 주문 상태 | 미체결 > 2h → CRITICAL |
+| 3 | 포지션 드리프트 | 거래소 vs 로컬 δ > 5% → WARNING |
+| 4 | Pilot 표본 | < 5 → WARNING |
+| 5 | 데이터 신선도 | > 5m gap → WARNING |
+| 6 | MDD | > 15% → CRITICAL |
+| 7 | 일일 DD | > 4% → WARNING |
+| 8 | 거래 부진 | 12h 거래 0 → WARNING |
+| 9 | 파이프라인 funnel | 신호 vs 거래 비율 이상 → WARNING |
+| 10 | Pilot 신뢰도 | < 30 samples → WARNING |
+
+#### Review Report 개선
+- **월간 리뷰**: _last_monthly 플래그로 중복 제거
+- **일일/주간 리뷰**: 구조화된 섹션 (result/progress/interpretation)
+- **일관성**: 모든 7개 진화 세션 결과도 동일 포맷
+
+#### 버그 수정
+- ExperimentStore.get_history() `source` 파라미터 누락
+- 주문 가격 정규화 (entry_price vs tick-aligned)
+- MIN_ORDER_KRW 경계값 반올림 오류
+
+### systemd 환경 변수 추가
+
+**파일**: `scripts/bithumb-bot.service`
+
+```ini
+Environment=PYTHONUNBUFFERED=1
+Environment=CLAUDECODE=1
+Environment=DEEPSEEK_API_KEY=sk-xxxx
+```
+
+## 운영 체크리스트
+
+### 주간 작업
+- [ ] 월요일: 이전 주 performance review (ReviewEngine 자동)
+- [ ] 월요일: 진화 루프 실행 (EvolutionOrchestrator Sunday 자동)
+- [ ] 매일: HealthMonitor 경고 확인 (Discord DISCORD_WEBHOOK_SYSTEM)
+- [ ] 금요일: 주간 리포트 검토 + 수동 승인 필요 시
+
+### 수익성 모니터링
+- **목표**: PF > 1.5, Expectancy > 0, MDD < 15%
+- **위험**: PF < 1.0 → 전략 재검토
+- **개선**: 기존 파라미터 → 그리드 탐색 → 상위 5개 후보 → ApprovalWorkflow 승인
+
+### 안전성 모니터링
+- **일일 DD > 4%** → HealthMonitor Check 7 경고
+- **MDD > 15%** → HealthMonitor Check 6 경고 (CRITICAL)
+- **미체결 주문 > 2시간** → HealthMonitor Check 2 경고 (CRITICAL)
+
+## 문서 동기화
+
+**스크립트**: `python scripts/sync_claude_md.py`
+- 프로젝트 구조와 CLAUDE.md 일치 확인
+- 실제 파일 목록과 문서 비교
+- 오래된 모듈 감지
+
+**주기**: 월 1회 이상 또는 구조 변경 시
