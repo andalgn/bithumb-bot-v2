@@ -143,20 +143,27 @@ class StrategyScorer:
         detail: dict[str, float] = {}
         score = 0.0
 
-        # RSI 반등 (30점): RSI 35 이하에서 40 이상으로 복귀
+        # RSI 반등 (다단계 필터: Extreme/Strong/Weak)
+        # Extreme (RSI < 30 or > 70): 30점 (원래 값)
+        # Strong (RSI < 35 or > 65): 21점 (70% of 30)
+        # Weak (RSI < 40 or > 60): 12점 (40% of 30)
         rsi_arr = ind_15m.rsi
         valid_rsi = rsi_arr[~np.isnan(rsi_arr)]
+        rsi_bounce_score = 0.0
         if len(valid_rsi) >= 3:
             prev_rsi = valid_rsi[-3]
             curr_rsi = valid_rsi[-1]
-            if prev_rsi <= 35 and curr_rsi >= 40:
-                detail["rsi_bounce"] = 30.0
-                score += 30.0
-            elif curr_rsi <= 40:
-                detail["rsi_bounce"] = 15.0
-                score += 15.0
-            else:
-                detail["rsi_bounce"] = 0.0
+            # Extreme: RSI < 30 or > 70 (원래 극값)
+            if (prev_rsi <= 30 and curr_rsi >= 40) or (prev_rsi >= 70 and curr_rsi <= 60):
+                rsi_bounce_score = 30.0
+            # Strong: RSI < 35 or > 65 (강한 극값)
+            elif (prev_rsi <= 35 and curr_rsi >= 45) or (prev_rsi >= 65 and curr_rsi <= 55):
+                rsi_bounce_score = 21.0
+            # Weak: RSI < 40 or > 60 (약한 극값)
+            elif (curr_rsi <= 40) or (curr_rsi >= 60):
+                rsi_bounce_score = 12.0
+            detail["rsi_bounce"] = rsi_bounce_score
+            score += rsi_bounce_score
         else:
             detail["rsi_bounce"] = 0.0
 

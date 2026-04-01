@@ -313,6 +313,7 @@ class TradingBot:
 
         # 포지션 관리
         self._positions: dict[str, Position] = {}
+        self._zombie_positions: dict[str, bool] = {}  # 좀비 포지션 (청산 실패, 다음 매수 시 흡수)
 
         # 일시 중지 / 시작 시간
         self._paused = False
@@ -906,6 +907,22 @@ class TradingBot:
 
             # 주문
             if signal.direction == OrderSide.BUY and signal.entry_price > 0:
+                # 전략 5: 좀비 포지션 흡수 — 기존 잔량을 신규 매수에 합산
+                if signal.symbol in self._zombie_positions:
+                    old_pos = self._positions.get(signal.symbol)
+                    if old_pos:
+                        sizing = SizingResult(
+                            pool=sizing.pool,
+                            size_krw=sizing.size_krw + old_pos.size_krw,
+                            detail={**sizing.detail, "zombie_absorbed": old_pos.size_krw},
+                        )
+                        logger.info(
+                            "좀비 흡수: %s 기존 %.0f원 + 신규 %.0f원 = %.0f원",
+                            signal.symbol, old_pos.size_krw,
+                            sizing.size_krw - old_pos.size_krw, sizing.size_krw,
+                        )
+                    del self._zombie_positions[signal.symbol]
+
                 order_price = normalize_price(signal.entry_price, side="bid")
                 qty = normalize_qty(signal.symbol, sizing.size_krw / order_price)
                 ticket = self._order_manager.create_ticket(
@@ -1288,6 +1305,10 @@ class TradingBot:
                     symbol,
                     ticket.error_msg,
                 )
+                # 좀비 포지션 마킹 (다음 매수 시 흡수용)
+                if symbol not in self._zombie_positions:
+                    self._zombie_positions[symbol] = True
+                    logger.info("좀비 포지션 마킹: %s (%.0f원)", symbol, pos.size_krw)
                 return
 
         # PnL 계산 (부분) — 진입·청산 양쪽 수수료 차감

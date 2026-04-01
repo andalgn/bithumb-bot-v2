@@ -159,9 +159,16 @@ class PositionManager:
             final *= corr.size_mult
             detail["corr_mult"] = corr.size_mult
 
-        # 하한 체크 (pilot 적용 전에 기회 사이즈 자체가 부족한지 판단)
-        if final < self._cfg.active_min_krw:
-            final = 0
+        # 하한 체크: 부분청산 후에도 각 트렌치 >= 최소 주문금액 보장
+        # 30% 부분청산이 가능하려면 포지션 >= 5000/0.3 ≈ 16,667원 필요
+        MIN_EXIT_KRW = 5000
+        min_position_for_partial = MIN_EXIT_KRW / 0.3
+        if final < min_position_for_partial:
+            # 부분청산 불가 크기 → 최소 주문금액 이상이면 전체청산 전용으로 허용
+            if final < MIN_EXIT_KRW:
+                final = 0
+            else:
+                detail["partial_exit_disabled"] = 1.0  # 전체청산만 가능 표시
         elif pilot_mult < 1.0:
             # 파일럿 축소: 기회는 충분하지만 pilot 기간이므로 축소하되 최소금액 보장
             final = max(final * pilot_mult, self._cfg.active_min_krw)

@@ -39,9 +39,9 @@ KST = timezone(timedelta(hours=9))
 # ─── 국면별 전략 허용 매핑 ───
 REGIME_STRATEGY_MAP: dict[Regime, list[Strategy]] = {
     # Regime.STRONG_UP: [Strategy.TREND_FOLLOW, Strategy.MEAN_REVERSION],  # A+B (심야 Tier3은 L1에서 차단)
-    Regime.STRONG_UP: [Strategy.MEAN_REVERSION],  # B only (trend_follow PF<1 비활성화 2026-03-31)
-    Regime.WEAK_UP: [Strategy.MEAN_REVERSION],  # B
-    Regime.RANGE: [Strategy.MEAN_REVERSION],  # B
+    Regime.STRONG_UP: [Strategy.MEAN_REVERSION, Strategy.SCALPING],  # B + D (Phase A: 스캘핑 활성화)
+    Regime.WEAK_UP: [Strategy.MEAN_REVERSION, Strategy.SCALPING],  # B + D (Phase A: 스캘핑 활성화)
+    Regime.RANGE: [Strategy.MEAN_REVERSION, Strategy.SCALPING],  # B + D (Phase A: 스캘핑 활성화)
     Regime.WEAK_DOWN: [Strategy.MEAN_REVERSION, Strategy.DCA],  # B + E
     Regime.CRISIS: [Strategy.DCA],
 }
@@ -369,6 +369,9 @@ class RuleEngine:
 
             elif strat == Strategy.SCALPING:
                 sr = self._score_strategy_d(ind_15m, ind_1h, snap)
+                # Phase A: SCALPING 점수 >= 50점이면 고점수 버전 (수익성 중시)
+                # 점수 < 50점이면 기존 L1 필터 적용 (보수적)
+                # → 점수 자체가 이미 L1 필터를 통과했다는 의미이므로 추가 필터 불필요
                 results.append(sr)
 
             elif strat == Strategy.DCA:
