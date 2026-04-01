@@ -258,6 +258,74 @@ def _collect_trade_performance() -> dict[str, Any]:
         return {"error": f"거래 성과 조회 실패: {e}"}
 
 
+def _format_pool_summary(pool: dict) -> str:
+    """Pool 상태를 요약 테이블로 포맷한다."""
+    equity = pool.get("total_equity", 0)
+    pools = pool.get("pools", {})
+    lines = [f"- 총 자산: {equity:,.0f} KRW"]
+    for name, info in pools.items():
+        total = info.get("total_balance", 0)
+        alloc = info.get("allocated", 0)
+        count = info.get("position_count", 0)
+        util = (alloc / total * 100) if total > 0 else 0
+        lines.append(f"- {name}: {total:,.0f}원 (할당 {alloc:,.0f}원, {count}포지션, 활용률 {util:.1f}%)")
+    return "\n".join(lines)
+
+
+def _format_balance_summary(balance: dict) -> str:
+    """거래소 잔고를 요약 테이블로 포맷한다."""
+    lines = []
+    for coin, info in balance.items():
+        if coin in ("KRW", "P"):
+            if coin == "KRW":
+                lines.append(f"- KRW: {info.get('available', 0):,.0f}원")
+            continue
+        avail = info.get("available", 0)
+        locked = info.get("locked", 0)
+        avg_price = info.get("avg_buy_price", 0)
+        total = avail + locked
+        value = total * avg_price
+        if value < 10:
+            continue  # 10원 미만 무시
+        status = "🔒" if locked > 0 else ""
+        lines.append(f"- {coin}: {total:.6f}개 (≈{value:,.0f}원) {status}")
+    if not lines:
+        lines.append("- (유의미한 잔고 없음)")
+    return "\n".join(lines)
+
+
+def _aggregate_logs(logs: str) -> str:
+    """반복 로그를 집계한다."""
+    from collections import Counter
+    lines = logs.strip().splitlines()
+    if not lines or lines[0].startswith("("):
+        return logs
+
+    # 메시지 부분만 추출 (타임스탬프 제거)
+    messages: list[str] = []
+    for line in lines:
+        # "[WARNING] app.main: 부분 청산 실패..." 패턴에서 메시지 추출
+        parts = line.split("] ", 1)
+        if len(parts) > 1:
+            msg = parts[-1].strip()
+        else:
+            msg = line.strip()
+        messages.append(msg)
+
+    counts = Counter(messages)
+    result_lines = []
+    seen = set()
+    for msg, count in counts.most_common():
+        if msg in seen:
+            continue
+        seen.add(msg)
+        if count >= 3:
+            result_lines.append(f"[x{count}회] {msg}")
+        else:
+            result_lines.append(msg)
+    return "\n".join(result_lines[:50])  # 최대 50줄
+
+
 def _build_prompt(
     logs: str,
     state: dict[str, Any],
@@ -281,7 +349,7 @@ def _build_prompt(
     # 마지막 주기 확인
     last_cycle_at = state.get("last_cycle_at")
     if last_cycle_at:
-        cycle_time = datetime.fromtimestamp(last_cycle_at / 1000, tz=KST)
+        cycle_time = datetime.fromtimestamp(last_cycle_at, tz=KST)
         cycle_ago = (now - cycle_time).total_seconds() / 60
     else:
         cycle_ago = None
@@ -313,10 +381,7 @@ def _build_prompt(
 - 사이클 누적: {state.get('cycle_count', 'N/A')}회
 
 ### 자금 현황
-- Pool 상태:
-```
-{json.dumps(pool_manager, indent=2, ensure_ascii=False)[:300]}
-```
+{_format_pool_summary(pool_manager)}
 
 ### 거래 성과 (최근 12시간)
 - 거래: {performance.get('trade_count', 0)}건
@@ -326,9 +391,7 @@ def _build_prompt(
 - 승: {performance.get('wins', 0)}건 / 패: {performance.get('losses', 0)}건
 
 ### 거래소 잔고 (0초과만)
-```
-{json.dumps(balance, indent=2, ensure_ascii=False)[:400]}
-```
+{_format_balance_summary(balance)}
 
 ### ⚠️ 이상 신호 및 체크리스트
 
@@ -347,7 +410,7 @@ def _build_prompt(
 ## 시스템 로그 (최근 12시간 ERROR/WARNING/CRITICAL)
 
 ```
-{logs[:2000] if logs else "(로그 없음 — 정상)"}
+{_aggregate_logs(logs) if logs else "(로그 없음 — 정상)"}
 ```
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
