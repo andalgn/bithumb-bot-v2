@@ -286,6 +286,7 @@ momentum_ranking:
 coin_universe:
   enabled: true
   top_n: 20
+  max_universe: 15
   refresh_hour: 0
 evolution:
   enabled: true

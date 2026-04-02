@@ -65,7 +65,11 @@ def _get_tick_size(price: float) -> float:
 
 
 class CoinUniverse:
-    """빗썸 거래량 기준 동적 코인 유니버스 관리자 (Phase 1 Hard Cutoffs 포함)."""
+    """빗썸 거래량 기반 동적 코인 유니버스 관리자.
+
+    Phase 1: Hard Cutoffs (tick, spread, volume)
+    Phase 2: Tradeability Score 기반 순위 선정
+    """
 
     # Phase 1 Hard Cutoff 임계값
     MIN_7D_ROLLING_VOLUME_KRW = 100_000_000  # 100M KRW
@@ -77,6 +81,7 @@ class CoinUniverse:
         client: BithumbClient,
         top_n: int = 20,
         base_coins: list[str] | None = None,
+        max_universe: int = 15,
     ) -> None:
         """초기화.
 
@@ -84,12 +89,15 @@ class CoinUniverse:
             client: 빗썸 API 클라이언트.
             top_n: 거래량 기준 상위 선정 수 (필터 전).
             base_coins: 항상 포함할 안전망 코인 목록.
+            max_universe: 최종 유니버스 최대 크기 (Phase 2 점수 기반 선정).
         """
         self._client = client
         self._top_n = top_n
+        self._max_universe = max_universe
         self._base_coins: list[str] = list(base_coins or [])
         self._current: list[str] = list(base_coins or [])
         self._filtered_out: dict[str, str] = {}  # 필터링된 코인 + 사유
+        self._scores: dict[str, float] = {}  # Phase 2 트레이더빌리티 점수
 
     @property
     def coins(self) -> list[str]:
@@ -104,6 +112,15 @@ class CoinUniverse:
             {코인: 필터링 사유} 딕셔너리.
         """
         return dict(self._filtered_out)
+
+    @property
+    def scores(self) -> dict[str, float]:
+        """코인별 트레이더빌리티 점수를 반환한다.
+
+        Returns:
+            {코인: 점수(0~100)} 딕셔너리.
+        """
+        return dict(self._scores)
 
     async def _compute_7d_rolling_volume(self, coin: str) -> float:
         """7일 이동평균 거래량을 계산한다 (1시간 캔들 기반).
@@ -131,6 +148,55 @@ class CoinUniverse:
         except Exception as e:
             logger.debug("7d rolling volume 계산 실패 (%s): %s", coin, e)
             return 0.0
+
+    def _compute_volatility(self, candles: list[list]) -> float:
+        """1시간 캔들에서 7일 수익률 표준편차를 계산한다.
+
+        Args:
+            candles: 1시간 캔들 리스트.
+
+        Returns:
+            일일 변동성 (표준편차). 데이터 부족 시 0.0.
+        """
+        if not candles or len(candles) < 24:
+            return 0.0
+        recent = candles[-168:] if len(candles) >= 168 else candles
+        closes = [float(c[2]) for c in recent if len(c) >= 6 and float(c[2]) > 0]
+        if len(closes) < 24:
+            return 0.0
+        returns = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes))]
+        if not returns:
+            return 0.0
+        import statistics
+
+        hourly_std = statistics.stdev(returns)
+        # 시간 → 일일 변동성 (√24)
+        import math
+
+        return hourly_std * math.sqrt(24)
+
+    def _compute_volume_consistency(self, candles: list[list]) -> float:
+        """거래량 일관성을 계산한다 (1 - CV, 변동계수가 낮을수록 일관적).
+
+        Args:
+            candles: 1시간 캔들 리스트.
+
+        Returns:
+            일관성 점수 (0~1). 1에 가까울수록 일관적.
+        """
+        if not candles or len(candles) < 24:
+            return 0.0
+        recent = candles[-168:] if len(candles) >= 168 else candles
+        volumes = [float(c[5]) for c in recent if len(c) >= 6]
+        if len(volumes) < 24:
+            return 0.0
+        import statistics
+
+        mean_vol = statistics.mean(volumes)
+        if mean_vol <= 0:
+            return 0.0
+        cv = statistics.stdev(volumes) / mean_vol  # 변동계수
+        return max(0.0, min(1.0, 1.0 - cv))
 
     def _passes_hard_cutoffs(
         self, coin: str, ticker: dict, rolling_vol: float
@@ -231,23 +297,73 @@ class CoinUniverse:
                 vol_24h = float(all_tickers.get(coin, {}).get("acc_trade_value_24H", 0))
                 passed_coins.append((coin, vol_24h))
 
-        # Step 3: base_coins 안전망 추가
-        passed_set = {c for c, _ in passed_coins}
-        base_not_in_passed = [c for c in self._base_coins if c not in passed_set]
+        # Step 3: Phase 2 — 트레이더빌리티 점수 계산 및 순위 선정
+        scored_coins: list[tuple[str, float, float]] = []  # (coin, score, vol_24h)
+        self._scores = {}
 
-        result = [c for c, _ in passed_coins] + base_not_in_passed
+        for coin, vol_24h in passed_coins:
+            try:
+                ticker = await self._client.get_ticker(coin)
+                candles = await self._client.get_candlestick(coin, "1h")
+            except Exception:
+                scored_coins.append((coin, 50.0, vol_24h))  # 기본 점수
+                self._scores[coin] = 50.0
+                continue
+
+            bid = float(ticker.get("bid", 0))
+            ask = float(ticker.get("ask", 0))
+            price = float(ticker.get("closing_price", 0))
+
+            spread = (1 - bid / ask) if (bid > 0 and ask > 0) else 0.005
+            tick = _get_tick_size(price) if price > 0 else 1.0
+            tick_r = (tick / price) if price > 0 else 0.01
+
+            rolling_vol = await self._compute_7d_rolling_volume(coin)
+            volatility = self._compute_volatility(candles) if candles else 0.03
+            consistency = self._compute_volume_consistency(candles) if candles else 0.5
+
+            score = compute_tradeability_score(
+                vol_7d=rolling_vol,
+                spread_ratio=spread,
+                tick_ratio=tick_r,
+                volatility=volatility,
+                vol_consistency=consistency,
+            )
+            scored_coins.append((coin, score, vol_24h))
+            self._scores[coin] = score
+
+        # 점수 기준 내림차순 정렬
+        scored_coins.sort(key=lambda x: x[1], reverse=True)
+
+        # 상위 max_universe개 선정
+        top_scored = [(c, s, v) for c, s, v in scored_coins[: self._max_universe]]
+        top_set = {c for c, _, _ in top_scored}
+
+        # 점수 밖으로 밀린 코인 기록
+        for coin, score, _ in scored_coins[self._max_universe :]:
+            self._filtered_out[coin] = (
+                f"score_rank ({score:.1f}점, 상위 {self._max_universe}개 미포함)"
+            )
+
+        # Step 4: base_coins 안전망 추가
+        base_not_in_top = [c for c in self._base_coins if c not in top_set]
+
+        result = [c for c, _, _ in top_scored] + base_not_in_top
 
         self._current = result
+
+        # 점수 로그
+        score_str = ", ".join(f"{c}({s:.1f})" for c, s, _ in scored_coins)
         logger.info(
-            "코인 유니버스 갱신: %d개 최종 (top%d 중 %d 통과, base %d, 제외 %d개)",
+            "코인 유니버스 갱신: %d개 최종 (top%d 중 %d 통과 → 점수 상위 %d, base %d)",
             len(result),
             len(candidates),
             len(passed_coins),
-            len(base_not_in_passed),
-            len(self._filtered_out),
+            len(top_scored),
+            len(base_not_in_top),
         )
+        logger.info("트레이더빌리티 점수: %s", score_str)
 
-        # 제외된 코인 로그
         if self._filtered_out:
             excluded_str = ", ".join(
                 f"{coin}({reason})" for coin, reason in self._filtered_out.items()
@@ -255,3 +371,65 @@ class CoinUniverse:
             logger.info("제외된 코인: %s", excluded_str)
 
         return result
+
+
+def compute_tradeability_score(
+    vol_7d: float,
+    spread_ratio: float,
+    tick_ratio: float,
+    volatility: float,
+    vol_consistency: float,
+) -> float:
+    """복합 트레이더빌리티 점수를 계산한다.
+
+    각 지표를 0~1로 정규화한 후 가중 합산.
+    높을수록 매매하기 좋은 코인.
+
+    Args:
+        vol_7d: 7일 평균 거래대금 (KRW).
+        spread_ratio: 호가 스프레드 비율 (0~1).
+        tick_ratio: tick_size / price 비율 (0~1).
+        volatility: 7일 수익률 표준편차 (0~1).
+        vol_consistency: 거래량 일관성 (0~1, 높을수록 일관적).
+
+    Returns:
+        트레이더빌리티 점수 (0~100).
+    """
+    # 거래량 점수: log 스케일, 1억~1000억 범위를 0~1로
+    import math
+
+    vol_score = max(0.0, min(1.0, (math.log10(max(vol_7d, 1)) - 8) / 3))
+
+    # 스프레드 점수: 낮을수록 좋음 (0.5% → 1.0, 0% → 1.0)
+    spread_score = max(0.0, 1.0 - (spread_ratio / 0.005))
+
+    # Tick 비율 점수: 낮을수록 좋음 (1% → 0.0, 0% → 1.0)
+    tick_score = max(0.0, 1.0 - (tick_ratio / 0.01))
+
+    # 변동성 점수: mean_reversion에 적당한 변동성이 좋음
+    # 최적 구간: 2~5% (너무 낮으면 기회 없음, 너무 높으면 위험)
+    if volatility <= 0:
+        vol_score_adj = 0.0
+    elif volatility < 0.02:
+        vol_score_adj = volatility / 0.02  # 0~2%: 선형 증가
+    elif volatility <= 0.05:
+        vol_score_adj = 1.0  # 2~5%: 최적
+    else:
+        vol_score_adj = max(0.0, 1.0 - (volatility - 0.05) / 0.10)  # 5%~15%: 감소
+
+    # 가중 합산
+    W_VOL = 0.30
+    W_SPREAD = 0.25
+    W_TICK = 0.15
+    W_VOLATILITY = 0.15
+    W_CONSISTENCY = 0.15
+
+    score = (
+        W_VOL * vol_score
+        + W_SPREAD * spread_score
+        + W_TICK * tick_score
+        + W_VOLATILITY * vol_score_adj
+        + W_CONSISTENCY * vol_consistency
+    )
+
+    return round(score * 100, 1)

@@ -445,3 +445,144 @@ async def test_filtered_out_property():
 
     assert "REJECTED" in universe.filtered_out
     assert "spread" in universe.filtered_out["REJECTED"]
+
+
+# ─── Phase 2: Tradeability Score Tests ───
+
+
+class TestTradeabilityScore:
+    """compute_tradeability_score 함수 테스트."""
+
+    def test_high_quality_coin_scores_high(self) -> None:
+        """우량 코인 (높은 거래량, 낮은 스프레드) → 높은 점수."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        score = compute_tradeability_score(
+            vol_7d=50_000_000_000,  # 500억
+            spread_ratio=0.001,  # 0.1%
+            tick_ratio=0.001,  # 0.1%
+            volatility=0.03,  # 3% (최적 구간)
+            vol_consistency=0.8,  # 일관적
+        )
+        assert score > 70
+
+    def test_low_quality_coin_scores_low(self) -> None:
+        """저품질 코인 (낮은 거래량, 높은 스프레드) → 낮은 점수."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        score = compute_tradeability_score(
+            vol_7d=200_000_000,  # 2억 (겨우 통과)
+            spread_ratio=0.004,  # 0.4% (거의 한계)
+            tick_ratio=0.008,  # 0.8% (거의 한계)
+            volatility=0.10,  # 10% (너무 높음)
+            vol_consistency=0.2,  # 불안정
+        )
+        assert score < 30
+
+    def test_score_monotone_in_volume(self) -> None:
+        """거래량 증가 → 점수 비감소."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        kwargs = dict(spread_ratio=0.002, tick_ratio=0.003, volatility=0.03, vol_consistency=0.5)
+        s1 = compute_tradeability_score(vol_7d=500_000_000, **kwargs)
+        s2 = compute_tradeability_score(vol_7d=50_000_000_000, **kwargs)
+        assert s2 >= s1
+
+    def test_score_monotone_in_spread(self) -> None:
+        """스프레드 감소 → 점수 비감소."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        kwargs = dict(vol_7d=10_000_000_000, tick_ratio=0.003, volatility=0.03, vol_consistency=0.5)
+        s_wide = compute_tradeability_score(spread_ratio=0.004, **kwargs)
+        s_tight = compute_tradeability_score(spread_ratio=0.001, **kwargs)
+        assert s_tight >= s_wide
+
+    def test_volatility_sweet_spot(self) -> None:
+        """2~5% 변동성이 최적 (mean_reversion 전략)."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        kwargs = dict(
+            vol_7d=10_000_000_000, spread_ratio=0.002, tick_ratio=0.003, vol_consistency=0.5
+        )
+        s_low = compute_tradeability_score(volatility=0.01, **kwargs)
+        s_optimal = compute_tradeability_score(volatility=0.03, **kwargs)
+        s_high = compute_tradeability_score(volatility=0.12, **kwargs)
+        assert s_optimal > s_low
+        assert s_optimal > s_high
+
+    def test_score_range_0_to_100(self) -> None:
+        """점수는 항상 0~100 범위."""
+        from strategy.coin_universe import compute_tradeability_score
+
+        # 최악
+        s_min = compute_tradeability_score(0, 0.005, 0.01, 0.0, 0.0)
+        # 최고
+        s_max = compute_tradeability_score(1e12, 0.0, 0.0, 0.03, 1.0)
+        assert 0 <= s_min <= 100
+        assert 0 <= s_max <= 100
+
+
+@pytest.mark.asyncio
+async def test_refresh_with_scoring_ranks_by_score():
+    """Phase 2: Hard cutoff 통과 후 점수 기반 순위 선정."""
+    client = MagicMock()
+
+    client.get_all_tickers = AsyncMock(
+        return_value=_make_all_tickers_data(
+            [
+                ("COIN_A", 1_000_000_000),
+                ("COIN_B", 800_000_000),
+                ("COIN_C", 500_000_000),
+            ]
+        )
+    )
+
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "COIN_A": _make_ticker_response(50_000, 49_900, 50_000),  # 좁은 스프레드
+            "COIN_B": _make_ticker_response(50_000, 49_800, 50_000),  # 적당한 스프레드
+            "COIN_C": _make_ticker_response(50_000, 49_700, 50_000),  # 넓은 스프레드
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
+    client.get_candlestick = AsyncMock(return_value=_make_candlestick_data(168, 50000, 1000))
+
+    universe = MockCoinUniverse(client, top_n=3, base_coins=[], max_universe=2)
+    universe.set_tick_override(50_000, 250)
+
+    result = await universe.refresh()
+
+    # 3개 중 점수 상위 2개만 선정
+    assert len(result) <= 2
+    # 점수가 기록됨
+    assert len(universe.scores) > 0
+
+
+@pytest.mark.asyncio
+async def test_base_coins_bypass_score_limit():
+    """base_coins는 점수 순위에 관계없이 포함."""
+    client = MagicMock()
+
+    client.get_all_tickers = AsyncMock(
+        return_value=_make_all_tickers_data(
+            [
+                ("TOP1", 1_000_000_000),
+                ("TOP2", 800_000_000),
+            ]
+        )
+    )
+
+    async def mock_get_ticker(coin: str):
+        return _make_ticker_response(50_000, 49_900, 50_000)
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
+    client.get_candlestick = AsyncMock(return_value=_make_candlestick_data(168, 50000, 1000))
+
+    universe = MockCoinUniverse(client, top_n=2, base_coins=["BASE_SAFE"], max_universe=1)
+    universe.set_tick_override(50_000, 250)
+
+    result = await universe.refresh()
+
+    # max_universe=1 이지만 base_coins는 추가됨
+    assert "BASE_SAFE" in result

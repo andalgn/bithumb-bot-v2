@@ -125,6 +125,7 @@ class TradingBot:
             client=self._client,
             top_n=config.coin_universe.top_n,
             base_coins=list(config.coins),
+            max_universe=config.coin_universe.max_universe,
         )
         self._last_universe_refresh_hour: int = -1
         self._market_store = MarketStore(db_path="data/market_data.db")

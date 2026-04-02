@@ -234,6 +234,7 @@ class CoinUniverseConfig:
 
     enabled: bool = False
     top_n: int = 20
+    max_universe: int = 15
     refresh_hour: int = 0
 
 
