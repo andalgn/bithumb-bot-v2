@@ -17,6 +17,8 @@ base_coins(안전망)와 합집합으로 최종 목록 결정.
 from __future__ import annotations
 
 import logging
+import math
+import statistics
 from typing import TYPE_CHECKING
 
 from market.normalizer import get_tick_size as _get_tick_size
@@ -135,11 +137,12 @@ class CoinUniverse:
         returns = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes))]
         if not returns:
             return 0.0
-        import statistics
 
-        hourly_std = statistics.stdev(returns)
+        try:
+            hourly_std = statistics.stdev(returns)
+        except (ValueError, statistics.StatisticsError):
+            return 0.0
         # 시간 → 일일 변동성 (√24)
-        import math
 
         return hourly_std * math.sqrt(24)
 
@@ -158,12 +161,14 @@ class CoinUniverse:
         volumes = [float(c[5]) for c in recent if len(c) >= 6]
         if len(volumes) < 24:
             return 0.0
-        import statistics
 
         mean_vol = statistics.mean(volumes)
         if mean_vol <= 0:
             return 0.0
-        cv = statistics.stdev(volumes) / mean_vol  # 변동계수
+        try:
+            cv = statistics.stdev(volumes) / mean_vol
+        except (ValueError, statistics.StatisticsError):
+            return 0.0
         return max(0.0, min(1.0, 1.0 - cv))
 
     def _passes_hard_cutoffs(
@@ -185,7 +190,7 @@ class CoinUniverse:
             ask = float(ticker.get("ask", 0))
             if bid > 0 and ask > 0:
                 spread_ratio = 1 - (bid / ask)
-                if spread_ratio > self.MAX_SPREAD_RATIO:
+                if spread_ratio >= self.MAX_SPREAD_RATIO:
                     return False, f"spread {spread_ratio:.4f} > {self.MAX_SPREAD_RATIO}"
         except (TypeError, ValueError):
             return False, "invalid bid/ask"
@@ -198,7 +203,7 @@ class CoinUniverse:
                 return False, "price <= 0"
             tick = _get_tick_size(price)
             tick_ratio = tick / price
-            if tick_ratio > self.MAX_TICK_PRICE_RATIO:
+            if tick_ratio >= self.MAX_TICK_PRICE_RATIO:
                 return False, f"tick_ratio {tick_ratio:.4f} > {self.MAX_TICK_PRICE_RATIO}"
         except (TypeError, ValueError):
             return False, "invalid price"
@@ -366,7 +371,6 @@ def compute_tradeability_score(
         트레이더빌리티 점수 (0~100).
     """
     # 거래량 점수: log 스케일, 1억~1000억 범위를 0~1로
-    import math
 
     vol_score = max(0.0, min(1.0, (math.log10(max(vol_7d, 1)) - 8) / 3))
 
