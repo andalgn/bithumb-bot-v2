@@ -52,6 +52,26 @@ jobs:
       - name: Run mypy
         run: mypy app/ strategy/ market/ execution/ risk/ --ignore-missing-imports
 
+  architecture:
+    name: Architecture Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install import-linter
+          pip install -r requirements.txt
+
+      - name: Check import contracts
+        run: lint-imports
+
   test:
     name: Tests & Coverage
     runs-on: ubuntu-latest

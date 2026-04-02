@@ -1,0 +1,92 @@
+name: Monthly Code Scan
+
+on:
+  schedule:
+    # 매월 1일 15:00 UTC (2일 00:00 KST)
+    - cron: "0 15 1 * *"
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  dead-code:
+    name: Dead Code Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install vulture
+        run: pip install vulture
+
+      - name: Scan for dead code
+        run: |
+          echo "## Dead Code Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          vulture app/ strategy/ market/ execution/ risk/ --min-confidence 80 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  complexity:
+    name: Complexity Metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install radon
+        run: pip install radon
+
+      - name: Complexity report (grade C+)
+        run: |
+          echo "## Complexity Report (Grade C or worse)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          radon cc app/ strategy/ market/ execution/ risk/ -a -n C -s | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Maintainability Index (grade B or worse)
+        run: |
+          echo "## Maintainability Index (Grade B or worse)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          radon mi app/ strategy/ market/ execution/ risk/ -n B -s | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  mutation-test:
+    name: Mutation Testing (Critical Paths)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "mutmut<3" pytest pytest-asyncio hypothesis
+
+      - name: Mutation test - impact_model
+        run: |
+          cat > setup.cfg << 'EOF'
+          [mutmut]
+          paths_to_mutate = market/impact_model.py
+          tests_dir = tests/
+          runner = python -m pytest tests/test_impact_model.py tests/test_property_based.py -x -q --tb=no --no-header
+          EOF
+          rm -rf .mutmut-cache
+          mutmut run || true
+          echo "## Mutation Test: impact_model.py" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          mutmut results >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
