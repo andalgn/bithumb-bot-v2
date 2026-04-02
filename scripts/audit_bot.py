@@ -96,7 +96,15 @@ def _collect_bot_state() -> dict[str, Any]:
 
             store = StateStore(db_path=bot_db_path)
             state = {}
-            for key in ["positions", "dust_coins", "pool_manager", "cycle_count", "last_cycle_at", "pilot_remaining", "pilot_size_mult"]:
+            for key in [
+                "positions",
+                "dust_coins",
+                "pool_manager",
+                "cycle_count",
+                "last_cycle_at",
+                "pilot_remaining",
+                "pilot_size_mult",
+            ]:
                 val = store.get(key)
                 if val is not None:
                     state[key] = val
@@ -115,7 +123,15 @@ def _collect_bot_state() -> dict[str, Any]:
             # 필요한 필드만 추출
             return {
                 k: state.get(k)
-                for k in ["positions", "dust_coins", "pool_manager", "cycle_count", "last_cycle_at", "pilot_remaining", "pilot_size_mult"]
+                for k in [
+                    "positions",
+                    "dust_coins",
+                    "pool_manager",
+                    "cycle_count",
+                    "last_cycle_at",
+                    "pilot_remaining",
+                    "pilot_size_mult",
+                ]
             }
         except Exception as e:
             logger.warning("app_state.json 읽기 실패: %s", e)
@@ -243,7 +259,9 @@ def _collect_trade_performance() -> dict[str, Any]:
         total_pnl = row["total_pnl"] or 0
 
         win_rate = (wins / cnt * 100) if cnt > 0 else 0
-        profit_factor = (total_wins / total_losses) if total_losses > 0 else (1.0 if total_wins > 0 else 0)
+        profit_factor = (
+            (total_wins / total_losses) if total_losses > 0 else (1.0 if total_wins > 0 else 0)
+        )
 
         return {
             "trade_count": cnt,
@@ -268,7 +286,9 @@ def _format_pool_summary(pool: dict) -> str:
         alloc = info.get("allocated", 0)
         count = info.get("position_count", 0)
         util = (alloc / total * 100) if total > 0 else 0
-        lines.append(f"- {name}: {total:,.0f}원 (할당 {alloc:,.0f}원, {count}포지션, 활용률 {util:.1f}%)")
+        lines.append(
+            f"- {name}: {total:,.0f}원 (할당 {alloc:,.0f}원, {count}포지션, 활용률 {util:.1f}%)"
+        )
     return "\n".join(lines)
 
 
@@ -297,6 +317,7 @@ def _format_balance_summary(balance: dict) -> str:
 def _aggregate_logs(logs: str) -> str:
     """반복 로그를 집계한다."""
     from collections import Counter
+
     lines = logs.strip().splitlines()
     if not lines or lines[0].startswith("("):
         return logs
@@ -389,14 +410,14 @@ def _build_prompt(
 - 마지막 사이클: {f"{cycle_ago:.1f}분 전" if cycle_ago is not None else "확인 불가"}
 - 활성 포지션: {active_positions}개
 - Pilot: 남은 {pilot_remaining}회, 배수 {pilot_size_mult:.2f}x
-- 사이클 누적: {state.get('cycle_count', 'N/A')}회
+- 사이클 누적: {state.get("cycle_count", "N/A")}회
 
 ## 자금 현황
 {_format_pool_summary(pool_manager)}
 
 ## 거래 성과 (12시간)
-- 거래: {performance.get('trade_count', 0)}건 | PnL: {performance.get('total_pnl_krw', 0):,.0f}원
-- 승률: {performance.get('win_rate', 0):.1f}% | PF: {performance.get('profit_factor', 0):.2f}
+- 거래: {performance.get("trade_count", 0)}건 | PnL: {performance.get("total_pnl_krw", 0):,.0f}원
+- 승률: {performance.get("win_rate", 0):.1f}% | PF: {performance.get("profit_factor", 0):.2f}
 
 ## 거래소 잔고
 {_format_balance_summary(balance)}
@@ -431,6 +452,7 @@ def _build_prompt(
 async def _call_deepseek(prompt: str) -> str:
     """DeepSeek API로 분석을 요청한다."""
     from app.llm_client import call_claude
+
     response = await call_claude(prompt, model="sonnet", timeout=120)
     return response or ""
 
@@ -438,18 +460,22 @@ async def _call_deepseek(prompt: str) -> str:
 async def _send_discord(text: str) -> None:
     """Discord SYSTEM 채널로 전송한다."""
     from dotenv import load_dotenv
+
     load_dotenv(project_root / ".env")
 
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_SYSTEM") or os.environ.get("DISCORD_WEBHOOK_REPORT")
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_SYSTEM") or os.environ.get(
+        "DISCORD_WEBHOOK_REPORT"
+    )
     if not webhook_url:
         print("DISCORD_WEBHOOK 미설정", file=sys.stderr)
         return
 
     import aiohttp
+
     proxy = os.environ.get("PROXY", "http://127.0.0.1:1081")
 
     # 2000자 단위로 분할 전송
-    chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
+    chunks = [text[i : i + 1900] for i in range(0, len(text), 1900)]
     async with aiohttp.ClientSession() as session:
         for chunk in chunks:
             await session.post(webhook_url, json={"content": chunk}, proxy=proxy)

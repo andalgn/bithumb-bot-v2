@@ -37,9 +37,7 @@ def db_path(tmp_path):
     return path
 
 
-def _insert_spreads(
-    db_path, symbol: str, spreads: list[float], days_ago: float = 0
-) -> None:
+def _insert_spreads(db_path, symbol: str, spreads: list[float], days_ago: float = 0) -> None:
     """스프레드 데이터를 삽입한다."""
     conn = sqlite3.connect(str(db_path))
     base_ms = int((time.time() - days_ago * 86400) * 1000)

@@ -51,9 +51,7 @@ class MonteCarlo:
         self._safe_positive = safe_pnl_positive
         self._danger_mdd = danger_mdd_pct
 
-    def run(
-        self, pnl_list: list[float], initial_equity: float = 1_000_000
-    ) -> MonteCarloResult:
+    def run(self, pnl_list: list[float], initial_equity: float = 1_000_000) -> MonteCarloResult:
         """Monte Carlo 시뮬레이션을 실행한다.
 
         Args:
@@ -138,6 +136,11 @@ class MonteCarlo:
 
         logger.info(
             "Monte Carlo: P5=%.0f, P10=%.0f, P50=%.0f, P95=%.0f, MDD=%.1f%% -> %s",
-            pnl_p5, pnl_p10, pnl_p50, pnl_p95, worst_mdd * 100, verdict,
+            pnl_p5,
+            pnl_p10,
+            pnl_p50,
+            pnl_p95,
+            worst_mdd * 100,
+            verdict,
         )
         return result

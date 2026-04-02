@@ -13,6 +13,7 @@
   5. [Verify] bot.db 값과 원본 diff 비교
   6. [Flag] migration_complete = True 기록
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.state_store import StateStore
-
 
 DATA_DIR = Path("data")
 APP_STATE_JSON = DATA_DIR / "app_state.json"
@@ -45,7 +45,7 @@ def _check_inflight_orders() -> list[str]:
             if t.get("status") in ("PLACED", "WAIT", "placed", "wait")
         ]
         return inflight
-    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
+    except Exception as e:
         print(f"[ERROR] order_tickets.json 읽기 실패: {e}")
         return []
 
@@ -56,7 +56,7 @@ def _read_app_state() -> dict:
         return {}
     try:
         return json.loads(APP_STATE_JSON.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
+    except Exception as e:
         print(f"[WARN] app_state.json 읽기 실패: {e}")
         return {}
 
@@ -67,7 +67,7 @@ def _read_order_tickets() -> list:
         return []
     try:
         return json.loads(ORDER_TICKETS_JSON.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001 — 파일 읽기 오류, 스크립트 안전 처리
+    except Exception as e:
         print(f"[WARN] order_tickets.json 읽기 실패: {e}")
         return []
 
@@ -138,7 +138,9 @@ def run(dry_run: bool = True) -> None:
     store.set_migration_complete()
     print("[Flag] migration_complete = True 기록")
     print("\n마이그레이션 완료. 봇을 재시작하세요.")
-    print("롤백이 필요하면: docs/superpowers/specs/2026-03-25-refactoring-design.md Phase 4 롤백 절차 참조")
+    print(
+        "롤백이 필요하면: docs/superpowers/specs/2026-03-25-refactoring-design.md Phase 4 롤백 절차 참조"
+    )
     store.close()
 
 

@@ -1,7 +1,6 @@
 """EnvironmentFilter 직접 단위 테스트."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from app.data_types import (
     Candle,

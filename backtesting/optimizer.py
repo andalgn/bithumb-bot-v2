@@ -109,7 +109,7 @@ class ParameterOptimizer:
             logger.info("[scan] %s %s: %d봉", strategy_name, coin, len(c15))
 
             for i in range(window, len(c15) - step, step):
-                slice_15m = c15[i - window: i]
+                slice_15m = c15[i - window : i]
                 current_ts = slice_15m[-1].timestamp
                 current_price = slice_15m[-1].close
 
@@ -139,20 +139,24 @@ class ParameterOptimizer:
 
                     # 진입 이후 캔들 저장 (최대 96봉 = 24시간)
                     future_end = min(i + 96, len(c15))
-                    entries.append(EntryPoint(
-                        coin=coin,
-                        idx=i,
-                        price=current_price,
-                        atr=atr_val,
-                        score=sig.score,
-                        strategy=strategy_name,
-                        candle_data=c15[i: future_end],
-                    ))
+                    entries.append(
+                        EntryPoint(
+                            coin=coin,
+                            idx=i,
+                            price=current_price,
+                            atr=atr_val,
+                            score=sig.score,
+                            strategy=strategy_name,
+                            candle_data=c15[i:future_end],
+                        )
+                    )
                     break  # 1시점 1시그널
 
         self._entry_cache[cache_key] = entries
         logger.info(
-            "[scan] %s 완료: %d개 진입 시점 캐싱", strategy_name, len(entries),
+            "[scan] %s 완료: %d개 진입 시점 캐싱",
+            strategy_name,
+            len(entries),
         )
         return entries
 
@@ -187,8 +191,10 @@ class ParameterOptimizer:
 
     @staticmethod
     def _calc_sl_tp(
-        strategy: str, params: dict[str, float],
-        price: float, atr: float,
+        strategy: str,
+        params: dict[str, float],
+        price: float,
+        atr: float,
     ) -> tuple[float, float]:
         """파라미터 기반 SL/TP를 계산한다."""
         max_sl = price * 0.025  # 기본 SL cap 2.5%
@@ -223,7 +229,8 @@ class ParameterOptimizer:
                 exit_p = sl if hit_sl else tp
                 if adv_krw > 0 and order_krw > 0:
                     slip = estimate_slippage(
-                        order_krw, adv_krw,
+                        order_krw,
+                        adv_krw,
                         volatility if volatility > 0 else 0.03,
                     )
                 else:
@@ -271,7 +278,7 @@ class ParameterOptimizer:
                 continue
             split_idx = int(len(c15) * in_sample_ratio)
             is_15m[coin] = c15[:split_idx]
-            oos_15m[coin] = c15[max(0, split_idx - 200):]
+            oos_15m[coin] = c15[max(0, split_idx - 200) :]
             c1h = candles_1h.get(coin, [])
             ts_cut = c15[split_idx - 1].timestamp if split_idx > 0 else 0
             is_1h[coin] = [c for c in c1h if c.timestamp <= ts_cut]
@@ -280,16 +287,24 @@ class ParameterOptimizer:
         # Phase 0: 진입 시점 스캔 (IS + OOS 각 1회)
         self._entry_cache = {}  # 캐시 리셋
         is_entries = self.scan_entries(
-            strategy, is_15m, is_1h, min_score=0,
+            strategy,
+            is_15m,
+            is_1h,
+            min_score=0,
         )
         self._entry_cache = {}
         oos_entries = self.scan_entries(
-            strategy, oos_15m, oos_1h, min_score=0,
+            strategy,
+            oos_15m,
+            oos_1h,
+            min_score=0,
         )
 
         logger.info(
             "[%s] 진입 캐싱 완료: IS=%d, OOS=%d",
-            strategy, len(is_entries), len(oos_entries),
+            strategy,
+            len(is_entries),
+            len(oos_entries),
         )
 
         # Phase 1: IS Grid Search (초고속 리플레이)
@@ -314,21 +329,27 @@ class ParameterOptimizer:
             if oos_r.trades < 10:
                 logger.warning(
                     "[%s] OOS 거래 %d건 — 통계적 유의성 부족",
-                    strategy, oos_r.trades,
+                    strategy,
+                    oos_r.trades,
                 )
             if is_r.sharpe > 0:
                 diff = abs(is_r.sharpe - oos_r.sharpe) / is_r.sharpe
                 if diff > 0.5:
                     logger.warning(
                         "[%s] 과적합: IS=%.2f → OOS=%.2f (%.0f%%)",
-                        strategy, is_r.sharpe, oos_r.sharpe, diff * 100,
+                        strategy,
+                        is_r.sharpe,
+                        oos_r.sharpe,
+                        diff * 100,
                     )
 
         return oos_results
 
     @staticmethod
     def _calc_stats(
-        strategy: str, params: dict[str, float], pnls: list[float],
+        strategy: str,
+        params: dict[str, float],
+        pnls: list[float],
     ) -> OptResult:
         """PnL 리스트에서 통계를 계산한다."""
         n = len(pnls)
@@ -353,9 +374,15 @@ class ParameterOptimizer:
         mdd = float(np.max(dd / (peak + 1e-10))) if len(dd) > 0 else 0.0
 
         return OptResult(
-            params=params, strategy=strategy, trades=n,
-            win_rate=wr, profit_factor=pf, expectancy=exp,
-            max_drawdown=mdd, sharpe=sharpe, total_pnl=total,
+            params=params,
+            strategy=strategy,
+            trades=n,
+            win_rate=wr,
+            profit_factor=pf,
+            expectancy=exp,
+            max_drawdown=mdd,
+            sharpe=sharpe,
+            total_pnl=total,
         )
 
     @staticmethod

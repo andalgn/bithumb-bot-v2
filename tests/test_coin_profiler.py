@@ -6,21 +6,21 @@ from app.data_types import Candle, Tier
 from strategy.coin_profiler import CoinProfiler
 
 
-def _make_candles(
-    base: float, count: int, volatility: float = 0.01
-) -> list[Candle]:
+def _make_candles(base: float, count: int, volatility: float = 0.01) -> list[Candle]:
     """테스트용 캔들 생성."""
     candles = []
     price = base
     for i in range(count):
-        candles.append(Candle(
-            timestamp=1000 * (i + 1),
-            open=price,
-            high=price * (1 + volatility),
-            low=price * (1 - volatility),
-            close=price,
-            volume=1000.0,
-        ))
+        candles.append(
+            Candle(
+                timestamp=1000 * (i + 1),
+                open=price,
+                high=price * (1 + volatility),
+                low=price * (1 - volatility),
+                close=price,
+                volume=1000.0,
+            )
+        )
     return candles
 
 

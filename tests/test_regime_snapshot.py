@@ -3,12 +3,13 @@
 현재 RuleEngine의 국면 판정 동작을 고정한다.
 Phase 2에서 RegimeClassifier를 분리한 후 이 테스트가 여전히 통과하면 분리 성공.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from app.data_types import Candle, MarketSnapshot, Orderbook, OrderbookEntry, Regime
+from app.data_types import Regime
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
 from tests.fixtures.candles import (
@@ -140,4 +141,3 @@ def test_hysteresis_crisis_release_requires_6_bars(engine):
     state = engine._regime_states.get("BTC")
     assert state is not None
     assert state.current == Regime.CRISIS, "5봉 후에는 아직 CRISIS여야 함"
-

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 
 import numpy as np
 
@@ -23,13 +23,15 @@ from app.data_types import (
 )
 from strategy.coin_profiler import CoinProfiler, TierParams
 from strategy.environment_filter import EnvironmentFilter
-from strategy.spread_profiler import SpreadProfiler
 from strategy.indicators import IndicatorPack, compute_indicators
 from strategy.regime_classifier import AuxFlags as AuxFlags  # re-export for backward compat
 from strategy.regime_classifier import RegimeClassifier
 from strategy.regime_classifier import RegimeState as RegimeState  # re-export for backward compat
-from strategy.size_decider import SizeDecider, SizeDecision, STRATEGY_GROUP
-from strategy.strategy_scorer import DEFAULT_WEIGHTS as DEFAULT_WEIGHTS  # re-export for backward compat
+from strategy.size_decider import SizeDecider, SizeDecision
+from strategy.spread_profiler import SpreadProfiler
+from strategy.strategy_scorer import (
+    DEFAULT_WEIGHTS as DEFAULT_WEIGHTS,  # re-export for backward compat
+)
 from strategy.strategy_scorer import ScoreResult as ScoreResult  # re-export for backward compat
 from strategy.strategy_scorer import StrategyScorer
 
@@ -204,12 +206,14 @@ class RuleEngine:
     def _score_volume(self, ind: IndicatorPack, threshold: float, max_pts: float) -> float:
         """거래량 점수를 계산한다 (OBV 증분 기반 간접). StrategyScorer 모듈 함수에 위임한다."""
         from strategy.strategy_scorer import _score_volume as _sv
+
         return _sv(ind, threshold, max_pts)
 
     @staticmethod
     def _score_volume_direct(candles: list, threshold: float, max_pts: float) -> float:
         """실제 캔들 거래량을 직접 비교하여 점수를 계산한다. StrategyScorer 모듈 함수에 위임한다."""
         from strategy.strategy_scorer import _score_volume_direct as _svd
+
         return _svd(candles, threshold, max_pts)
 
     # ═══════════════════════════════════════════
@@ -524,7 +528,7 @@ class RuleEngine:
         """현재 전략 파라미터를 반환한다."""
         return self._strategy_params
 
-    def get_regime_state(self, symbol: str) -> "RegimeState":
+    def get_regime_state(self, symbol: str) -> RegimeState:
         """코인별 국면 상태를 반환한다. 없으면 초기화하여 반환한다."""
         return self._get_regime_state(symbol)
 
@@ -543,6 +547,6 @@ class RuleEngine:
         self._strategy_params.clear()
         self._strategy_params.update(params)
 
-    def decide_size_public(self, strategy: "Strategy", score: float) -> str:
+    def decide_size_public(self, strategy: Strategy, score: float) -> str:
         """사이즈 결정을 public으로 위임한다."""
         return self._decide_size(strategy, score)

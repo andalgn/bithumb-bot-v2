@@ -830,4 +830,3 @@ Result: Professional-grade trading dashboard + TUI monitor
 ```
 
 **You're ready to start. Good luck!**
-

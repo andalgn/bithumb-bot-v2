@@ -10,7 +10,7 @@ import asyncio
 import logging
 import re
 import ssl
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Protocol, runtime_checkable
 
 import aiohttp
@@ -226,7 +226,7 @@ class DiscordNotifier:
                 )
                 await self._handle_failure()
                 return False
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+        except (TimeoutError, aiohttp.ClientError, OSError) as exc:
             logger.exception("디스코드 전송 중 예외 발생: %s", exc)
             await self._handle_failure()
         return False

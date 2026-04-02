@@ -1,8 +1,8 @@
 """RegimeClassifier 직접 단위 테스트."""
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from app.data_types import Regime
 from strategy.regime_classifier import RegimeClassifier, RegimeState
@@ -11,12 +11,11 @@ from tests.fixtures.candles import (
     range_candles,
     strong_up_candles,
     weak_down_candles,
-    weak_up_candles,
 )
 from tests.fixtures.indicators import indicators_from_candles
 
-
 # ── raw_classify 테스트 ──────────────────────────────────────────────────────
+
 
 def test_raw_classify_strong_up():
     """STRONG_UP 캔들에서 STRONG_UP 국면이 반환된다."""
@@ -60,6 +59,7 @@ def test_raw_classify_crisis():
 
 # ── classify (히스테리시스) 테스트 ──────────────────────────────────────────
 
+
 def test_classify_crisis_immediate():
     """CRISIS는 히스테리시스 없이 즉시 전환된다."""
     candles = crisis_candles()
@@ -85,6 +85,7 @@ def test_classify_returns_regime_and_aux_flags():
 
 
 # ── get_state / states 테스트 ────────────────────────────────────────────────
+
 
 def test_get_state_unknown_symbol_returns_default():
     """알 수 없는 심볼에 대해 기본 RegimeState가 반환된다."""

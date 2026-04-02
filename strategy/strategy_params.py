@@ -12,8 +12,8 @@ Karpathy Auto Research의 'train.py'에 해당 — 에이전트가 수정하는 
 
 from __future__ import annotations
 
-import math
 import logging
+import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
@@ -143,12 +143,8 @@ class EvolvableParams:
         """NaN/Inf 값은 즉시 거부한다 (구조적 안전장치)."""
         for f in fields(self):
             value = getattr(self, f.name)
-            if isinstance(value, float) and (
-                math.isnan(value) or math.isinf(value)
-            ):
-                raise ValueError(
-                    f"{f.name}={value} — NaN/Inf 값 불허"
-                )
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                raise ValueError(f"{f.name}={value} — NaN/Inf 값 불허")
 
     def validate(self) -> list[str]:
         """모든 파라미터의 범위를 검증한다.
@@ -162,9 +158,7 @@ class EvolvableParams:
             value = getattr(self, name)
 
             # NaN/Inf 체크 (float 필드만)
-            if isinstance(value, float) and (
-                math.isnan(value) or math.isinf(value)
-            ):
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
                 violations.append(f"{name}={value} — NaN/Inf 값 불허")
                 continue
 
@@ -173,9 +167,7 @@ class EvolvableParams:
                 continue
             lo, hi = bounds
             if value < lo or value > hi:
-                violations.append(
-                    f"{name}={value} 범위 위반 [{lo}, {hi}]"
-                )
+                violations.append(f"{name}={value} 범위 위반 [{lo}, {hi}]")
 
         # 논리적 정합성
         if self.defense_mult_min >= self.defense_mult_max:
@@ -190,8 +182,7 @@ class EvolvableParams:
             )
         if self.daily_dd_pct >= self.weekly_dd_pct:
             violations.append(
-                f"daily_dd_pct({self.daily_dd_pct}) >= "
-                f"weekly_dd_pct({self.weekly_dd_pct})"
+                f"daily_dd_pct({self.daily_dd_pct}) >= weekly_dd_pct({self.weekly_dd_pct})"
             )
         return violations
 
@@ -238,9 +229,7 @@ class EvolvableParams:
         new_params = EvolvableParams(**data)
         violations = new_params.validate()
         if violations:
-            raise ValueError(
-                f"교차 필드 제약 위반: {violations}"
-            )
+            raise ValueError(f"교차 필드 제약 위반: {violations}")
         return new_params
 
     def to_dict(self) -> dict[str, float]:
@@ -283,9 +272,7 @@ class EvolvableParams:
             tf_sl_mult=tf.get("sl_mult", 5.0),
             tf_tp_rr=tf.get("tp_rr", 1.5),
             tf_cutoff=int(
-                config.score_cutoff.group1.full
-                if hasattr(config, "score_cutoff")
-                else 75
+                config.score_cutoff.group1.full if hasattr(config, "score_cutoff") else 75
             ),
             tf_w_trend_align=tf.get("w_trend_align", 30.0),
             tf_w_macd=tf.get("w_macd", 25.0),

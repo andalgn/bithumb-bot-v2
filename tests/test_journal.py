@@ -18,28 +18,30 @@ class TestJournal:
 
     def test_record_trade(self, journal: Journal) -> None:
         """거래 기록 및 조회."""
-        trade_id = journal.record_trade({
-            "symbol": "BTC",
-            "strategy": "trend_follow",
-            "tier": 1,
-            "regime": "STRONG_UP",
-            "pool": "active",
-            "entry_price": 50000000,
-            "exit_price": 51000000,
-            "qty": 0.001,
-            "entry_fee_krw": 125,
-            "exit_fee_krw": 127.5,
-            "slippage_krw": 50,
-            "gross_pnl_krw": 1000,
-            "net_pnl_krw": 697.5,
-            "net_pnl_pct": 1.395,
-            "hold_seconds": 3600,
-            "promoted": False,
-            "entry_score": 75.0,
-            "entry_time": 1700000000000,
-            "exit_time": 1700003600000,
-            "exit_reason": "tp",
-        })
+        trade_id = journal.record_trade(
+            {
+                "symbol": "BTC",
+                "strategy": "trend_follow",
+                "tier": 1,
+                "regime": "STRONG_UP",
+                "pool": "active",
+                "entry_price": 50000000,
+                "exit_price": 51000000,
+                "qty": 0.001,
+                "entry_fee_krw": 125,
+                "exit_fee_krw": 127.5,
+                "slippage_krw": 50,
+                "gross_pnl_krw": 1000,
+                "net_pnl_krw": 697.5,
+                "net_pnl_pct": 1.395,
+                "hold_seconds": 3600,
+                "promoted": False,
+                "entry_score": 75.0,
+                "entry_time": 1700000000000,
+                "exit_time": 1700003600000,
+                "exit_reason": "tp",
+            }
+        )
         assert trade_id
 
         trades = journal.get_recent_trades(limit=10)
@@ -49,18 +51,20 @@ class TestJournal:
 
     def test_record_signal(self, journal: Journal) -> None:
         """신호 기록."""
-        journal.record_signal({
-            "symbol": "ETH",
-            "direction": "bid",
-            "strategy": "mean_reversion",
-            "score": 72.5,
-            "regime": "RANGE",
-            "tier": 2,
-            "entry_price": 3000000,
-            "stop_loss": 2900000,
-            "take_profit": 3200000,
-            "accepted": True,
-        })
+        journal.record_signal(
+            {
+                "symbol": "ETH",
+                "direction": "bid",
+                "strategy": "mean_reversion",
+                "score": 72.5,
+                "regime": "RANGE",
+                "tier": 2,
+                "entry_price": 3000000,
+                "stop_loss": 2900000,
+                "take_profit": 3200000,
+                "accepted": True,
+            }
+        )
         # 에러 없으면 성공
 
     def test_record_risk_event(self, journal: Journal) -> None:
@@ -75,26 +79,30 @@ class TestJournal:
     def test_consecutive_losses(self, journal: Journal) -> None:
         """연속 손실 조회."""
         for i in range(5):
-            journal.record_trade({
-                "trade_id": f"loss_{i}",
+            journal.record_trade(
+                {
+                    "trade_id": f"loss_{i}",
+                    "symbol": "BTC",
+                    "strategy": "trend_follow",
+                    "tier": 1,
+                    "regime": "STRONG_UP",
+                    "pool": "active",
+                    "net_pnl_krw": -100,
+                }
+            )
+        assert journal.get_consecutive_losses() == 5
+
+        journal.record_trade(
+            {
+                "trade_id": "win_1",
                 "symbol": "BTC",
                 "strategy": "trend_follow",
                 "tier": 1,
                 "regime": "STRONG_UP",
                 "pool": "active",
-                "net_pnl_krw": -100,
-            })
-        assert journal.get_consecutive_losses() == 5
-
-        journal.record_trade({
-            "trade_id": "win_1",
-            "symbol": "BTC",
-            "strategy": "trend_follow",
-            "tier": 1,
-            "regime": "STRONG_UP",
-            "pool": "active",
-            "net_pnl_krw": 500,
-        })
+                "net_pnl_krw": 500,
+            }
+        )
         assert journal.get_consecutive_losses() == 0
 
     def test_21_fields(self, journal: Journal) -> None:

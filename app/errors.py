@@ -8,6 +8,7 @@ BotError를 최상위로, 원인별 구체적 예외 타입을 정의한다.
   - PositionLimitExceededError: 진입 거부 (로그만)
   - APIAuthError: 봇 일시정지 + Discord 알림
 """
+
 from __future__ import annotations
 
 
@@ -22,9 +23,7 @@ class InsufficientBalanceError(BotError):
     """
 
     def __init__(self, symbol: str, required: float, available: float) -> None:
-        super().__init__(
-            f"{symbol}: 잔고 부족 (필요={required:,.0f}원, 가용={available:,.0f}원)"
-        )
+        super().__init__(f"{symbol}: 잔고 부족 (필요={required:,.0f}원, 가용={available:,.0f}원)")
         self.symbol = symbol
         self.required = required
         self.available = available
@@ -73,4 +72,4 @@ class APIAuthError(BotError):
     """
 
     def __init__(self, reason: str = "") -> None:
-        super().__init__(f"API 인증 실패" + (f": {reason}" if reason else ""))
+        super().__init__("API 인증 실패" + (f": {reason}" if reason else ""))

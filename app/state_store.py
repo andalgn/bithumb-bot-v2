@@ -3,6 +3,7 @@
 WAL 모드. 키-값 행 단위 저장으로 부분 롤백 지원.
 migration_complete 플래그로 구 방식 fallback 제어.
 """
+
 from __future__ import annotations
 
 import json
@@ -54,9 +55,7 @@ class StateStore:
         Returns:
             저장된 값 (JSON 역직렬화) 또는 default.
         """
-        row = self._conn.execute(
-            "SELECT value FROM app_state WHERE key = ?", (key,)
-        ).fetchone()
+        row = self._conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
         if row is None:
             return default
         return json.loads(row[0])

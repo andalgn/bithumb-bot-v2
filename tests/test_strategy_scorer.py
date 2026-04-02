@@ -1,7 +1,6 @@
 """StrategyScorer 직접 단위 테스트."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from app.data_types import Strategy
 from strategy.strategy_scorer import ScoreResult, StrategyScorer
@@ -41,7 +40,9 @@ def test_score_strategy_a_strong_up_higher_than_weak_down():
     ind_down = indicators_from_candles(candles_down)
     scorer = StrategyScorer()
     score_up = scorer.score_strategy_a(ind_15m=ind_up, ind_1h=ind_up, candles_15m=candles_up).score
-    score_down = scorer.score_strategy_a(ind_15m=ind_down, ind_1h=ind_down, candles_15m=candles_down).score
+    score_down = scorer.score_strategy_a(
+        ind_15m=ind_down, ind_1h=ind_down, candles_15m=candles_down
+    ).score
     assert score_up > score_down
 
 

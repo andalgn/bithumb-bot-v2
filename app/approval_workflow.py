@@ -19,7 +19,7 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -156,9 +156,7 @@ class ApprovalWorkflow:
         """대기 중인 변경 목록을 반환한다."""
         pending = self._load_all()
         return [
-            PendingChange.from_dict(v)
-            for v in pending.values()
-            if v.get("status") == "pending"
+            PendingChange.from_dict(v) for v in pending.values() if v.get("status") == "pending"
         ]
 
     def get(self, change_id: str) -> PendingChange | None:
@@ -236,9 +234,7 @@ class ApprovalWorkflow:
                 except yaml.YAMLError as e:
                     logger.error("config YAML 파싱 실패: %s — 백업에서 복구", e)
                     shutil.copy2(backup_path, config_path)
-                    raise RuntimeError(
-                        f"config YAML 손상, 백업으로 복구됨: {e}"
-                    ) from e
+                    raise RuntimeError(f"config YAML 손상, 백업으로 복구됨: {e}") from e
 
                 # 3. 패치 병합 (중첩 딕셔너리)
                 self._deep_merge(raw, patches)
@@ -270,11 +266,7 @@ class ApprovalWorkflow:
     def _deep_merge(base: dict, patch: dict) -> None:
         """중첩 딕셔너리를 재귀적으로 병합한다 (base를 in-place 수정)."""
         for key, value in patch.items():
-            if (
-                key in base
-                and isinstance(base[key], dict)
-                and isinstance(value, dict)
-            ):
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 ApprovalWorkflow._deep_merge(base[key], value)
             else:
                 base[key] = value

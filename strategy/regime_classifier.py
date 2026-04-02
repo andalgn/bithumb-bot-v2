@@ -45,7 +45,9 @@ class RegimeClassifier:
             self._regime_states[symbol] = RegimeState()
         return self._regime_states[symbol]
 
-    def classify(self, symbol: str, ind: IndicatorPack, close: np.ndarray) -> tuple[Regime, AuxFlags]:
+    def classify(
+        self, symbol: str, ind: IndicatorPack, close: np.ndarray
+    ) -> tuple[Regime, AuxFlags]:
         """히스테리시스 적용 최종 국면을 반환한다.
 
         Args:

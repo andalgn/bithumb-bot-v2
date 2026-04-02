@@ -1,4 +1,5 @@
 """HealthMonitor 단위 테스트."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +7,13 @@ import time
 
 import pytest
 
-from app.health_monitor import Alert, AlertManager, CheckResult, HealthMonitor, SCORE_WEIGHTS, compute_health_score
+from app.health_monitor import (
+    Alert,
+    AlertManager,
+    CheckResult,
+    HealthMonitor,
+    compute_health_score,
+)
 from app.journal import Journal
 
 

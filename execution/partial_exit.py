@@ -118,7 +118,9 @@ class PartialExitManager:
         if count >= MAX_PARTIAL_RETRIES:
             logger.warning(
                 "부분청산 재시도 한도 초과 — 포기: %s %s (%d회)",
-                symbol, flag, count,
+                symbol,
+                flag,
+                count,
             )
             state._last_flag = ""
             return
@@ -137,7 +139,10 @@ class PartialExitManager:
         state._last_flag = ""
         logger.info(
             "부분청산 플래그 롤백: %s %s (재시도 %d/%d)",
-            symbol, flag, count, MAX_PARTIAL_RETRIES,
+            symbol,
+            flag,
+            count,
+            MAX_PARTIAL_RETRIES,
         )
 
     def evaluate(
@@ -186,14 +191,22 @@ class PartialExitManager:
 
         # ─── 2. 트레일링 스톱 체크 ───
         trailing_decision = self._check_trailing(
-            symbol, position, current_price, atr_value, is_core,
+            symbol,
+            position,
+            current_price,
+            atr_value,
+            is_core,
         )
         if trailing_decision.action == ExitAction.TRAILING_STOP:
             return trailing_decision
 
         # ─── 3. 부분청산 체크 ───
         partial_decision = self._check_partial_exit(
-            symbol, position, current_price, pnl_pct, bb_middle,
+            symbol,
+            position,
+            current_price,
+            pnl_pct,
+            bb_middle,
         )
         if partial_decision.action == ExitAction.PARTIAL_EXIT:
             return partial_decision
@@ -296,7 +309,9 @@ class PartialExitManager:
             state.trailing_stop = current_price - trail_dist
             logger.info(
                 "트레일링 활성화: %s @ %.0f, TS=%.0f",
-                symbol, current_price, state.trailing_stop,
+                symbol,
+                current_price,
+                state.trailing_stop,
             )
             return
 

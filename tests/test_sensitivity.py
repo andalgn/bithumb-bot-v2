@@ -14,8 +14,7 @@ def analyzer() -> SensitivityAnalyzer:
 def _make_trades(count: int = 30) -> list[dict]:
     """테스트용 거래."""
     return [
-        {"entry_price": 50_000_000, "exit_price": 50_500_000, "qty": 0.001}
-        for _ in range(count)
+        {"entry_price": 50_000_000, "exit_price": 50_500_000, "qty": 0.001} for _ in range(count)
     ]
 
 

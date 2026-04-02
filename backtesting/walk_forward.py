@@ -84,7 +84,8 @@ class WalkForward:
             result.verdict = "insufficient_data"
             logger.info(
                 "Walk-Forward: 거래 %d건 < 최소 %d건 — 검증 보류",
-                len(trades), min_trades,
+                len(trades),
+                min_trades,
             )
             return result
 
@@ -94,14 +95,8 @@ class WalkForward:
             test_start = train_end
             test_end = test_start + self._slide_days
 
-            train_trades = [
-                t for t in trades
-                if train_start <= t.get("day", 0) < train_end
-            ]
-            test_trades = [
-                t for t in trades
-                if test_start <= t.get("day", 0) < test_end
-            ]
+            train_trades = [t for t in trades if train_start <= t.get("day", 0) < train_end]
+            test_trades = [t for t in trades if test_start <= t.get("day", 0) < test_end]
 
             if not train_trades or not test_trades:
                 seg_result = WFSegmentResult(segment=seg)
@@ -149,6 +144,8 @@ class WalkForward:
 
         logger.info(
             "Walk-Forward: %d/%d 통과 -> %s",
-            result.pass_count, result.total_segments, result.verdict,
+            result.pass_count,
+            result.total_segments,
+            result.verdict,
         )
         return result

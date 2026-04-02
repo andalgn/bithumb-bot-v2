@@ -13,9 +13,8 @@ import logging
 import math
 import sys
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,11 +23,11 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 
 from app.config import load_config
-from app.data_types import Candle, MarketSnapshot, Regime, Strategy, OrderSide, parse_raw_candles
+from app.data_types import Candle, MarketSnapshot, parse_raw_candles
 from market.bithumb_api import BithumbClient
+from market.impact_model import estimate_slippage
 from market.market_store import MarketStore
 from strategy.coin_profiler import CoinProfiler
-from market.impact_model import estimate_slippage
 from strategy.rule_engine import RuleEngine
 
 logging.basicConfig(
@@ -144,7 +143,7 @@ def run_backtest(
         position: Trade | None = None
 
         for i in range(window, len(candles_15m) - step, step):
-            slice_15m = candles_15m[i - window: i]
+            slice_15m = candles_15m[i - window : i]
             current_ts = slice_15m[-1].timestamp
             current_price = slice_15m[-1].close
 
@@ -155,18 +154,24 @@ def run_backtest(
 
             # 포지션 체크
             if position is not None:
-                future = candles_15m[i: i + step]
+                future = candles_15m[i : i + step]
                 hit_sl = any(c.low <= position.stop_loss for c in future)
                 hit_tp = any(c.high >= position.take_profit for c in future)
 
                 if hit_sl or hit_tp:
                     exit_price = position.stop_loss if hit_sl else position.take_profit
                     # √(Q/V) 임팩트 모델 슬리피지 (과거 캔들 기반, look-ahead 방지)
-                    _lookback = candles_15m[max(0, i - 14):i]
-                    _adv = (float(sum(c.volume * c.close for c in _lookback))
-                            / max(len(_lookback), 1)) if _lookback else 0
-                    _vol = (float(np.std([c.close / c.open - 1 for c in _lookback]))
-                            if len(_lookback) > 1 else 0.03)
+                    _lookback = candles_15m[max(0, i - 14) : i]
+                    _adv = (
+                        (float(sum(c.volume * c.close for c in _lookback)) / max(len(_lookback), 1))
+                        if _lookback
+                        else 0
+                    )
+                    _vol = (
+                        float(np.std([c.close / c.open - 1 for c in _lookback]))
+                        if len(_lookback) > 1
+                        else 0.03
+                    )
                     _order = position.entry_price  # 1주 기준
                     _slip = estimate_slippage(_order, _adv, _vol) if _adv > 0 else SLIPPAGE_RATE
                     entry_adj = position.entry_price * (1 + _slip)
@@ -224,7 +229,9 @@ def run_backtest(
     result.gross_wins = sum(t.pnl for t in wins)
     result.gross_losses = abs(sum(t.pnl for t in losses))
     result.win_rate = len(wins) / len(all_trades) if all_trades else 0
-    result.profit_factor = result.gross_wins / result.gross_losses if result.gross_losses > 0 else 10.0
+    result.profit_factor = (
+        result.gross_wins / result.gross_losses if result.gross_losses > 0 else 10.0
+    )
     result.expectancy = result.total_pnl / len(all_trades) if all_trades else 0
     result.avg_win = result.gross_wins / len(wins) if wins else 0
     result.avg_loss = -result.gross_losses / len(losses) if losses else 0
@@ -385,9 +392,9 @@ def print_top_results(strategy_name: str, results: list[BacktestResult], top_n: 
     valid.sort(key=lambda r: r.profit_factor, reverse=True)
     top = valid[:top_n]
 
-    print(f"\n{'='*90}")
+    print(f"\n{'=' * 90}")
     print(f"  [{strategy_name}] 상위 {min(top_n, len(top))}개 파라미터 조합")
-    print(f"{'='*90}")
+    print(f"{'=' * 90}")
 
     header = f"{'파라미터':<35} {'거래':>5} {'승률':>7} {'PF':>7} {'MDD':>7} {'Expect':>10} {'총PnL':>12}"
     print(header)
@@ -395,8 +402,8 @@ def print_top_results(strategy_name: str, results: list[BacktestResult], top_n: 
 
     for r in top:
         print(
-            f"{r.label:<35} {r.trades:>5} {r.win_rate*100:>6.1f}% {r.profit_factor:>6.2f} "
-            f"{r.max_drawdown*100:>6.1f}% {r.expectancy:>+10,.0f} {r.total_pnl:>+12,.0f}"
+            f"{r.label:<35} {r.trades:>5} {r.win_rate * 100:>6.1f}% {r.profit_factor:>6.2f} "
+            f"{r.max_drawdown * 100:>6.1f}% {r.expectancy:>+10,.0f} {r.total_pnl:>+12,.0f}"
         )
 
     # 추천 (PF > 1.0이고 거래 20건 이상)
@@ -404,14 +411,15 @@ def print_top_results(strategy_name: str, results: list[BacktestResult], top_n: 
     if profitable:
         best = max(profitable, key=lambda r: r.profit_factor * math.sqrt(r.trades))
         print(f"\n  ★ 추천: {best.label}")
-        print(f"    PF={best.profit_factor:.2f}, WR={best.win_rate*100:.1f}%, "
-              f"{best.trades}건, PnL={best.total_pnl:+,.0f}")
+        print(
+            f"    PF={best.profit_factor:.2f}, WR={best.win_rate * 100:.1f}%, "
+            f"{best.trades}건, PnL={best.total_pnl:+,.0f}"
+        )
     else:
         # PF가 가장 높은 것이라도 표시
         best = max(valid, key=lambda r: r.profit_factor)
         print(f"\n  ⚠ PF > 1.0 + 20건 이상 조합 없음. 최선: {best.label}")
-        print(f"    PF={best.profit_factor:.2f}, WR={best.win_rate*100:.1f}%, "
-              f"{best.trades}건")
+        print(f"    PF={best.profit_factor:.2f}, WR={best.win_rate * 100:.1f}%, {best.trades}건")
 
 
 def print_current_vs_best(
@@ -425,10 +433,16 @@ def print_current_vs_best(
     print(f"\n  [{strategy_name}] 현행 vs 최적 비교:")
     print(f"    {'':>20} {'현행':>12} {'최적':>12} {'변화':>12}")
     print(f"    {'거래 수':>20} {current.trades:>12} {best.trades:>12}")
-    print(f"    {'승률':>20} {current.win_rate*100:>11.1f}% {best.win_rate*100:>11.1f}% {(best.win_rate-current.win_rate)*100:>+11.1f}%")
-    print(f"    {'PF':>20} {current.profit_factor:>12.2f} {best.profit_factor:>12.2f} {best.profit_factor-current.profit_factor:>+12.2f}")
-    print(f"    {'MDD':>20} {current.max_drawdown*100:>11.1f}% {best.max_drawdown*100:>11.1f}%")
-    print(f"    {'총 PnL':>20} {current.total_pnl:>+12,.0f} {best.total_pnl:>+12,.0f} {best.total_pnl-current.total_pnl:>+12,.0f}")
+    print(
+        f"    {'승률':>20} {current.win_rate * 100:>11.1f}% {best.win_rate * 100:>11.1f}% {(best.win_rate - current.win_rate) * 100:>+11.1f}%"
+    )
+    print(
+        f"    {'PF':>20} {current.profit_factor:>12.2f} {best.profit_factor:>12.2f} {best.profit_factor - current.profit_factor:>+12.2f}"
+    )
+    print(f"    {'MDD':>20} {current.max_drawdown * 100:>11.1f}% {best.max_drawdown * 100:>11.1f}%")
+    print(
+        f"    {'총 PnL':>20} {current.total_pnl:>+12,.0f} {best.total_pnl:>+12,.0f} {best.total_pnl - current.total_pnl:>+12,.0f}"
+    )
 
 
 # ═══════════════════════════════════════════
@@ -502,12 +516,23 @@ async def main() -> None:
         r = run_backtest(store, coins, current_engine, profiler, target_strategy=strat)
         r.label = f"{strat} (현행)"
         current_results[strat] = r
-        logger.info("  %s 현행: %d건, PF=%.2f, WR=%.1f%%", strat, r.trades, r.profit_factor, r.win_rate*100)
+        logger.info(
+            "  %s 현행: %d건, PF=%.2f, WR=%.1f%%",
+            strat,
+            r.trades,
+            r.profit_factor,
+            r.win_rate * 100,
+        )
 
     # 전체 통합 현행
     current_all = run_backtest(store, coins, current_engine, profiler)
     current_all.label = "전체 (현행)"
-    logger.info("  전체 현행: %d건, PF=%.2f, WR=%.1f%%", current_all.trades, current_all.profit_factor, current_all.win_rate*100)
+    logger.info(
+        "  전체 현행: %d건, PF=%.2f, WR=%.1f%%",
+        current_all.trades,
+        current_all.profit_factor,
+        current_all.win_rate * 100,
+    )
 
     # 3. 전략별 그리드 서치
     logger.info("=" * 50)
@@ -553,18 +578,33 @@ async def main() -> None:
         logger.info("4단계: 최적 파라미터 통합 백테스트")
 
         integrated = run_integrated_test(store, coins, config, best_params)
-        logger.info("  통합: %d건, PF=%.2f, WR=%.1f%%", integrated.trades, integrated.profit_factor, integrated.win_rate*100)
+        logger.info(
+            "  통합: %d건, PF=%.2f, WR=%.1f%%",
+            integrated.trades,
+            integrated.profit_factor,
+            integrated.win_rate * 100,
+        )
 
         print("\n" + "=" * 90)
         print("  통합 결과: 현행 전체 vs 최적 전체")
         print("=" * 90)
         print(f"    {'':>20} {'현행':>12} {'최적':>12}")
         print(f"    {'거래 수':>20} {current_all.trades:>12} {integrated.trades:>12}")
-        print(f"    {'승률':>20} {current_all.win_rate*100:>11.1f}% {integrated.win_rate*100:>11.1f}%")
-        print(f"    {'PF':>20} {current_all.profit_factor:>12.2f} {integrated.profit_factor:>12.2f}")
-        print(f"    {'MDD':>20} {current_all.max_drawdown*100:>11.1f}% {integrated.max_drawdown*100:>11.1f}%")
-        print(f"    {'Expectancy':>20} {current_all.expectancy:>+12,.0f} {integrated.expectancy:>+12,.0f}")
-        print(f"    {'총 PnL':>20} {current_all.total_pnl:>+12,.0f} {integrated.total_pnl:>+12,.0f}")
+        print(
+            f"    {'승률':>20} {current_all.win_rate * 100:>11.1f}% {integrated.win_rate * 100:>11.1f}%"
+        )
+        print(
+            f"    {'PF':>20} {current_all.profit_factor:>12.2f} {integrated.profit_factor:>12.2f}"
+        )
+        print(
+            f"    {'MDD':>20} {current_all.max_drawdown * 100:>11.1f}% {integrated.max_drawdown * 100:>11.1f}%"
+        )
+        print(
+            f"    {'Expectancy':>20} {current_all.expectancy:>+12,.0f} {integrated.expectancy:>+12,.0f}"
+        )
+        print(
+            f"    {'총 PnL':>20} {current_all.total_pnl:>+12,.0f} {integrated.total_pnl:>+12,.0f}"
+        )
 
     # 6. 최종 추천 설정 출력
     print("\n" + "=" * 90)

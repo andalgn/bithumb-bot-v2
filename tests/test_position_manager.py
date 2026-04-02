@@ -37,8 +37,13 @@ def _make_tier_params(tier: Tier = Tier.TIER1) -> TierParams:
     """테스트용 TierParams."""
     mults = {Tier.TIER1: 1.5, Tier.TIER2: 1.0, Tier.TIER3: 0.6}
     return TierParams(
-        tier=tier, atr_pct=0.02, position_mult=mults[tier],
-        rsi_min=35, rsi_max=65, atr_stop_mult=2.5, spread_limit=0.002,
+        tier=tier,
+        atr_pct=0.02,
+        position_mult=mults[tier],
+        rsi_min=35,
+        rsi_max=65,
+        atr_stop_mult=2.5,
+        spread_limit=0.002,
     )
 
 

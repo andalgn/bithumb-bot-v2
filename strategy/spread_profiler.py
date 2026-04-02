@@ -115,10 +115,7 @@ class SpreadProfiler:
                 logger.info(
                     "SpreadProfiler 갱신: %d개 코인 (예: %s)",
                     len(new_cache),
-                    ", ".join(
-                        f"{s}={v:.4f}"
-                        for s, v in sorted(new_cache.items())[:3]
-                    ),
+                    ", ".join(f"{s}={v:.4f}" for s, v in sorted(new_cache.items())[:3]),
                 )
 
             return len(new_cache)

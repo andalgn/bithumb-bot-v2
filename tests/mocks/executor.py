@@ -1,4 +1,5 @@
 """MockOrderExecutor — OrderExecutor Protocol 구현체."""
+
 from __future__ import annotations
 
 

@@ -3,6 +3,7 @@
 15분마다 8개 항목을 점검하고, 건강 점수(0-100)를 산출하며,
 이상 발생 시 디스코드로 알림을 전송한다.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +12,9 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field
+from datetime import timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -228,7 +229,10 @@ class HealthMonitor:
                             alert.message,
                             {"level": alert.level, "source": "health_monitor"},
                         )
-                alerts_data = [{"level": a.level, "category": a.category, "message": a.message} for a in alerts_sent]
+                alerts_data = [
+                    {"level": a.level, "category": a.category, "message": a.message}
+                    for a in alerts_sent
+                ]
 
                 # 저장
                 results_data = [
@@ -273,13 +277,22 @@ class HealthMonitor:
         crit_sec = getattr(self._config, "heartbeat_critical_sec", 1800)
 
         if elapsed > crit_sec:
-            return CheckResult(name="heartbeat", status="critical",
-                               message=f"메인 루프 {elapsed:.0f}초 미응답", value=elapsed)
+            return CheckResult(
+                name="heartbeat",
+                status="critical",
+                message=f"메인 루프 {elapsed:.0f}초 미응답",
+                value=elapsed,
+            )
         if elapsed > warn_sec:
-            return CheckResult(name="heartbeat", status="warn",
-                               message=f"메인 루프 {elapsed:.0f}초 미응답", value=elapsed)
-        return CheckResult(name="heartbeat", status="ok",
-                           message=f"정상 ({elapsed:.0f}초 전)", value=elapsed)
+            return CheckResult(
+                name="heartbeat",
+                status="warn",
+                message=f"메인 루프 {elapsed:.0f}초 미응답",
+                value=elapsed,
+            )
+        return CheckResult(
+            name="heartbeat", status="ok", message=f"정상 ({elapsed:.0f}초 전)", value=elapsed
+        )
 
     # ─── Check 2: 이벤트 루프 지연 ───
 
@@ -290,13 +303,19 @@ class HealthMonitor:
         lag = time.monotonic() - t0 - 0.1
 
         if lag > 10.0:
-            return CheckResult(name="event_loop", status="critical",
-                               message=f"이벤트 루프 지연 {lag:.1f}초", value=lag)
+            return CheckResult(
+                name="event_loop",
+                status="critical",
+                message=f"이벤트 루프 지연 {lag:.1f}초",
+                value=lag,
+            )
         if lag > 3.0:
-            return CheckResult(name="event_loop", status="warn",
-                               message=f"이벤트 루프 지연 {lag:.1f}초", value=lag)
-        return CheckResult(name="event_loop", status="ok",
-                           message=f"정상 (지연 {lag:.2f}초)", value=lag)
+            return CheckResult(
+                name="event_loop", status="warn", message=f"이벤트 루프 지연 {lag:.1f}초", value=lag
+            )
+        return CheckResult(
+            name="event_loop", status="ok", message=f"정상 (지연 {lag:.2f}초)", value=lag
+        )
 
     # ─── Check 3: API 연결 ───
 
@@ -316,17 +335,28 @@ class HealthMonitor:
             self._api_consecutive_fails = 0
 
             if latency > 2.0:
-                return CheckResult(name="api", status="warn",
-                                   message=f"API 응답 지연 ({latency:.1f}초)", value=latency)
-            return CheckResult(name="api", status="ok",
-                               message=f"정상 ({latency:.2f}초)", value=latency)
+                return CheckResult(
+                    name="api",
+                    status="warn",
+                    message=f"API 응답 지연 ({latency:.1f}초)",
+                    value=latency,
+                )
+            return CheckResult(
+                name="api", status="ok", message=f"정상 ({latency:.2f}초)", value=latency
+            )
         except Exception as e:
             self._api_consecutive_fails += 1
             if self._api_consecutive_fails >= fail_limit:
-                return CheckResult(name="api", status="critical",
-                                   message=f"API 연속 {self._api_consecutive_fails}회 실패: {e}")
-            return CheckResult(name="api", status="warn",
-                               message=f"API 실패 ({self._api_consecutive_fails}회): {e}")
+                return CheckResult(
+                    name="api",
+                    status="critical",
+                    message=f"API 연속 {self._api_consecutive_fails}회 실패: {e}",
+                )
+            return CheckResult(
+                name="api",
+                status="warn",
+                message=f"API 실패 ({self._api_consecutive_fails}회): {e}",
+            )
 
     # ─── Check 4: 데이터 신선도 ───
 
@@ -344,13 +374,22 @@ class HealthMonitor:
         crit_min = getattr(self._config, "data_freshness_critical_min", 40)
 
         if age_min > crit_min:
-            return CheckResult(name="data_freshness", status="critical",
-                               message=f"데이터 {age_min:.0f}분 경과", value=age_min)
+            return CheckResult(
+                name="data_freshness",
+                status="critical",
+                message=f"데이터 {age_min:.0f}분 경과",
+                value=age_min,
+            )
         if age_min > warn_min:
-            return CheckResult(name="data_freshness", status="warn",
-                               message=f"데이터 {age_min:.0f}분 경과", value=age_min)
-        return CheckResult(name="data_freshness", status="ok",
-                           message=f"정상 ({age_min:.0f}분 전)", value=age_min)
+            return CheckResult(
+                name="data_freshness",
+                status="warn",
+                message=f"데이터 {age_min:.0f}분 경과",
+                value=age_min,
+            )
+        return CheckResult(
+            name="data_freshness", status="ok", message=f"정상 ({age_min:.0f}분 전)", value=age_min
+        )
 
     # ─── Check 5: 포지션 정합성 ───
 
@@ -381,12 +420,14 @@ class HealthMonitor:
                 msg = "포지션 drift: " + ", ".join(drifts)
                 return CheckResult(name="reconciliation", status="critical", message=msg)
             return CheckResult(
-                name="reconciliation", status="ok",
+                name="reconciliation",
+                status="ok",
                 message=f"정합성 정상 ({len(positions)}종)",
             )
         except Exception as e:
-            return CheckResult(name="reconciliation", status="warn",
-                               message=f"정합성 검사 실패: {e}")
+            return CheckResult(
+                name="reconciliation", status="warn", message=f"정합성 검사 실패: {e}"
+            )
 
     # ─── Check 6: 시스템 리소스 ───
 
@@ -405,7 +446,9 @@ class HealthMonitor:
             disk_pct = disk.used / disk.total * 100
 
             # WAL 파일 크기
-            wal_path = (str(self._journal._db_path) + "-wal") if self._journal else "data/journal.db-wal"
+            wal_path = (
+                (str(self._journal._db_path) + "-wal") if self._journal else "data/journal.db-wal"
+            )
             wal_mb = os.path.getsize(wal_path) / (1024 * 1024) if os.path.exists(wal_path) else 0
 
             warn_mem = getattr(self._config, "memory_warn_pct", 70)
@@ -428,14 +471,18 @@ class HealthMonitor:
                     status = "warn"
 
             if issues:
-                return CheckResult(name="system_resources", status=status, message=", ".join(issues))
+                return CheckResult(
+                    name="system_resources", status=status, message=", ".join(issues)
+                )
             return CheckResult(
-                name="system_resources", status="ok",
+                name="system_resources",
+                status="ok",
                 message=f"메모리 {mem_pct:.0f}%, 디스크 {disk_pct:.0f}%",
             )
         except Exception as e:
-            return CheckResult(name="system_resources", status="warn",
-                               message=f"리소스 확인 실패: {e}")
+            return CheckResult(
+                name="system_resources", status="warn", message=f"리소스 확인 실패: {e}"
+            )
 
     # ─── Check 7: 거래 지표 ───
 
@@ -448,10 +495,7 @@ class HealthMonitor:
             consec = self._journal.get_consecutive_losses()
             trades = self._journal.get_recent_trades(limit=50)
             today_start = time.time() - 86400
-            today_trades = [
-                t for t in trades
-                if (t.get("exit_time", 0) or 0) / 1000 > today_start
-            ]
+            today_trades = [t for t in trades if (t.get("exit_time", 0) or 0) / 1000 > today_start]
             daily_pnl = sum(t.get("net_pnl_krw", 0) or 0 for t in today_trades)
 
             warn_dd = getattr(self._config, "daily_dd_warn_pct", 2.0)
@@ -504,12 +548,14 @@ class HealthMonitor:
             if issues:
                 return CheckResult(name="trading_metrics", status=status, message=", ".join(issues))
             return CheckResult(
-                name="trading_metrics", status="ok",
+                name="trading_metrics",
+                status="ok",
                 message=f"연속손실 {consec}회, 금일 {len(today_trades)}건",
             )
         except Exception as e:
-            return CheckResult(name="trading_metrics", status="warn",
-                               message=f"지표 확인 실패: {e}")
+            return CheckResult(
+                name="trading_metrics", status="warn", message=f"지표 확인 실패: {e}"
+            )
 
     def _trigger_auto_fix(self, strategy: str, reason: str) -> None:
         """전략 자동 수정 스크립트를 비동기적으로 실행한다.
@@ -525,7 +571,8 @@ class HealthMonitor:
                     if time.time() - last_run < 7 * 86400:
                         logger.info(
                             "auto-fix skipped (cooldown): strategy=%s reason=%s",
-                            strategy, reason,
+                            strategy,
+                            reason,
                         )
                         return
                 except (ValueError, OSError):
@@ -537,9 +584,8 @@ class HealthMonitor:
                 start_new_session=True,
             )
             logger.info("auto-fix triggered: strategy=%s reason=%s", strategy, reason)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("auto-fix 실행 실패 (무시)")
-
 
     # ─── Check 10: 자본 활용률 ───
 
@@ -572,7 +618,8 @@ class HealthMonitor:
                 if self._low_util_since == 0:
                     self._low_util_since = now
                     return CheckResult(
-                        name="utilization", status="ok",
+                        name="utilization",
+                        status="ok",
                         message=f"저활용 시작: {util_pct:.1f}% (임계값 {warn_threshold}%)",
                         value=util_pct,
                     )
@@ -580,12 +627,14 @@ class HealthMonitor:
                 elapsed_h = (now - self._low_util_since) / 3600
                 if elapsed_h >= warn_duration_h:
                     return CheckResult(
-                        name="utilization", status="warn",
+                        name="utilization",
+                        status="warn",
                         message=f"활용률 {util_pct:.1f}% < {warn_threshold}% ({elapsed_h:.1f}h 지속)",
                         value=util_pct,
                     )
                 return CheckResult(
-                    name="utilization", status="ok",
+                    name="utilization",
+                    status="ok",
                     message=f"저활용: {util_pct:.1f}% ({elapsed_h:.1f}h/{warn_duration_h}h)",
                     value=util_pct,
                 )
@@ -593,13 +642,15 @@ class HealthMonitor:
                 # 활용률이 정상으로 돌아옴
                 self._low_util_since = 0
                 return CheckResult(
-                    name="utilization", status="ok",
+                    name="utilization",
+                    status="ok",
                     message=f"정상: {util_pct:.1f}% > {warn_threshold}%",
                     value=util_pct,
                 )
         except Exception as e:
             return CheckResult(
-                name="utilization", status="warn",
+                name="utilization",
+                status="warn",
                 message=f"활용률 점검 실패: {e}",
             )
 
@@ -656,25 +707,36 @@ class HealthMonitor:
                 return CheckResult(name="balance_check", status="warn", message=msg)
 
             return CheckResult(
-                name="balance_check", status="ok",
+                name="balance_check",
+                status="ok",
                 message=f"잔고 정합성 정상 ({len(positions)}종 추적)",
             )
         except Exception as e:
             return CheckResult(
-                name="balance_check", status="warn",
+                name="balance_check",
+                status="warn",
                 message=f"잔고 점검 실패: {e}",
             )
 
     # ─── 자동 진단 시스템 ───
 
     # Tier 분류 규칙
-    _TIER3_PATTERNS = frozenset({
-        "reconciliation_drift", "balance_mismatch", "mdd_exceeded",
-        "consecutive_loss_critical", "daily_dd_critical",
-    })
-    _TIER1_PATTERNS = frozenset({
-        "api_timeout", "network_error", "data_fetch_single",
-    })
+    _TIER3_PATTERNS = frozenset(
+        {
+            "reconciliation_drift",
+            "balance_mismatch",
+            "mdd_exceeded",
+            "consecutive_loss_critical",
+            "daily_dd_critical",
+        }
+    )
+    _TIER1_PATTERNS = frozenset(
+        {
+            "api_timeout",
+            "network_error",
+            "data_fetch_single",
+        }
+    )
 
     _diagnosis_cooldown: dict[str, float] = {}
     _DIAGNOSIS_COOLDOWN_SEC = 1800  # 30분
@@ -731,11 +793,16 @@ class HealthMonitor:
         task = asyncio.create_task(self._run_diagnosis(error_type, details, ctx, tier))
         task.add_done_callback(
             lambda t: logger.exception("진단 태스크 실패: %s", t.exception())
-            if t.exception() else None
+            if t.exception()
+            else None
         )
 
     async def _run_diagnosis(
-        self, error_type: str, details: str, context: dict, tier: int,
+        self,
+        error_type: str,
+        details: str,
+        context: dict,
+        tier: int,
     ) -> None:
         """DeepSeek API로 오류를 진단하고 결과를 Discord에 보고한다."""
         try:
@@ -743,6 +810,7 @@ class HealthMonitor:
             recent_events = ""
             try:
                 import sqlite3
+
                 db_path = str(Path(__file__).resolve().parent.parent / "data" / "journal.db")
                 conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
@@ -754,7 +822,16 @@ class HealthMonitor:
                 if rows:
                     lines = []
                     for r in rows:
-                        lines.append("  " + r["kst"] + " " + r["event_type"] + " " + r["symbol"] + " " + r["data_json"][:100])
+                        lines.append(
+                            "  "
+                            + r["kst"]
+                            + " "
+                            + r["event_type"]
+                            + " "
+                            + r["symbol"]
+                            + " "
+                            + r["data_json"][:100]
+                        )
                     recent_events = "\n".join(lines)
                 conn.close()
             except Exception:
@@ -780,12 +857,11 @@ class HealthMonitor:
                 "- 상세: " + details + "\n"
                 "- 컨텍스트: " + str(context) + "\n"
                 "- 심각도: Tier " + str(tier) + "\n\n"
-                "## 최근 파이프라인 이벤트\n"
-                + (recent_events or "(없음)") + "\n\n"
+                "## 최근 파이프라인 이벤트\n" + (recent_events or "(없음)") + "\n\n"
                 "## 답변 규칙\n"
-                "1. 위 \'이미 구현된 안전장치\'에 해당하는 문제면 → \'기존 로직으로 처리됨. 추가 조치 불필요.\' 라고 답하라\n"
+                "1. 위 '이미 구현된 안전장치'에 해당하는 문제면 → '기존 로직으로 처리됨. 추가 조치 불필요.' 라고 답하라\n"
                 "2. 새로운 문제면 → 근본 원인 + 구체적 수정안 제시 (파일명/함수명 포함)\n"
-                "3. 확실하지 않으면 → \'관찰 필요\'로 분류하라\n"
+                "3. 확실하지 않으면 → '관찰 필요'로 분류하라\n"
                 "4. 존재하지 않는 파일/함수를 추측하여 제안하지 마라\n\n"
                 "## 출력 형식 (최대 8줄)\n"
                 "📋 근본 원인: (1줄)\n"
@@ -848,17 +924,20 @@ class HealthMonitor:
             # 사이징까지 도달한 시그널 수 (risk/corr 거절 제외)
             total_signals = sizing_done + risk_rejected + corr_rejected
             # 사이징 통과율 (size_krw > 0 → order_filled)
-            sizing_zero = sizing_done - filled  # sizing은 했지만 체결 안 된 수
+            _sizing_zero = sizing_done - filled  # sizing은 했지만 체결 안 된 수
 
             if total_signals == 0:
                 return CheckResult(
-                    name="pipeline", status="ok",
-                    message="시그널 없음 (4h)", value=0,
+                    name="pipeline",
+                    status="ok",
+                    message="시그널 없음 (4h)",
+                    value=0,
                 )
 
             if sizing_done == 0:
                 return CheckResult(
-                    name="pipeline", status="ok",
+                    name="pipeline",
+                    status="ok",
                     message=f"사이징 도달 0건 (risk거절 {risk_rejected}, corr거절 {corr_rejected})",
                 )
 
@@ -867,24 +946,28 @@ class HealthMonitor:
             # 사이징까지 도달했는데 전부 0원 → 파이프라인 교착
             if filled == 0 and sizing_done >= 5:
                 return CheckResult(
-                    name="pipeline", status="critical",
+                    name="pipeline",
+                    status="critical",
                     message=f"파이프라인 교착: 사이징 {sizing_done}건 전부 미진입 (4h)",
                     value=conversion,
                 )
             if filled == 0 and sizing_done >= 2:
                 return CheckResult(
-                    name="pipeline", status="warn",
+                    name="pipeline",
+                    status="warn",
                     message=f"전환율 0%: 사이징 {sizing_done}건, 체결 0건 (4h)",
                     value=conversion,
                 )
 
             return CheckResult(
-                name="pipeline", status="ok",
+                name="pipeline",
+                status="ok",
                 message=f"전환율 {conversion:.0%}: 사이징 {sizing_done}→체결 {filled} (4h)",
                 value=conversion,
             )
         except Exception as e:
             return CheckResult(
-                name="pipeline", status="warn",
+                name="pipeline",
+                status="warn",
                 message=f"파이프라인 점검 실패: {e}",
             )

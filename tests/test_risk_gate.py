@@ -7,8 +7,8 @@ import pytest
 from app.data_types import OrderSide, Regime, Signal, Strategy, Tier
 from execution.quarantine import QuarantineManager
 from risk.dd_limits import DDLimits
-from strategy.spread_profiler import SpreadProfiler
 from risk.risk_gate import RiskGate
+from strategy.spread_profiler import SpreadProfiler
 
 
 def _make_signal(

@@ -107,9 +107,7 @@ class CoinProfiler:
         self._profiles[symbol] = params
         return params
 
-    def classify_all(
-        self, candles_map: dict[str, list[Candle]]
-    ) -> dict[str, TierParams]:
+    def classify_all(self, candles_map: dict[str, list[Candle]]) -> dict[str, TierParams]:
         """전체 코인을 분류한다.
 
         Args:

@@ -15,7 +15,7 @@
 ## 2. Walk-Forward 검증 (매일 자동)
 
 ### 개념
-과거 데이터를 여러 구간으로 나눠 순차적으로 "훈련→검증"을 반복. 
+과거 데이터를 여러 구간으로 나눠 순차적으로 "훈련→검증"을 반복.
 모든 구간에서 수익이 나야 견고한 파라미터.
 
 ### 구현
@@ -110,7 +110,7 @@ for param_name, base_value in current_params.items():
         test_params[param_name] = base_value * (1 + delta)
         perf = backtest(test_params, days=30)
         results.append(perf.sharpe)
-    
+
     sensitivity = std(results) / mean(results)  # 변동계수
     # sensitivity > 0.3이면 "민감" → 주의
     # sensitivity < 0.1이면 "견고" → 안심

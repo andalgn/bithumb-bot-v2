@@ -12,14 +12,16 @@ def _make_candles(base: float, count: int, trend: float = 0.0) -> list[Candle]:
     price = base
     for i in range(count):
         price += trend
-        candles.append(Candle(
-            timestamp=1000 * (i + 1),
-            open=price,
-            high=price * 1.01,
-            low=price * 0.99,
-            close=price,
-            volume=1000.0,
-        ))
+        candles.append(
+            Candle(
+                timestamp=1000 * (i + 1),
+                open=price,
+                high=price * 1.01,
+                low=price * 0.99,
+                close=price,
+                volume=1000.0,
+            )
+        )
     return candles
 
 

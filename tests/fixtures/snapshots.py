@@ -1,4 +1,5 @@
 """FrozenStrategyInput — StrategyInputProvider Protocol 구현체."""
+
 from __future__ import annotations
 
 from app.data_types import Candle, MarketSnapshot, Orderbook, OrderbookEntry
@@ -18,15 +19,17 @@ def _resample_to_1h(candles_15m: list[Candle]) -> list[Candle]:
     """15분봉 4개를 1시간봉 1개로 리샘플링한다."""
     result = []
     for i in range(0, len(candles_15m) - 3, 4):
-        chunk = candles_15m[i:i + 4]
-        result.append(Candle(
-            timestamp=chunk[0].timestamp,
-            open=chunk[0].open,
-            high=max(c.high for c in chunk),
-            low=min(c.low for c in chunk),
-            close=chunk[-1].close,
-            volume=sum(c.volume for c in chunk),
-        ))
+        chunk = candles_15m[i : i + 4]
+        result.append(
+            Candle(
+                timestamp=chunk[0].timestamp,
+                open=chunk[0].open,
+                high=max(c.high for c in chunk),
+                low=min(c.low for c in chunk),
+                close=chunk[-1].close,
+                volume=sum(c.volume for c in chunk),
+            )
+        )
     return result
 
 

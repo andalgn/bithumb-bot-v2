@@ -2,6 +2,7 @@
 
 거래 진입 전 시장 환경이 적합한지 판정한다.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone  # noqa: F401 (datetime: test mock 대상)

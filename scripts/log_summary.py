@@ -122,6 +122,7 @@ def get_journal_summary() -> dict:
 
     try:
         import sqlite3
+
         conn = sqlite3.connect(str(JOURNAL_PATH))
         conn.row_factory = sqlite3.Row
 
@@ -130,15 +131,11 @@ def get_journal_summary() -> dict:
         summary["total_trades"] = row[0] if row else 0
 
         # 전체 PnL
-        row = conn.execute(
-            "SELECT COALESCE(SUM(net_pnl_krw), 0) FROM trades"
-        ).fetchone()
+        row = conn.execute("SELECT COALESCE(SUM(net_pnl_krw), 0) FROM trades").fetchone()
         summary["total_pnl"] = row[0] if row else 0
 
         # 오늘 거래
-        today_start = int(
-            datetime.now().replace(hour=0, minute=0, second=0).timestamp() * 1000
-        )
+        today_start = int(datetime.now().replace(hour=0, minute=0, second=0).timestamp() * 1000)
         row = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(net_pnl_krw), 0) FROM trades WHERE exit_time >= ?",
             (today_start,),
@@ -154,7 +151,7 @@ def get_journal_summary() -> dict:
         summary["active_positions"] = row[0] if row else 0
 
         conn.close()
-    except Exception:  # noqa: BLE001 — 스크립트 최상위 가드
+    except Exception:
         pass
 
     return summary
@@ -164,10 +161,10 @@ def format_summary(stats: dict, journal: dict, hours: int | None) -> str:
     """요약을 포맷한다."""
     period = f"최근 {hours}시간" if hours else "전체"
     lines = [
-        f"{'='*50}",
+        f"{'=' * 50}",
         f"  봇 모니터링 요약 ({period})",
         f"  {stats['first_ts']} ~ {stats['last_ts']}",
-        f"{'='*50}",
+        f"{'=' * 50}",
     ]
 
     # 사이클 & 신호
@@ -202,7 +199,7 @@ def format_summary(stats: dict, journal: dict, hours: int | None) -> str:
     lines.append(f"  경고: {stats['warnings']}건")
     lines.append(f"  로그: {stats['total_lines']}줄")
 
-    lines.append(f"{'='*50}")
+    lines.append(f"{'=' * 50}")
     return "\n".join(lines)
 
 

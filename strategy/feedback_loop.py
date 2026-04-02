@@ -1,4 +1,5 @@
 """FeedbackLoop — 거래 실패 패턴을 집계하고 가설을 생성한다."""
+
 from __future__ import annotations
 
 import json
@@ -20,11 +21,11 @@ DAY_MS = 86400 * 1000
 class FailurePattern:
     """반복되는 거래 실패 패턴."""
 
-    tag: str               # TradeTag 값
-    strategy: str          # 전략명 (rule_engine strategy)
-    regime: str            # 국면
-    count: int             # 발생 횟수
-    avg_loss_krw: float    # 평균 손실 (원)
+    tag: str  # TradeTag 값
+    strategy: str  # 전략명 (rule_engine strategy)
+    regime: str  # 국면
+    count: int  # 발생 횟수
+    avg_loss_krw: float  # 평균 손실 (원)
     total_loss_krw: float  # 총 손실 (원)
 
 
@@ -63,7 +64,8 @@ class FeedbackLoop:
 
         # 기간 필터 + 실패 태그 필터
         failed = [
-            t for t in trades
+            t
+            for t in trades
             if (t.get("exit_time") or 0) >= cutoff_ms
             and t.get("tag", "untagged") not in _EXCLUDED_TAGS
         ]

@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-
 from app.config import BacktestConfig
 from backtesting.daemon import BacktestDaemon
 
@@ -15,9 +14,7 @@ def test_auto_optimize_disabled():
     config = BacktestConfig(auto_optimize_enabled=False)
     journal = MagicMock()
     daemon = BacktestDaemon(journal=journal, config=config)
-    result = asyncio.get_event_loop().run_until_complete(
-        daemon._run_auto_optimize()
-    )
+    result = asyncio.get_event_loop().run_until_complete(daemon._run_auto_optimize())
     assert result == []
 
 
@@ -25,9 +22,7 @@ def test_auto_optimize_no_store():
     """store 없으면 최적화를 건너뛴다."""
     journal = MagicMock()
     daemon = BacktestDaemon(journal=journal)
-    result = asyncio.get_event_loop().run_until_complete(
-        daemon._run_auto_optimize()
-    )
+    result = asyncio.get_event_loop().run_until_complete(daemon._run_auto_optimize())
     assert result == []
 
 
@@ -35,9 +30,7 @@ def test_collect_candles_no_store():
     """store 없으면 데이터 수집을 건너뛴다."""
     journal = MagicMock()
     daemon = BacktestDaemon(journal=journal)
-    result = asyncio.get_event_loop().run_until_complete(
-        daemon._collect_candles()
-    )
+    result = asyncio.get_event_loop().run_until_complete(daemon._collect_candles())
     assert result == 0
 
 
@@ -67,9 +60,7 @@ def test_propose_via_approval_creates_pending():
         "trades": 50,
     }
 
-    asyncio.get_event_loop().run_until_complete(
-        daemon._propose_via_approval(candidate)
-    )
+    asyncio.get_event_loop().run_until_complete(daemon._propose_via_approval(candidate))
 
     pending = approval.list_pending()
     assert len(pending) == 1
@@ -90,9 +81,7 @@ def test_propose_via_approval_skips_without_approval():
     }
 
     # Should not raise
-    asyncio.get_event_loop().run_until_complete(
-        daemon._propose_via_approval(candidate)
-    )
+    asyncio.get_event_loop().run_until_complete(daemon._propose_via_approval(candidate))
 
 
 def test_parse_time():

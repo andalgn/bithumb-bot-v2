@@ -16,6 +16,7 @@ def _load_dotenv(env_path: Path) -> None:
         return
     try:
         from dotenv import load_dotenv  # type: ignore[import]
+
         load_dotenv(dotenv_path=env_path, override=False)
     except ImportError:
         # python-dotenv가 없으면 직접 파싱한다
@@ -115,13 +116,14 @@ def main() -> int:
 
     try:
         import time
+
         for i, chunk in enumerate(chunks):
             _send_webhook(webhook_url, chunk)
             if i < len(chunks) - 1:
                 time.sleep(0.5)  # Discord rate-limit 방지
         print(f"sent {len(chunks)} chunks")
         return 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

@@ -96,8 +96,7 @@ class TestParseProposal:
         """raw JSON 형식 파싱."""
         ar = _make_researcher()
         content = (
-            '{"params": {"tp_rr": 3.0}, "hypothesis": "TP 확대", '
-            '"expected_impact": "수익 증가"}'
+            '{"params": {"tp_rr": 3.0}, "hypothesis": "TP 확대", "expected_impact": "수익 증가"}'
         )
         result = ar._parse_proposal(content)
         assert result is not None

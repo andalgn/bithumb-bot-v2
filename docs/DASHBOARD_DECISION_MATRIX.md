@@ -488,4 +488,3 @@ Result:
 ---
 
 **This is your path forward for bithumb-bot-v2 dashboard implementation.**
-

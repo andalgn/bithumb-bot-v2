@@ -96,7 +96,10 @@ class TestPartialExitStrategyB:
         pos = _make_position(strategy=Strategy.MEAN_REVERSION)
         em.init_position("BTC")
         decision = em.evaluate(
-            pos, 51_000_000, atr_value=500_000, bb_middle=50_800_000,
+            pos,
+            51_000_000,
+            atr_value=500_000,
+            bb_middle=50_800_000,
         )
         assert decision.action == ExitAction.PARTIAL_EXIT
         assert decision.exit_ratio == pytest.approx(0.5)
@@ -115,7 +118,8 @@ class TestPartialExitStrategyCD:
     def test_scalping_fixed_tp(self, em: PartialExitManager) -> None:
         """전략 D 고정 TP 1.5%."""
         pos = _make_position(
-            strategy=Strategy.SCALPING, entry_price=50_000_000,
+            strategy=Strategy.SCALPING,
+            entry_price=50_000_000,
         )
         pos.stop_loss = 50_000_000 * 0.992  # 0.8% SL
         em.init_position("BTC")
@@ -239,7 +243,7 @@ class TestRollbackPartialExit:
 
         for i in range(3):
             d = em.evaluate(pos, 103_500, atr_value=2000, bb_middle=bb_mid)
-            assert d.action == ExitAction.PARTIAL_EXIT, f"시도 {i+1} 실패"
+            assert d.action == ExitAction.PARTIAL_EXIT, f"시도 {i + 1} 실패"
             em.rollback_partial_exit("SOL")
 
         # 4차: 한도 초과 → 더 이상 부분청산 안 됨

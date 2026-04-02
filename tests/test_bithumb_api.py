@@ -47,8 +47,7 @@ async def test_get_candlestick(client: BithumbClient) -> None:
 @pytest.mark.asyncio
 async def test_multiple_coins(client: BithumbClient) -> None:
     """10개 코인 현재가 조회 성공."""
-    coins = ["BTC", "ETH", "XRP", "SOL", "RENDER",
-             "VIRTUAL", "EIGEN", "ONDO", "TAO", "LDO"]
+    coins = ["BTC", "ETH", "XRP", "SOL", "RENDER", "VIRTUAL", "EIGEN", "ONDO", "TAO", "LDO"]
     for coin in coins:
         try:
             data = await client.get_ticker(coin)

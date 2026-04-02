@@ -73,9 +73,7 @@ class TestShadowRecord:
 
         # 최소 1개 Shadow에서 trade_count > 0
         has_trades = any(
-            p.trade_count > 0
-            for p in engine.performances.values()
-            if p.shadow_id != "champion"
+            p.trade_count > 0 for p in engine.performances.values() if p.shadow_id != "champion"
         )
         assert has_trades
 
@@ -285,14 +283,13 @@ class TestCompositeScore8Metrics:
             )
         ]
         # 사이클1: 진입
-        engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=50_000_000)}, signals)
+        engine.record_cycle(
+            {"BTC": MarketSnapshot(symbol="BTC", current_price=50_000_000)}, signals
+        )
         # 사이클2: SL 아래로 가격 하락 → 손실 청산
         engine.record_cycle({"BTC": MarketSnapshot(symbol="BTC", current_price=48_000_000)}, [])
         # 손실이 발생한 Shadow는 max_consecutive_loss >= 1이어야 함
-        loss_shadows = [
-            perf for perf in engine.performances.values()
-            if perf.trade_count > 0
-        ]
+        loss_shadows = [perf for perf in engine.performances.values() if perf.trade_count > 0]
         assert loss_shadows, "손실 거래가 발생한 Shadow가 없음"
         for perf in loss_shadows:
             assert isinstance(perf.max_consecutive_loss, int)
@@ -311,8 +308,14 @@ class TestRegimeAwareMutation:
         base = ShadowParams(shadow_id="base", mr_sl_mult=6.0, cutoff=72.0)
         n_trials = 200
 
-        crisis_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.CRISIS).mr_sl_mult for _ in range(n_trials)]
-        range_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult for _ in range(n_trials)]
+        crisis_mr_sl = [
+            engine._mutate(base, variation=0.2, group="moderate", regime=Regime.CRISIS).mr_sl_mult
+            for _ in range(n_trials)
+        ]
+        range_mr_sl = [
+            engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult
+            for _ in range(n_trials)
+        ]
 
         crisis_std = statistics.stdev(crisis_mr_sl)
         range_std = statistics.stdev(range_mr_sl)
@@ -328,8 +331,16 @@ class TestRegimeAwareMutation:
         base = ShadowParams(shadow_id="base", mr_sl_mult=6.0, cutoff=72.0)
         n_trials = 200
 
-        strong_up_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.STRONG_UP).mr_sl_mult for _ in range(n_trials)]
-        range_mr_sl = [engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult for _ in range(n_trials)]
+        strong_up_mr_sl = [
+            engine._mutate(
+                base, variation=0.2, group="moderate", regime=Regime.STRONG_UP
+            ).mr_sl_mult
+            for _ in range(n_trials)
+        ]
+        range_mr_sl = [
+            engine._mutate(base, variation=0.2, group="moderate", regime=Regime.RANGE).mr_sl_mult
+            for _ in range(n_trials)
+        ]
 
         strong_up_std = statistics.stdev(strong_up_mr_sl)
         range_std = statistics.stdev(range_mr_sl)
@@ -368,6 +379,7 @@ class TestInjectShadow:
     def test_inject_shadow_returns_unique_id(self, engine: DarwinEngine) -> None:
         """연속 주입 시 고유한 shadow_id가 반환된다."""
         import time as _time
+
         params = ShadowParams(cutoff=65.0, group="moderate")
         id1 = engine.inject_shadow(params, source="feedback")
         _time.sleep(0.001)
@@ -391,7 +403,14 @@ class TestDiversityEnforcement:
 
     def test_calc_diversity_identical_population(self, engine: DarwinEngine) -> None:
         """동일한 파라미터로 채운 집단의 다양성은 0에 가깝다."""
-        identical = ShadowParams(shadow_id="x", mr_sl_mult=6.0, mr_tp_rr=2.0, dca_sl_pct=0.05, dca_tp_pct=0.03, cutoff=72.0)
+        identical = ShadowParams(
+            shadow_id="x",
+            mr_sl_mult=6.0,
+            mr_tp_rr=2.0,
+            dca_sl_pct=0.05,
+            dca_tp_pct=0.03,
+            cutoff=72.0,
+        )
         for i, shadow in enumerate(engine._shadows):
             engine._shadows[i] = ShadowParams(
                 shadow_id=shadow.shadow_id,
@@ -408,7 +427,9 @@ class TestDiversityEnforcement:
     def test_diversity_enforcement_injects_random(self, engine: DarwinEngine) -> None:
         """다양성이 낮으면 랜덤 파라미터를 주입한다."""
         # 모든 Shadow를 동일하게 설정하여 다양성 0으로 만듦
-        identical = ShadowParams(mr_sl_mult=6.0, mr_tp_rr=2.0, dca_sl_pct=0.05, dca_tp_pct=0.03, cutoff=72.0)
+        identical = ShadowParams(
+            mr_sl_mult=6.0, mr_tp_rr=2.0, dca_sl_pct=0.05, dca_tp_pct=0.03, cutoff=72.0
+        )
         for i, shadow in enumerate(engine._shadows):
             engine._shadows[i] = ShadowParams(
                 shadow_id=shadow.shadow_id,

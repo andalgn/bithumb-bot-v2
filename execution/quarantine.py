@@ -102,9 +102,7 @@ class QuarantineManager:
             "global_last_failure": self._state.global_last_failure,
             "auth_until": self._state.auth_until,
         }
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=str(self._state_path.parent), suffix=".tmp"
-        )
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(self._state_path.parent), suffix=".tmp")
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)

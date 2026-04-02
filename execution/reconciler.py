@@ -72,12 +72,9 @@ class Reconciler:
                     contracts = detail.get("contract", [])
                     if contracts:
                         total_price = sum(
-                            float(c.get("price", 0)) * float(c.get("units", 0))
-                            for c in contracts
+                            float(c.get("price", 0)) * float(c.get("units", 0)) for c in contracts
                         )
-                        total_units = sum(
-                            float(c.get("units", 0)) for c in contracts
-                        )
+                        total_units = sum(float(c.get("units", 0)) for c in contracts)
                         if total_units > 0:
                             ticket.filled_price = total_price / total_units
                             ticket.filled_qty = total_units
@@ -95,21 +92,15 @@ class Reconciler:
                 try:
                     orders_data = await self._client.get_orders(coin)
                     if isinstance(orders_data, list):
-                        exchange_ids = {
-                            str(o.get("order_id", "")) for o in orders_data
-                        }
+                        exchange_ids = {str(o.get("order_id", "")) for o in orders_data}
                         local_ids = {
-                            t.exchange_order_id
-                            for t in active_tickets
-                            if t.symbol == coin
+                            t.exchange_order_id for t in active_tickets if t.symbol == coin
                         }
                         unknown_ids = exchange_ids - local_ids - {""}
                         if unknown_ids:
                             unknown += len(unknown_ids)
                             self.unknown_orders.extend(unknown_ids)
-                            logger.warning(
-                                "미지의 주문 발견: %s — %s", coin, unknown_ids
-                            )
+                            logger.warning("미지의 주문 발견: %s — %s", coin, unknown_ids)
                 except (BithumbAPIError, DataFetchError) as exc:
                     logger.debug("미체결 주문 조회 실패: %s — %s", coin, exc)
 

@@ -140,6 +140,7 @@ class PositionManager:
 
         # 심야 시간대 Tier3 사이징 30% 축소 (D_적극 시나리오: 차단 대신 축소)
         from datetime import datetime, timedelta, timezone
+
         _kst = timezone(timedelta(hours=9))
         _now = datetime.now(_kst)
         if 0 <= _now.hour < 6 and tier_params.tier == Tier.TIER3:

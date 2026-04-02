@@ -407,20 +407,22 @@ class ReviewEngine:
 
         # DeepSeek API 호출
         suggestions = await self._call_deepseek(
-                strategy_stats=strategy_stats,
-                shadow_top3=shadow_top3,
-                wf_verdict=wf_verdict,
-                mc_p5=mc_p5,
-                mc_mdd=mc_mdd,
-                sensitive_params=sensitive_params,
-                corr_pairs=corr_pairs,
-                lessons_section=lessons_section,
-            )
+            strategy_stats=strategy_stats,
+            shadow_top3=shadow_top3,
+            wf_verdict=wf_verdict,
+            mc_p5=mc_p5,
+            mc_mdd=mc_mdd,
+            sensitive_params=sensitive_params,
+            corr_pairs=corr_pairs,
+            lessons_section=lessons_section,
+        )
         result.deepseek_suggestions = suggestions
 
         # 주간 인사이트 저장 (EvolutionOrchestrator Phase 3 컨텍스트용)
         insight = self._build_weekly_insight(
-            strategy_stats, suggestions, week_trades,
+            strategy_stats,
+            suggestions,
+            week_trades,
         )
         result.weekly_insight = insight
         self._store_weekly_insight(insight)
@@ -508,10 +510,6 @@ class ReviewEngine:
                     pass
         return suggestions
 
-
-
-
-
     def _build_weekly_insight(
         self,
         strategy_stats: dict,
@@ -543,8 +541,7 @@ class ReviewEngine:
             else:
                 # 기존 형식(param/action/delta) → 인사이트로 변환
                 insight["sensitive_params"] = [
-                    s.get("param", "") for s in suggestions
-                    if s.get("param")
+                    s.get("param", "") for s in suggestions if s.get("param")
                 ]
 
         # 전략 통계 기반 보강
@@ -581,7 +578,8 @@ class ReviewEngine:
         if not self._experiment_store:
             return None
         records = self._experiment_store.get_history(
-            source="weekly_insight", limit=1,
+            source="weekly_insight",
+            limit=1,
         )
         if records:
             return records[0].get("params") if isinstance(records[0], dict) else None
@@ -615,9 +613,7 @@ class ReviewEngine:
             if weak:
                 lines.append(f"약한 전략: {', '.join(weak)}")
         if result.deepseek_suggestions:
-            lines.append(
-                f"DeepSeek 분석: {len(result.deepseek_suggestions)}건 인사이트"
-            )
+            lines.append(f"DeepSeek 분석: {len(result.deepseek_suggestions)}건 인사이트")
 
         lines.append("=" * 20)
 
@@ -670,19 +666,23 @@ class ReviewEngine:
                 f"기대값 {exp:+,.0f}원/건)"
             )
 
-        lines = [
-            "━━━ 월간 리뷰 (" + month_key + ") ━━━",
-            "",
-            "▶ 30일 실적",
-            f"  총 거래: {total_count}건 (승{total_wins}/패{total_count - total_wins})",
-            f"  승률: {win_rate:.1f}%",
-            f"  Net PnL: {total_pnl:+,.0f}원",
-            "",
-            "▶ 전략별 성과",
-        ] + strat_lines + [
-            "",
-            "━━━━━━━━━━━━━━━━━━━━",
-        ]
+        lines = (
+            [
+                "━━━ 월간 리뷰 (" + month_key + ") ━━━",
+                "",
+                "▶ 30일 실적",
+                f"  총 거래: {total_count}건 (승{total_wins}/패{total_count - total_wins})",
+                f"  승률: {win_rate:.1f}%",
+                f"  Net PnL: {total_pnl:+,.0f}원",
+                "",
+                "▶ 전략별 성과",
+            ]
+            + strat_lines
+            + [
+                "",
+                "━━━━━━━━━━━━━━━━━━━━",
+            ]
+        )
 
         if self._notifier:
             await self._notifier.send("\n".join(lines), channel="report")

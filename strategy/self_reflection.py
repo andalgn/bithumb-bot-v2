@@ -1,9 +1,10 @@
 """SelfReflection — 거래 후 자동 반성 생성 모듈."""
+
 from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -104,7 +105,7 @@ class ReflectionStore:
             교훈 문자열 목록 (빈도순, 최대 5개)
         """
         reflections = self._journal.get_recent_reflections(limit=200)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         lessons: list[str] = []
         for r in reflections:
             created_at = r.get("created_at", "")
@@ -114,7 +115,7 @@ class ReflectionStore:
                 dt = datetime.fromisoformat(created_at)
                 # created_at이 timezone-naive이면 UTC로 간주
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 if dt < cutoff:
                     continue
             except ValueError:

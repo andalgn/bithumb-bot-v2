@@ -10,14 +10,19 @@ import asyncio
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import numpy as np
+if TYPE_CHECKING:
+    from app.cycle_data import MarketData
 
 import aiohttp
+import numpy as np
 
+from app.approval_workflow import ApprovalWorkflow
 from app.config import PROJECT_ROOT, AppConfig, load_config
 from app.data_types import OrderSide, OrderStatus, Pool, Position, Regime, RunMode, Strategy, Tier
-from app.errors import APIAuthError, BotError
+from app.errors import BotError
+from app.health_monitor import HealthMonitor
 from app.journal import Journal
 from app.notify import DiscordNotifier
 from app.storage import StateStorage
@@ -34,29 +39,28 @@ from market.normalizer import MIN_ORDER_KRW, normalize_price, normalize_qty
 from risk.dd_limits import DDLimits
 from risk.risk_gate import RiskGate
 from strategy.coin_profiler import CoinProfiler
+from strategy.coin_universe import CoinUniverse
 from strategy.correlation_monitor import CorrelationMonitor
 from strategy.darwin_engine import DarwinEngine
+from strategy.evolution_orchestrator import EvolutionOrchestrator
 from strategy.experiment_store import ExperimentStore
+from strategy.feedback_loop import FeedbackLoop
+from strategy.guard_agent import GuardAgent
 from strategy.indicators import compute_indicators
+from strategy.momentum_ranker import MomentumRanker
 from strategy.pool_manager import PoolManager
 from strategy.position_manager import PositionManager, SizingResult
 from strategy.promotion_manager import PromotionManager
 from strategy.review_engine import ReviewEngine
-from strategy.feedback_loop import FeedbackLoop
 from strategy.rule_engine import RuleEngine
-from strategy.spread_profiler import SpreadProfiler
-from strategy.trade_tagger import tag_trade
 from strategy.self_reflection import ReflectionStore
-from strategy.coin_universe import CoinUniverse
-from strategy.momentum_ranker import MomentumRanker
-from app.health_monitor import HealthMonitor
-from app.approval_workflow import ApprovalWorkflow
-from strategy.evolution_orchestrator import EvolutionOrchestrator
-from strategy.guard_agent import GuardAgent
+from strategy.spread_profiler import SpreadProfiler
 from strategy.strategy_params import EvolvableParams
+from strategy.trade_tagger import tag_trade
 
 try:
     import sdnotify
+
     _sd_notifier = sdnotify.SystemdNotifier()
 except ImportError:
     _sd_notifier = None
@@ -310,8 +314,7 @@ class TradingBot:
         self._health_monitor._get_bithumb_client = lambda: self._client
         self._health_monitor._get_exchange_balances = lambda: self._client.get_balance()
         self._health_monitor._get_positions = lambda: {
-            k: {"qty": v.qty}
-            for k, v in self._positions.items()
+            k: {"qty": v.qty} for k, v in self._positions.items()
         }
         self._health_monitor._get_last_candle_ts = lambda: self._last_candle_ts
         self._health_monitor._get_equity = lambda: self._pool_manager._total_equity
@@ -353,7 +356,7 @@ class TradingBot:
             self._rule_engine.update_strategy_params(new_config.strategy_params)
             self._config_mtime = mtime
             logger.info("config 핫 리로드 완료: strategy_params 갱신")
-        except Exception as exc:  # noqa: BLE001 — config 파싱 오류 시 기존 설정 유지
+        except Exception as exc:
             logger.exception("config 리로드 실패 — 기존 설정 유지: %s", exc)
 
     def _restore_state(self) -> None:
@@ -538,7 +541,7 @@ class TradingBot:
         counts = Counter(rs.current for rs in states.values())
         return counts.most_common(1)[0][0]
 
-    async def _fetch_market_data(self) -> "MarketData":
+    async def _fetch_market_data(self) -> MarketData:
         """시장 데이터 수집, 저장, 리스크 상태 갱신 후 MarketData를 반환한다.
 
         수행 작업:
@@ -649,7 +652,7 @@ class TradingBot:
                     for sym, pos in self._positions.items()
                 )
                 equity = krw_available + krw_locked + position_value
-            except (aiohttp.ClientError, asyncio.TimeoutError, BotError) as exc:
+            except (TimeoutError, aiohttp.ClientError, BotError) as exc:
                 logger.debug("잔고 조회 실패 — Pool 장부 사용: %s", exc)
                 equity = (
                     self._pool_manager.get_balance(Pool.CORE)
@@ -673,7 +676,7 @@ class TradingBot:
             regimes=regimes,
         )
 
-    def _evaluate_signals(self, data: "MarketData") -> list:
+    def _evaluate_signals(self, data: MarketData) -> list:
         """국면 판정 기반 승격/강등 체크 + 전략 신호 생성 + Darwin shadow 기록.
 
         Args:
@@ -742,7 +745,9 @@ class TradingBot:
             logger.info("봇 일시 중지 중 — 신규 진입 스킵")
             signals = []
         else:
-            filtered_snapshots = {sym: snapshots[sym] for sym in coins_to_process if sym in snapshots}
+            filtered_snapshots = {
+                sym: snapshots[sym] for sym in coins_to_process if sym in snapshots
+            }
             signals = self._rule_engine.generate_signals(
                 filtered_snapshots,
                 paper_test=self._paper_test,
@@ -788,7 +793,7 @@ class TradingBot:
         self._darwin.run_tournament(market_regime=market_regime)
         logger.info("Darwin 토너먼트 실행 완료 (파이프라인에서 후보 비교 예정)")
 
-    async def _execute_entries(self, signals: list, data: "MarketData") -> None:
+    async def _execute_entries(self, signals: list, data: MarketData) -> None:
         """RiskGate 통과 신호만 Pool 사이징 → 주문 실행 → 포지션 등록.
 
         Args:
@@ -807,7 +812,9 @@ class TradingBot:
             corr_result = self._correlation.check_correlation(signal.symbol, active_coins)
             if not corr_result.allowed:
                 self._journal.record_pipeline_event(
-                    trace_id, "corr_rejected", signal.symbol,
+                    trace_id,
+                    "corr_rejected",
+                    signal.symbol,
                     {"score": signal.score, "strategy": signal.strategy.value},
                 )
                 continue
@@ -837,7 +844,9 @@ class TradingBot:
 
             if not check.allowed:
                 self._journal.record_pipeline_event(
-                    trace_id, "risk_rejected", signal.symbol,
+                    trace_id,
+                    "risk_rejected",
+                    signal.symbol,
                     {"score": signal.score, "reason": check.reason},
                 )
                 logger.info(
@@ -888,9 +897,15 @@ class TradingBot:
 
             # 사이징 결과를 파이프라인 이벤트로 기록
             self._journal.record_pipeline_event(
-                trace_id, "sizing_done", signal.symbol,
-                {"size_krw": sizing.size_krw, "score": signal.score,
-                 "strategy": signal.strategy.value, **sizing.detail},
+                trace_id,
+                "sizing_done",
+                signal.symbol,
+                {
+                    "size_krw": sizing.size_krw,
+                    "score": signal.score,
+                    "strategy": signal.strategy.value,
+                    **sizing.detail,
+                },
             )
 
             if sizing.size_krw <= 0:
@@ -940,14 +955,21 @@ class TradingBot:
 
                 if ticket.status == OrderStatus.FILLED:
                     self._journal.record_pipeline_event(
-                        trace_id, "order_filled", signal.symbol,
-                        {"price": ticket.filled_price or signal.entry_price,
-                         "qty": ticket.filled_qty or qty, "size_krw": sizing.size_krw},
+                        trace_id,
+                        "order_filled",
+                        signal.symbol,
+                        {
+                            "price": ticket.filled_price or signal.entry_price,
+                            "qty": ticket.filled_qty or qty,
+                            "size_krw": sizing.size_krw,
+                        },
                     )
                     self._risk_gate.record_entry(signal.symbol)
 
                     # 실제 체결가 사용 (LIVE: 거래소 체결가, DRY/PAPER: 신호가)
-                    actual_price = ticket.filled_price if ticket.filled_price > 0 else signal.entry_price
+                    actual_price = (
+                        ticket.filled_price if ticket.filled_price > 0 else signal.entry_price
+                    )
 
                     # 포지션 기록
                     self._positions[signal.symbol] = Position(
@@ -975,11 +997,27 @@ class TradingBot:
                             logger.info("Pilot 기간 종료: 포지션 사이즈 100% 복원")
 
                     # 체결 알림
-                    sim_tag = "" if self._run_mode == RunMode.LIVE else f" [시뮬레이션/{self._run_mode.value}]"
+                    sim_tag = (
+                        ""
+                        if self._run_mode == RunMode.LIVE
+                        else f" [시뮬레이션/{self._run_mode.value}]"
+                    )
                     filled_qty = ticket.filled_qty if ticket.filled_qty > 0 else qty
-                    slippage_pct = (actual_price - signal.entry_price) / signal.entry_price * 100 if signal.entry_price > 0 else 0
-                    sl_pct = (signal.stop_loss - actual_price) / actual_price * 100 if actual_price > 0 else 0
-                    tp_pct = (signal.take_profit - actual_price) / actual_price * 100 if actual_price > 0 else 0
+                    slippage_pct = (
+                        (actual_price - signal.entry_price) / signal.entry_price * 100
+                        if signal.entry_price > 0
+                        else 0
+                    )
+                    sl_pct = (
+                        (signal.stop_loss - actual_price) / actual_price * 100
+                        if actual_price > 0
+                        else 0
+                    )
+                    tp_pct = (
+                        (signal.take_profit - actual_price) / actual_price * 100
+                        if actual_price > 0
+                        else 0
+                    )
                     pool_after = self._pool_manager.get_available(alloc_pool)
                     util = self._pool_manager.utilization_pct
                     await self._notifier.send(
@@ -998,7 +1036,9 @@ class TradingBot:
                     )
                 else:
                     self._journal.record_pipeline_event(
-                        trace_id, "order_failed", signal.symbol,
+                        trace_id,
+                        "order_failed",
+                        signal.symbol,
                         {"status": ticket.status.value, "size_krw": sizing.size_krw},
                     )
                     # 주문 실패 — Pool 할당 롤백
@@ -1021,13 +1061,18 @@ class TradingBot:
                             "order_failed",
                             f"{signal.symbol} {signal.strategy.value} {ticket.status.value} "
                             f"err={ticket.error_msg or 'unknown'}",
-                            {"symbol": signal.symbol, "strategy": signal.strategy.value,
-                             "score": signal.score, "size_krw": sizing.size_krw,
-                             "price": signal.entry_price, "qty": ticket.qty,
-                             "error_msg": ticket.error_msg or ""},
+                            {
+                                "symbol": signal.symbol,
+                                "strategy": signal.strategy.value,
+                                "score": signal.score,
+                                "size_krw": sizing.size_krw,
+                                "price": signal.entry_price,
+                                "qty": ticket.qty,
+                                "error_msg": ticket.error_msg or "",
+                            },
                         )
 
-    async def _manage_open_positions(self, data: "MarketData") -> None:
+    async def _manage_open_positions(self, data: MarketData) -> None:
         """CRISIS 긴급 청산 + 트레일링 스톱/부분청산/시간 제한 청산.
 
         Args:
@@ -1047,8 +1092,10 @@ class TradingBot:
                     try:
                         logger.warning("CRISIS 전량 청산: %s @ %.0f", symbol, price)
                         await self._close_position(symbol, price, "crisis")
-                    except (aiohttp.ClientError, asyncio.TimeoutError, BotError) as exc:
-                        logger.exception("CRISIS 청산 실패 (다음 사이클 재시도): %s — %s", symbol, exc)
+                    except (TimeoutError, aiohttp.ClientError, BotError) as exc:
+                        logger.exception(
+                            "CRISIS 청산 실패 (다음 사이클 재시도): %s — %s", symbol, exc
+                        )
                         crisis_failed.add(symbol)
 
         # 트레일링 스톱, 부분청산, 시간 제한 청산
@@ -1116,7 +1163,7 @@ class TradingBot:
                     decision.reason.value,
                 )
 
-    async def _finalize_cycle(self, data: "MarketData", cycle_start: float) -> None:
+    async def _finalize_cycle(self, data: MarketData, cycle_start: float) -> None:
         """활용률 로깅, 일/주/월 리뷰 트리거, 롤백 모니터링, 상태 저장.
 
         Args:
@@ -1198,6 +1245,7 @@ class TradingBot:
                     self._last_feedback_inject = week_key
                     try:
                         from strategy.darwin_engine import ShadowParams
+
                         patterns = self._feedback_loop.get_failure_patterns(days=7)
                         if patterns:
                             hypotheses = await self._feedback_loop.generate_hypotheses(
@@ -1214,7 +1262,7 @@ class TradingBot:
                                 )
                                 sid = self._darwin.inject_shadow(shadow_params, source="feedback")
                                 logger.info("피드백 Shadow 주입: %s", sid)
-                    except Exception:  # noqa: BLE001 — 피드백 루프 오류, 메인 루프 보호
+                    except Exception:
                         logger.exception("피드백 루프 오류 (무시)")
 
             # 월 1일 00:00~00:15 KST: 월간 심층 리뷰
@@ -1244,9 +1292,12 @@ class TradingBot:
         # 동적 코인 유니버스 갱신 (enabled + 갱신 시각 도달 시)
         if self._config.coin_universe.enabled:
             import datetime
-            now_kst = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
-            if (now_kst.hour == self._config.coin_universe.refresh_hour
-                    and self._last_universe_refresh_hour != now_kst.hour):
+
+            now_kst = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=9)
+            if (
+                now_kst.hour == self._config.coin_universe.refresh_hour
+                and self._last_universe_refresh_hour != now_kst.hour
+            ):
                 new_coins = await self._coin_universe.refresh()
                 if new_coins:
                     self._coins = new_coins
@@ -1254,8 +1305,7 @@ class TradingBot:
                     self._last_universe_refresh_hour = now_kst.hour
                     logger.info("코인 유니버스 갱신: %s", new_coins)
                     await self._notifier.send(
-                        f"🌐 **코인 유니버스 갱신** ({len(new_coins)}개)\n"
-                        f"`{', '.join(new_coins)}`",
+                        f"🌐 **코인 유니버스 갱신** ({len(new_coins)}개)\n`{', '.join(new_coins)}`",
                         channel="system",
                     )
 
@@ -1296,7 +1346,9 @@ class TradingBot:
             if total_krw >= MIN_ORDER:
                 logger.info(
                     "부분청산 %.0f원 < 최소 %d원 → 전체 청산 전환: %s",
-                    actual_exit_krw, MIN_ORDER, symbol,
+                    actual_exit_krw,
+                    MIN_ORDER,
+                    symbol,
                 )
                 await self._close_position(symbol, exit_price, exit_reason)
                 return
@@ -1304,7 +1356,9 @@ class TradingBot:
                 # 전체도 불가 → 포지션 장부 제거 + Pool 복귀
                 logger.warning(
                     "포지션 %.0f원 < 최소 %d원 → 장부 제거 + Pool 복귀: %s",
-                    total_krw, MIN_ORDER, symbol,
+                    total_krw,
+                    MIN_ORDER,
+                    symbol,
                 )
                 self._pool_manager.release(pos.pool, total_krw)
                 del self._positions[symbol]
@@ -1431,7 +1485,10 @@ class TradingBot:
             # 거래소에 코인이 더 많음 → 매도 안 됨
             logger.error(
                 "매도 검증 실패: %s 거래소=%.6f 기대=%.6f (차이=+%.6f) — 매도 미체결",
-                symbol, actual_total, expected_remaining, diff,
+                symbol,
+                actual_total,
+                expected_remaining,
+                diff,
             )
             if position_backup is not None and symbol not in self._positions:
                 self._positions[symbol] = position_backup
@@ -1450,7 +1507,10 @@ class TradingBot:
         # diff < -tolerance: 거래소에 코인이 더 적음
         logger.warning(
             "매도 검증 이상: %s 거래소=%.6f 기대=%.6f (차이=%.6f)",
-            symbol, actual_total, expected_remaining, diff,
+            symbol,
+            actual_total,
+            expected_remaining,
+            diff,
         )
         await self._notifier.send(
             f"⚠️ **매도 검증 이상: {symbol}**\n"
@@ -1461,7 +1521,7 @@ class TradingBot:
         )
         return False
 
-    async def _cleanup_dust(self, data: "MarketData") -> None:
+    async def _cleanup_dust(self, data: MarketData) -> None:
         """더스트 잔고를 확인하여 매도 가능하면 시장가 매도한다."""
         if not self._dust_coins or self._run_mode != RunMode.LIVE:
             return
@@ -1477,10 +1537,12 @@ class TradingBot:
             value = price * qty
             if value >= MIN_ORDER:
                 try:
-                    result = await self._client.market_sell(symbol, qty)
+                    await self._client.market_sell(symbol, qty)
                     logger.info(
                         "더스트 매도 완료: %s %.6f개 (%.0f원)",
-                        symbol, qty, value,
+                        symbol,
+                        qty,
+                        value,
                     )
                     await self._notifier.send(
                         f"🧹 **더스트 매도 완료: {symbol}**\n"
@@ -1580,12 +1642,17 @@ class TradingBot:
                 # 부분 체결: 체결된 만큼만 차감, 나머지 유지
                 logger.warning(
                     "부분 체결: %s %.4f/%.4f — 체결분 처리 후 잔여 포지션 유지",
-                    symbol, ticket.filled_qty, pos.qty,
+                    symbol,
+                    ticket.filled_qty,
+                    pos.qty,
                 )
                 sold_ratio = ticket.filled_qty / pos.qty
                 sold_krw = pos.size_krw * sold_ratio
                 gross = (ticket.filled_price - pos.entry_price) * ticket.filled_qty
-                fee = pos.entry_price * ticket.filled_qty * 0.0025 + ticket.filled_price * ticket.filled_qty * 0.0025
+                fee = (
+                    pos.entry_price * ticket.filled_qty * 0.0025
+                    + ticket.filled_price * ticket.filled_qty * 0.0025
+                )
                 net = gross - fee
                 pos.qty -= ticket.filled_qty
                 pos.size_krw -= sold_krw
@@ -1596,13 +1663,22 @@ class TradingBot:
 
             # 매도 후 거래소 잔고 재검증
             pos_backup = Position(
-                symbol=pos.symbol, entry_price=pos.entry_price,
-                entry_time=pos.entry_time, size_krw=pos.size_krw,
-                qty=pos.qty, stop_loss=pos.stop_loss, take_profit=pos.take_profit,
-                strategy=pos.strategy, pool=pos.pool, tier=pos.tier,
-                regime=pos.regime, promoted=pos.promoted,
-                entry_score=pos.entry_score, signal_price=pos.signal_price,
-                entry_fee_krw=pos.entry_fee_krw, order_id=pos.order_id,
+                symbol=pos.symbol,
+                entry_price=pos.entry_price,
+                entry_time=pos.entry_time,
+                size_krw=pos.size_krw,
+                qty=pos.qty,
+                stop_loss=pos.stop_loss,
+                take_profit=pos.take_profit,
+                strategy=pos.strategy,
+                pool=pos.pool,
+                tier=pos.tier,
+                regime=pos.regime,
+                promoted=pos.promoted,
+                entry_score=pos.entry_score,
+                signal_price=pos.signal_price,
+                entry_fee_krw=pos.entry_fee_krw,
+                order_id=pos.order_id,
             )
             verified = await self._verify_sell_execution(
                 symbol=symbol,
@@ -1654,8 +1730,10 @@ class TradingBot:
         # 거래 결과 태깅 (실패 유형 분류)
         try:
             exit_regime_state = self._rule_engine.get_regime_state(symbol)
-            exit_regime_value: str | None = exit_regime_state.current.value if exit_regime_state.current else None
-        except Exception:  # noqa: BLE001
+            exit_regime_value: str | None = (
+                exit_regime_state.current.value if exit_regime_state.current else None
+            )
+        except Exception:
             exit_regime_value = None
         trade_data["tag"] = tag_trade(
             trade_data,
@@ -1671,7 +1749,7 @@ class TradingBot:
                 exit_regime=exit_regime_value or pos.regime.value,
                 tag=trade_data["tag"],
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("반성 기록 실패 — 무시")
 
         # 청산 후 정리
@@ -1691,13 +1769,19 @@ class TradingBot:
         try:
             pnl_pct = net_pnl / pos.size_krw * 100 if pos.size_krw > 0 else 0
             pnl_emoji = "📈" if net_pnl >= 0 else "📉"
-            sim_tag = "" if self._run_mode == RunMode.LIVE else f" [시뮬레이션/{self._run_mode.value}]"
+            sim_tag = (
+                "" if self._run_mode == RunMode.LIVE else f" [시뮬레이션/{self._run_mode.value}]"
+            )
             exit_value = exit_price * pos.qty
             hold_h, hold_m = divmod(hold_sec // 60, 60)
             hold_str = f"{hold_h}시간 {hold_m}분" if hold_h > 0 else f"{hold_m}분"
             # 당일 누적 PnL
-            from datetime import datetime, timedelta, timezone as tz
-            today_start_kst = datetime.now(tz(timedelta(hours=9))).replace(hour=0, minute=0, second=0, microsecond=0)
+            from datetime import datetime, timedelta
+            from datetime import timezone as tz
+
+            today_start_kst = datetime.now(tz(timedelta(hours=9))).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
             today_start_sec = int(today_start_kst.timestamp())
             today_trades = self._journal.get_trades_since(today_start_sec)
             today_pnl = sum(t.get("net_pnl_krw", 0) for t in today_trades)
@@ -1719,7 +1803,7 @@ class TradingBot:
                 f"총 자산: {total_equity:,.0f}원",
                 channel="trade",
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, aiohttp.ClientError) as exc:
             logger.warning("청산 알림 전송 실패: %s — %s", symbol, exc)
 
     async def run(self) -> None:
@@ -1760,16 +1844,14 @@ class TradingBot:
 
         # EvolutionOrchestrator 백그라운드 시작
         if self._evolution:
-            self._evolution_task = asyncio.create_task(
-                self._run_evolution_loop()
-            )
+            self._evolution_task = asyncio.create_task(self._run_evolution_loop())
             self._evolution_task.add_done_callback(_on_evolution_done)
 
         # HealthMonitor 백그라운드 시작
         if self._config.health_monitor.enabled:
             self._health_task = asyncio.create_task(self._health_monitor.run_forever())
 
-            def _on_hm_done(t: asyncio.Task) -> None:  # noqa: ANN001
+            def _on_hm_done(t: asyncio.Task) -> None:
                 if t.cancelled():
                     return
                 exc = t.exception()
@@ -1792,7 +1874,7 @@ class TradingBot:
         while self._running:
             try:
                 await self.run_cycle()
-            except Exception:  # noqa: BLE001 — top-level guard, intentional
+            except Exception:
                 logger.exception("사이클 실행 중 오류")
                 await self._notifier.send(
                     f"<b>사이클 #{self._cycle_count} 오류</b>\n상세 내용은 로그 확인",
@@ -1831,6 +1913,7 @@ class TradingBot:
                 mtime = self._config_path.stat().st_mtime
                 if mtime > self._config_mtime:
                     import yaml
+
                     with open(self._config_path, encoding="utf-8") as f:
                         raw = yaml.safe_load(f)
                     if not raw.get("evolution", {}).get("enabled", False):
@@ -1844,8 +1927,9 @@ class TradingBot:
                 self._approval_workflow.expire_old(hours=48)
                 # 진화 세션 실행
                 result = await self._evolution.run_session()
-                logger.info("진화 세션 결과: success=%s, change_id=%s",
-                            result.success, result.change_id)
+                logger.info(
+                    "진화 세션 결과: success=%s, change_id=%s", result.success, result.change_id
+                )
             except Exception:
                 logger.exception("진화 세션 실행 중 오류")
 

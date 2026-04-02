@@ -147,7 +147,7 @@ class BithumbClient:
                 data = await resp.json(content_type=None)
         except aiohttp.ClientError as e:
             raise BithumbAPIError("NETWORK", str(e)) from e
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
         if data.get("status") != "0000":
@@ -199,7 +199,7 @@ class BithumbClient:
                 return data
         except aiohttp.ClientError as e:
             raise BithumbAPIError("NETWORK", str(e)) from e
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
     async def _private_post(
@@ -244,7 +244,7 @@ class BithumbClient:
                 return data
         except aiohttp.ClientError as e:
             raise BithumbAPIError("NETWORK", str(e)) from e
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
     async def _private_delete(
@@ -289,7 +289,7 @@ class BithumbClient:
                 return data
         except aiohttp.ClientError as e:
             raise BithumbAPIError("NETWORK", str(e)) from e
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise BithumbAPIError("TIMEOUT", "Request timed out") from e
 
     # ─── Public API ───
@@ -315,7 +315,7 @@ class BithumbClient:
         try:
             data = await self._public_request("/public/ticker/ALL_KRW")
             return {k: v for k, v in data.items() if k != "date" and isinstance(v, dict)}
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("get_all_tickers 실패")
             return {}
 

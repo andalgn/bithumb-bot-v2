@@ -163,15 +163,12 @@ class RiskGate:
 
         # P6: 총 익스포저 90% 초과
         if is_buy and self._state.total_equity_krw > 0:
-            exposure_pct = (
-                self._state.total_exposure_krw / self._state.total_equity_krw
-            )
+            exposure_pct = self._state.total_exposure_krw / self._state.total_equity_krw
             if exposure_pct >= self._max_exposure_pct:
                 return RiskCheckResult(
                     allowed=False,
                     reason=(
-                        f"P6: 총 익스포저 {exposure_pct:.1%}"
-                        f" (한도 {self._max_exposure_pct:.0%})"
+                        f"P6: 총 익스포저 {exposure_pct:.1%} (한도 {self._max_exposure_pct:.0%})"
                     ),
                     priority="P6",
                 )
@@ -225,7 +222,11 @@ class RiskGate:
         # 호가 잔량 필터
         if is_buy and orderbook and order_krw > 0:
             ob_ok, ob_reason = self._check_orderbook_depth(
-                signal.symbol, signal.tier, orderbook, order_krw, signal.entry_price,
+                signal.symbol,
+                signal.tier,
+                orderbook,
+                order_krw,
+                signal.entry_price,
             )
             if not ob_ok:
                 return RiskCheckResult(
@@ -253,11 +254,14 @@ class RiskGate:
             return True, ""
 
         if signal.adv_krw > 0:
-            slippage = estimate_slippage(
-                order_krw=30_000,
-                adv_krw=signal.adv_krw,
-                volatility=signal.volatility if signal.volatility > 0 else 0.03,
-            ) * 2  # 왕복
+            slippage = (
+                estimate_slippage(
+                    order_krw=30_000,
+                    adv_krw=signal.adv_krw,
+                    volatility=signal.volatility if signal.volatility > 0 else 0.03,
+                )
+                * 2
+            )  # 왕복
         else:
             slippage = SLIPPAGE_BY_TIER.get(signal.tier, 0.002)
         failure_penalty = self._state.strategy_failure_penalty.get(strat_key, 0)
@@ -289,7 +293,8 @@ class RiskGate:
         """
         # 스프레드 확인 (코인별 동적 임계값)
         spread_limit = self._spread_profiler.get_threshold(
-            symbol, tier,
+            symbol,
+            tier,
         )
         if orderbook.spread_pct > spread_limit:
             return False, (

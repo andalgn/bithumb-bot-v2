@@ -180,13 +180,9 @@ class GuardAgent:
             + proposed.tf_w_supertrend
         )
         if w_sum < 30:
-            violations.append(
-                f"TREND_FOLLOW 가중치 합계({w_sum:.0f})가 30 미만 — 전략 무력화 위험"
-            )
+            violations.append(f"TREND_FOLLOW 가중치 합계({w_sum:.0f})가 30 미만 — 전략 무력화 위험")
         if w_sum > 150:
-            violations.append(
-                f"TREND_FOLLOW 가중치 합계({w_sum:.0f})가 150 초과 — 과도한 점수"
-            )
+            violations.append(f"TREND_FOLLOW 가중치 합계({w_sum:.0f})가 150 초과 — 과도한 점수")
 
         # DCA: SL이 TP보다 작으면 비정상 (SL은 더 넓어야 함)
         if proposed.dca_sl_pct < proposed.dca_tp_pct:
@@ -207,9 +203,7 @@ class GuardAgent:
 
         # 일간 DD 6% 초과 금지
         if proposed.daily_dd_pct > 0.06:
-            violations.append(
-                f"daily_dd_pct({proposed.daily_dd_pct}) > 0.06 — 하드 리밋 초과"
-            )
+            violations.append(f"daily_dd_pct({proposed.daily_dd_pct}) > 0.06 — 하드 리밋 초과")
 
         # 최대 노출 95% 초과 금지
         if proposed.max_exposure_pct > 0.95:
@@ -220,8 +214,7 @@ class GuardAgent:
         # 연속 손실 한도 2 미만 금지 (최소 2회는 허용해야 운영 가능)
         if proposed.consecutive_loss_limit < 2:
             violations.append(
-                f"consecutive_loss_limit({proposed.consecutive_loss_limit}) < 2 — "
-                "하드 리밋 미달"
+                f"consecutive_loss_limit({proposed.consecutive_loss_limit}) < 2 — 하드 리밋 미달"
             )
 
         # active_risk 12% 초과 금지
@@ -232,15 +225,11 @@ class GuardAgent:
 
         # 쿨다운 30분 미만 금지
         if proposed.cooldown_min < 30:
-            violations.append(
-                f"cooldown_min({proposed.cooldown_min}) < 30 — 하드 리밋 미달"
-            )
+            violations.append(f"cooldown_min({proposed.cooldown_min}) < 30 — 하드 리밋 미달")
 
         return violations
 
-    def _calculate_risk_score(
-        self, changes: dict[str, tuple[float, float]]
-    ) -> float:
+    def _calculate_risk_score(self, changes: dict[str, tuple[float, float]]) -> float:
         """변경 크기 + 영향도 기반 위험도 점수 (0.0~1.0).
 
         각 변경된 파라미터에 대해:

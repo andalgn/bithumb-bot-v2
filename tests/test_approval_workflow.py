@@ -1,7 +1,6 @@
 """approval_workflow 단위 테스트."""
 
 import json
-import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -78,9 +77,7 @@ class TestPropose:
         assert "abc12345" in data
         assert data["abc12345"]["status"] == "pending"
 
-    def test_propose_multiple(
-        self, workflow: ApprovalWorkflow, sample_change: PendingChange
-    ):
+    def test_propose_multiple(self, workflow: ApprovalWorkflow, sample_change: PendingChange):
         """여러 건 제안 가능."""
         workflow.propose(sample_change)
         change2 = PendingChange(
@@ -103,49 +100,77 @@ class TestPropose:
 class TestApprove:
     """변경 승인."""
 
-    def test_approve_updates_config(
-        self, workflow: ApprovalWorkflow, tmp_dir: Path
-    ):
+    def test_approve_updates_config(self, workflow: ApprovalWorkflow, tmp_dir: Path):
         """승인 시 config.yaml이 업데이트된다."""
         change = PendingChange(
             change_id="cfg_test",
             proposed_params={
-                "tf_sl_mult": 3.0, "tf_tp_rr": 1.5, "tf_cutoff": 75,
-                "tf_w_trend_align": 30.0, "tf_w_macd": 25.0,
-                "tf_w_volume": 20.0, "tf_w_rsi_pullback": 15.0,
+                "tf_sl_mult": 3.0,
+                "tf_tp_rr": 1.5,
+                "tf_cutoff": 75,
+                "tf_w_trend_align": 30.0,
+                "tf_w_macd": 25.0,
+                "tf_w_volume": 20.0,
+                "tf_w_rsi_pullback": 15.0,
                 "tf_w_supertrend": 10.0,
-                "mr_sl_mult": 7.0, "mr_tp_rr": 1.5,
-                "bo_sl_mult": 2.0, "bo_tp_rr": 3.0,
-                "dca_sl_pct": 0.05, "dca_tp_pct": 0.03,
-                "daily_dd_pct": 0.04, "weekly_dd_pct": 0.08,
-                "consecutive_loss_limit": 3, "cooldown_min": 60,
+                "mr_sl_mult": 7.0,
+                "mr_tp_rr": 1.5,
+                "bo_sl_mult": 2.0,
+                "bo_tp_rr": 3.0,
+                "dca_sl_pct": 0.05,
+                "dca_tp_pct": 0.03,
+                "daily_dd_pct": 0.04,
+                "weekly_dd_pct": 0.08,
+                "consecutive_loss_limit": 3,
+                "cooldown_min": 60,
                 "max_exposure_pct": 0.9,
-                "active_risk_pct": 0.07, "pool_cap_pct": 0.25,
-                "defense_mult_min": 0.3, "defense_mult_max": 1.0,
-                "vol_target_mult_min": 0.8, "vol_target_mult_max": 1.5,
-                "regime_adx_strong": 25, "regime_atr_spike_mult": 2.5,
-                "l1_volume_ratio": 0.8, "l1_momentum_burst_pct": 0.015,
+                "active_risk_pct": 0.07,
+                "pool_cap_pct": 0.25,
+                "defense_mult_min": 0.3,
+                "defense_mult_max": 1.0,
+                "vol_target_mult_min": 0.8,
+                "vol_target_mult_max": 1.5,
+                "regime_adx_strong": 25,
+                "regime_atr_spike_mult": 2.5,
+                "l1_volume_ratio": 0.8,
+                "l1_momentum_burst_pct": 0.015,
                 "promotion_profit_pct": 0.012,
-                "promotion_hold_bars": 2, "promotion_adx_min": 20,
+                "promotion_hold_bars": 2,
+                "promotion_adx_min": 20,
             },
             current_params={
-                "tf_sl_mult": 5.0, "tf_tp_rr": 1.5, "tf_cutoff": 75,
-                "tf_w_trend_align": 30.0, "tf_w_macd": 25.0,
-                "tf_w_volume": 20.0, "tf_w_rsi_pullback": 15.0,
+                "tf_sl_mult": 5.0,
+                "tf_tp_rr": 1.5,
+                "tf_cutoff": 75,
+                "tf_w_trend_align": 30.0,
+                "tf_w_macd": 25.0,
+                "tf_w_volume": 20.0,
+                "tf_w_rsi_pullback": 15.0,
                 "tf_w_supertrend": 10.0,
-                "mr_sl_mult": 7.0, "mr_tp_rr": 1.5,
-                "bo_sl_mult": 2.0, "bo_tp_rr": 3.0,
-                "dca_sl_pct": 0.05, "dca_tp_pct": 0.03,
-                "daily_dd_pct": 0.04, "weekly_dd_pct": 0.08,
-                "consecutive_loss_limit": 3, "cooldown_min": 60,
+                "mr_sl_mult": 7.0,
+                "mr_tp_rr": 1.5,
+                "bo_sl_mult": 2.0,
+                "bo_tp_rr": 3.0,
+                "dca_sl_pct": 0.05,
+                "dca_tp_pct": 0.03,
+                "daily_dd_pct": 0.04,
+                "weekly_dd_pct": 0.08,
+                "consecutive_loss_limit": 3,
+                "cooldown_min": 60,
                 "max_exposure_pct": 0.9,
-                "active_risk_pct": 0.07, "pool_cap_pct": 0.25,
-                "defense_mult_min": 0.3, "defense_mult_max": 1.0,
-                "vol_target_mult_min": 0.8, "vol_target_mult_max": 1.5,
-                "regime_adx_strong": 25, "regime_atr_spike_mult": 2.5,
-                "l1_volume_ratio": 0.8, "l1_momentum_burst_pct": 0.015,
+                "active_risk_pct": 0.07,
+                "pool_cap_pct": 0.25,
+                "defense_mult_min": 0.3,
+                "defense_mult_max": 1.0,
+                "vol_target_mult_min": 0.8,
+                "vol_target_mult_max": 1.5,
+                "regime_adx_strong": 25,
+                "regime_atr_spike_mult": 2.5,
+                "l1_volume_ratio": 0.8,
+                "l1_momentum_burst_pct": 0.015,
                 "promotion_profit_pct": 0.012,
-                "promotion_hold_bars": 2, "promotion_adx_min": 20,
+                "promotion_hold_bars": 2,
+                "promotion_adx_min": 20,
             },
             changes={"tf_sl_mult": [5.0, 3.0]},
             risk_score=0.1,
@@ -174,9 +199,7 @@ class TestApprove:
         backups = list((tmp_dir / "configs").glob("*.bak.*"))
         assert len(backups) >= 1
 
-    def test_approve_changes_status(
-        self, workflow: ApprovalWorkflow, sample_change: PendingChange
-    ):
+    def test_approve_changes_status(self, workflow: ApprovalWorkflow, sample_change: PendingChange):
         """승인 후 status가 approved로 변경된다."""
         workflow.propose(sample_change)
         workflow.approve("abc12345")
@@ -200,9 +223,7 @@ class TestApprove:
 class TestReject:
     """변경 거부."""
 
-    def test_reject_changes_status(
-        self, workflow: ApprovalWorkflow, sample_change: PendingChange
-    ):
+    def test_reject_changes_status(self, workflow: ApprovalWorkflow, sample_change: PendingChange):
         """거부 후 status가 rejected로 변경된다."""
         workflow.propose(sample_change)
         result = workflow.reject("abc12345")
@@ -235,9 +256,7 @@ class TestListPending:
 class TestExpire:
     """만료 처리."""
 
-    def test_expire_old_changes(
-        self, workflow: ApprovalWorkflow, tmp_dir: Path
-    ):
+    def test_expire_old_changes(self, workflow: ApprovalWorkflow, tmp_dir: Path):
         """48시간 이상 경과한 pending → expired."""
         old_time = (datetime.now() - timedelta(hours=50)).isoformat()
         change = PendingChange(
@@ -259,9 +278,7 @@ class TestExpire:
         assert result is not None
         assert result.status == "expired"
 
-    def test_recent_not_expired(
-        self, workflow: ApprovalWorkflow, sample_change: PendingChange
-    ):
+    def test_recent_not_expired(self, workflow: ApprovalWorkflow, sample_change: PendingChange):
         """최근 변경은 만료되지 않는다."""
         workflow.propose(sample_change)
         expired = workflow.expire_old(hours=48)
@@ -271,9 +288,7 @@ class TestExpire:
 class TestGet:
     """단건 조회."""
 
-    def test_get_existing(
-        self, workflow: ApprovalWorkflow, sample_change: PendingChange
-    ):
+    def test_get_existing(self, workflow: ApprovalWorkflow, sample_change: PendingChange):
         """존재하는 change_id → PendingChange."""
         workflow.propose(sample_change)
         result = workflow.get("abc12345")

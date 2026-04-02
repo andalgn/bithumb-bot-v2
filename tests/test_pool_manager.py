@@ -88,6 +88,4 @@ class TestPoolManager:
         pm2 = PoolManager(1_000_000)
         pm2.load_state(state)
         assert pm2.get_position_count(Pool.ACTIVE) == 1
-        assert pm2.get_available(Pool.ACTIVE) == pytest.approx(
-            pm.get_available(Pool.ACTIVE)
-        )
+        assert pm2.get_available(Pool.ACTIVE) == pytest.approx(pm.get_available(Pool.ACTIVE))

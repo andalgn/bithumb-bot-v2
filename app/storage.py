@@ -90,7 +90,8 @@ class StateStorage:
         tmp = None
         try:
             fd, tmp = tempfile.mkstemp(
-                dir=str(self._path.parent), suffix=".tmp",
+                dir=str(self._path.parent),
+                suffix=".tmp",
             )
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self._state, f, indent=2, ensure_ascii=False)
@@ -122,6 +123,6 @@ class StateStorage:
         return self._state
 
     @property
-    def state_store(self) -> "StateStore | None":
+    def state_store(self) -> StateStore | None:
         """내부 StateStore 인스턴스를 반환한다. 마이그레이션 미완료 시 None."""
         return self._store

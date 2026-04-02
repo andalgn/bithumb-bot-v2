@@ -25,7 +25,10 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(sys.stdout),
         RotatingFileHandler(
-            "data/bot.log", maxBytes=10_000_000, backupCount=5, encoding="utf-8",
+            "data/bot.log",
+            maxBytes=10_000_000,
+            backupCount=5,
+            encoding="utf-8",
         ),
     ],
 )
@@ -86,16 +89,16 @@ def main() -> None:
     """CLI 진입점."""
     parser = argparse.ArgumentParser(description="Bithumb Auto Trading Bot v2")
     parser.add_argument(
-        "--once", action="store_true",
+        "--once",
+        action="store_true",
         help="사이클 1회 실행 후 종료",
     )
     parser.add_argument(
-        "--mode", choices=["DRY", "PAPER", "LIVE"],
+        "--mode",
+        choices=["DRY", "PAPER", "LIVE"],
         help="운영 모드 오버라이드",
     )
     args = parser.parse_args()
-
-
 
     logger.info("Bithumb Auto Trading Bot v2 시작")
     asyncio.run(run_bot(once=args.once, mode_override=args.mode))

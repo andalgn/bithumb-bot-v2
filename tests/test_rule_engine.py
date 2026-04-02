@@ -25,14 +25,16 @@ def _make_candles(
     price = base
     for i in range(count):
         price += trend
-        candles.append(Candle(
-            timestamp=1000 * (i + 1),
-            open=price * (1 - volatility * 0.5),
-            high=price * (1 + volatility),
-            low=price * (1 - volatility),
-            close=price,
-            volume=1000.0 + i * 10,
-        ))
+        candles.append(
+            Candle(
+                timestamp=1000 * (i + 1),
+                open=price * (1 - volatility * 0.5),
+                high=price * (1 + volatility),
+                low=price * (1 - volatility),
+                close=price,
+                volume=1000.0 + i * 10,
+            )
+        )
     return candles
 
 
@@ -292,6 +294,7 @@ class TestScoring:
     def test_strategy_e_detail_keys(self) -> None:
         """전략 E 점수 상세 키 존재."""
         from strategy.coin_profiler import CoinProfiler
+
         profiler = CoinProfiler(tier1_atr_max=0.009, tier3_atr_min=0.014)
         # BTC를 Tier 1로 분류
         btc_candles = _make_candles(50000000, 400, volatility=0.003)
@@ -345,7 +348,10 @@ class TestVolumeScoring:
         # -2번째(완성봉) 거래량을 평균의 3배로 설정
         candles[-2] = Candle(
             timestamp=candles[-2].timestamp,
-            open=100, high=101, low=99, close=100,
+            open=100,
+            high=101,
+            low=99,
+            close=100,
             volume=10000.0,
         )
         score = RuleEngine._score_volume_direct(candles, threshold=2.0, max_pts=30.0)
@@ -356,7 +362,10 @@ class TestVolumeScoring:
         candles = _make_candles(100, 25, trend=0)
         candles[-2] = Candle(
             timestamp=candles[-2].timestamp,
-            open=100, high=101, low=99, close=100,
+            open=100,
+            high=101,
+            low=99,
+            close=100,
             volume=1.0,
         )
         score = RuleEngine._score_volume_direct(candles, threshold=2.0, max_pts=30.0)
@@ -446,13 +455,19 @@ class TestLayer1Filter:
         from strategy.coin_profiler import TierParams
 
         tier = TierParams(
-            tier=Tier.TIER1, atr_pct=0.02, position_mult=1.5,
-            rsi_min=35, rsi_max=65, atr_stop_mult=2.5, spread_limit=0.0018,
+            tier=Tier.TIER1,
+            atr_pct=0.02,
+            position_mult=1.5,
+            rsi_min=35,
+            rsi_max=65,
+            atr_stop_mult=2.5,
+            spread_limit=0.0018,
         )
         candles = _make_candles(100, 200, trend=0)
         ind = compute_indicators(candles)
         snap = MarketSnapshot(
-            symbol="BTC", current_price=100,
+            symbol="BTC",
+            current_price=100,
             candles_15m=candles,
             orderbook=_make_orderbook(spread_pct=0.001),
         )
@@ -465,13 +480,19 @@ class TestLayer1Filter:
         from strategy.coin_profiler import TierParams
 
         tier = TierParams(
-            tier=Tier.TIER1, atr_pct=0.02, position_mult=1.5,
-            rsi_min=35, rsi_max=65, atr_stop_mult=2.5, spread_limit=0.0018,
+            tier=Tier.TIER1,
+            atr_pct=0.02,
+            position_mult=1.5,
+            rsi_min=35,
+            rsi_max=65,
+            atr_stop_mult=2.5,
+            spread_limit=0.0018,
         )
         candles = _make_candles(100, 200, trend=0)
         ind = compute_indicators(candles)
         snap = MarketSnapshot(
-            symbol="BTC", current_price=100,
+            symbol="BTC",
+            current_price=100,
             candles_15m=candles,
             orderbook=_make_orderbook(spread_pct=0.001),
         )
@@ -483,13 +504,19 @@ class TestLayer1Filter:
         from strategy.coin_profiler import TierParams
 
         tier = TierParams(
-            tier=Tier.TIER1, atr_pct=0.02, position_mult=1.5,
-            rsi_min=35, rsi_max=65, atr_stop_mult=2.5, spread_limit=0.0018,
+            tier=Tier.TIER1,
+            atr_pct=0.02,
+            position_mult=1.5,
+            rsi_min=35,
+            rsi_max=65,
+            atr_stop_mult=2.5,
+            spread_limit=0.0018,
         )
         candles = _make_candles(100, 200, trend=0)
         ind = compute_indicators(candles)
         snap = MarketSnapshot(
-            symbol="BTC", current_price=100,
+            symbol="BTC",
+            current_price=100,
             candles_15m=candles,
             orderbook=_make_orderbook(spread_pct=0.005),  # 0.5% >> 0.18%
         )
@@ -588,6 +615,7 @@ class TestRegimeStrategyMapping:
     def test_strong_up_allows_b_only(self) -> None:
         """STRONG_UP → B(반전포착)만 허용 (trend_follow PF<1 비활성화 2026-03-31)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
+
         allowed = REGIME_STRATEGY_MAP[Regime.STRONG_UP]
         assert Strategy.MEAN_REVERSION in allowed
         assert Strategy.TREND_FOLLOW not in allowed
@@ -595,6 +623,7 @@ class TestRegimeStrategyMapping:
     def test_weak_up_allows_b(self) -> None:
         """WEAK_UP → B 허용."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
+
         allowed = REGIME_STRATEGY_MAP[Regime.WEAK_UP]
         assert Strategy.MEAN_REVERSION in allowed
         assert Strategy.TREND_FOLLOW not in allowed
@@ -602,6 +631,7 @@ class TestRegimeStrategyMapping:
     def test_range_allows_mean_reversion_only(self) -> None:
         """RANGE → B만 허용 (추세 없는 시장에서 A 제거)."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
+
         allowed = REGIME_STRATEGY_MAP[Regime.RANGE]
         assert Strategy.MEAN_REVERSION in allowed
         assert Strategy.TREND_FOLLOW not in allowed
@@ -610,6 +640,7 @@ class TestRegimeStrategyMapping:
     def test_weak_down_allows_b_and_e(self) -> None:
         """WEAK_DOWN → B(MEAN_REVERSION) + E(DCA) 허용."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
+
         allowed = REGIME_STRATEGY_MAP[Regime.WEAK_DOWN]
         assert Strategy.DCA in allowed
         assert Strategy.MEAN_REVERSION in allowed
@@ -618,6 +649,7 @@ class TestRegimeStrategyMapping:
     def test_crisis_allows_e_only(self) -> None:
         """CRISIS → E(DCA)만 허용."""
         from strategy.rule_engine import REGIME_STRATEGY_MAP
+
         allowed = REGIME_STRATEGY_MAP[Regime.CRISIS]
         assert Strategy.DCA in allowed
         assert Strategy.TREND_FOLLOW not in allowed

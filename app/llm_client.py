@@ -87,9 +87,7 @@ async def call_claude(
 
             # text 블록 추출
             text_parts = [
-                block.get("text", "")
-                for block in content_blocks
-                if block.get("type") == "text"
+                block.get("text", "") for block in content_blocks if block.get("type") == "text"
             ]
             content = "\n".join(text_parts).strip()
             if not content:

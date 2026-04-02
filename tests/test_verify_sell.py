@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.data_types import Pool, Position, Regime, RunMode, Strategy, Tier
+from app.data_types import Pool, Position, Regime, Strategy, Tier
 from strategy.pool_manager import PoolManager
 
 
@@ -153,10 +153,22 @@ class TestPositionCreation:
     def test_position_fields_match(self, sample_position: Position) -> None:
         """모든 Position 필드가 존재하는지 테스트."""
         required_fields = [
-            "symbol", "entry_price", "entry_time", "size_krw", "qty",
-            "stop_loss", "take_profit", "strategy", "pool", "tier",
-            "regime", "promoted", "entry_score", "signal_price",
-            "entry_fee_krw", "order_id"
+            "symbol",
+            "entry_price",
+            "entry_time",
+            "size_krw",
+            "qty",
+            "stop_loss",
+            "take_profit",
+            "strategy",
+            "pool",
+            "tier",
+            "regime",
+            "promoted",
+            "entry_score",
+            "signal_price",
+            "entry_fee_krw",
+            "order_id",
         ]
         for field in required_fields:
             assert hasattr(sample_position, field), f"Position missing field: {field}"

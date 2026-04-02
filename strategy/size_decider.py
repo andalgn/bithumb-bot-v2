@@ -2,6 +2,7 @@
 
 전략 점수와 그룹을 기반으로 FULL/PROBE/HOLD 버킷을 결정한다.
 """
+
 from __future__ import annotations
 
 from app.data_types import Strategy

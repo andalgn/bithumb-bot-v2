@@ -9,7 +9,7 @@
 ## 📚 Documents (Start Here)
 
 ### 1. **RESEARCH_SUMMARY.md** (Entry Point)
-**Read this first.** 
+**Read this first.**
 - Executive summary of all findings
 - 7 key findings with applications to your bot
 - 3-phase implementation roadmap

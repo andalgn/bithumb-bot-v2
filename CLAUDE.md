@@ -122,6 +122,7 @@ bithumb_auto_v2/
     ├── download_and_backtest.py    ← 90일 캔들 데이터 다운로드 + 전략 파이프라인 백테스트.
     ├── log_summary.py              ← 봇 로그 요약 스크립트.
     ├── migrate_state.py            ← 5개 상태 파일 → data/bot.db 마이그레이션.
+    ├── monthly_scan.py             ← 월간 코드 품질 스캔 — 죽은 코드 + 복잡도 분석.
     ├── optimize.py                 ← 전략 파라미터 최적화 실행.
     ├── optimize_strategies.py      ← 전략 파라미터 최적화 — SL/TP 그리드 서치 + 필터 완화 통합.
     ├── send_discord_report.py      ← Discord 웹훅으로 리포트를 전송하는 스크립트.

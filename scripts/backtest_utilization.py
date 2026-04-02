@@ -6,6 +6,7 @@
 
 각 개선안을 개별 + 조합으로 테스트하여 최적 설정을 찾는다.
 """
+
 # ruff: noqa: E402
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ import asyncio
 import copy
 import logging
 import sys
-import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -97,7 +97,7 @@ def run_backtest(
         step = 4
 
         for i in range(window, len(c15) - step, step):
-            s15 = c15[i - window: i]
+            s15 = c15[i - window : i]
             ts = s15[-1].timestamp
             price = s15[-1].close
             s1h = [c for c in c1h if c.timestamp <= ts]
@@ -108,7 +108,7 @@ def run_backtest(
             # 포지션 체크
             if coin in positions:
                 pos = positions[coin]
-                future = c15[i: i + step]
+                future = c15[i : i + step]
                 hit_sl = any(c.low <= pos["sl"] for c in future)
                 hit_tp = any(c.high >= pos["tp"] for c in future)
 
@@ -146,8 +146,10 @@ def run_backtest(
                 continue
 
             snap = MarketSnapshot(
-                symbol=coin, current_price=price,
-                candles_15m=s15, candles_1h=s1h,
+                symbol=coin,
+                current_price=price,
+                candles_15m=s15,
+                candles_1h=s1h,
             )
             signals = engine.generate_signals({coin: snap})
             if signals:
@@ -208,6 +210,7 @@ def _patch_rsi_multi_level(engine: RuleEngine) -> None:
 
     def patched_score_b(ind_15m, candles_15m):
         from strategy.strategy_scorer import ScoreResult
+
         result = original_fn(ind_15m, candles_15m)
         # RSI 범위 확장
         rsi_arr = ind_15m.rsi
@@ -255,43 +258,49 @@ async def main() -> None:
     # A: 현행 (baseline)
     logger.info("A: 현행 baseline")
     eng_a = make_engine(config, profiler)
-    r_a = run_backtest(store, coins, eng_a, profiler,
-                       "A_현행", max_concurrent=8, position_size_krw=50_000)
+    r_a = run_backtest(
+        store, coins, eng_a, profiler, "A_현행", max_concurrent=8, position_size_krw=50_000
+    )
     scenarios.append(r_a)
 
     # B: 포지션 크기 증가 (3슬롯 × 150K)
     logger.info("B: 적은 포지션 × 큰 금액")
     eng_b = make_engine(config, profiler)
-    r_b = run_backtest(store, coins, eng_b, profiler,
-                       "B_대형포지션", max_concurrent=3, position_size_krw=150_000)
+    r_b = run_backtest(
+        store, coins, eng_b, profiler, "B_대형포지션", max_concurrent=3, position_size_krw=150_000
+    )
     scenarios.append(r_b)
 
     # C: RSI 3단계 완화
     logger.info("C: RSI 다단계")
     eng_c = make_engine(config, profiler, rsi_multi_level=True)
-    r_c = run_backtest(store, coins, eng_c, profiler,
-                       "C_RSI확장", max_concurrent=8, position_size_krw=50_000)
+    r_c = run_backtest(
+        store, coins, eng_c, profiler, "C_RSI확장", max_concurrent=8, position_size_krw=50_000
+    )
     scenarios.append(r_c)
 
     # D: Scalping 활성화
     logger.info("D: Scalping 활성화")
     eng_d = make_engine(config, profiler, scalping_enabled=True)
-    r_d = run_backtest(store, coins, eng_d, profiler,
-                       "D_스캘핑", max_concurrent=8, position_size_krw=50_000)
+    r_d = run_backtest(
+        store, coins, eng_d, profiler, "D_스캘핑", max_concurrent=8, position_size_krw=50_000
+    )
     scenarios.append(r_d)
 
     # E: RSI확장 + Scalping (신호 최대화)
     logger.info("E: RSI + Scalping")
     eng_e = make_engine(config, profiler, rsi_multi_level=True, scalping_enabled=True)
-    r_e = run_backtest(store, coins, eng_e, profiler,
-                       "E_신호최대", max_concurrent=8, position_size_krw=50_000)
+    r_e = run_backtest(
+        store, coins, eng_e, profiler, "E_신호최대", max_concurrent=8, position_size_krw=50_000
+    )
     scenarios.append(r_e)
 
     # F: 최적 조합 (RSI+Scalping + 적정 포지션)
     logger.info("F: 최적 조합")
     eng_f = make_engine(config, profiler, rsi_multi_level=True, scalping_enabled=True)
-    r_f = run_backtest(store, coins, eng_f, profiler,
-                       "F_최적조합", max_concurrent=5, position_size_krw=100_000)
+    r_f = run_backtest(
+        store, coins, eng_f, profiler, "F_최적조합", max_concurrent=5, position_size_krw=100_000
+    )
     scenarios.append(r_f)
 
     store.close()
@@ -306,11 +315,11 @@ async def main() -> None:
     print("-" * 100)
 
     for r in scenarios:
-        pos_info = r.label.split("_")[1] if "_" in r.label else ""
+        _pos_info = r.label.split("_")[1] if "_" in r.label else ""  # noqa: F841
         print(
             f"{r.label:<16} {r.trades:>5} {r.daily_trades:>6.1f} "
-            f"{r.win_rate*100:>6.1f}% {r.profit_factor:>6.2f} "
-            f"{r.max_drawdown*100:>6.1f}% {r.total_pnl:>+12,.0f}"
+            f"{r.win_rate * 100:>6.1f}% {r.profit_factor:>6.2f} "
+            f"{r.max_drawdown * 100:>6.1f}% {r.total_pnl:>+12,.0f}"
         )
 
     # 전략별 세부
@@ -333,8 +342,10 @@ async def main() -> None:
     if valid:
         best = max(valid, key=lambda r: r.total_pnl)
         print(f"  ★ 추천: {best.label}")
-        print(f"    거래 {best.trades}건, PF {best.profit_factor:.2f}, "
-              f"PnL {best.total_pnl:+,.0f}, 일평균 {best.daily_trades:.1f}건")
+        print(
+            f"    거래 {best.trades}건, PF {best.profit_factor:.2f}, "
+            f"PnL {best.total_pnl:+,.0f}, 일평균 {best.daily_trades:.1f}건"
+        )
     else:
         # PnL 최대 기준
         best = max(scenarios, key=lambda r: r.total_pnl)

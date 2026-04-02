@@ -124,43 +124,49 @@ class TestRiskScore:
 
     def test_medium_risk_multiple_params(self, guard: GuardAgent, base_params: EvolvableParams):
         """리스크 파라미터 포함 3개 변경 → medium risk."""
-        tweaked = base_params.apply_changes({
-            "tf_sl_mult": 3.0,
-            "daily_dd_pct": 0.035,
-            "active_risk_pct": 0.05,
-        })
+        tweaked = base_params.apply_changes(
+            {
+                "tf_sl_mult": 3.0,
+                "daily_dd_pct": 0.035,
+                "active_risk_pct": 0.05,
+            }
+        )
         result = guard.validate(base_params, tweaked)
         assert result.is_valid is True
         assert result.risk_level == "medium"
 
     def test_high_risk_many_params(self, guard: GuardAgent, base_params: EvolvableParams):
         """5개 이상 리스크/사이징 파라미터 대폭 변경 → high risk."""
-        tweaked = base_params.apply_changes({
-            "daily_dd_pct": 0.055,
-            "weekly_dd_pct": 0.10,
-            "max_exposure_pct": 0.80,
-            "active_risk_pct": 0.10,
-            "pool_cap_pct": 0.30,
-            "defense_mult_min": 0.15,
-        })
+        tweaked = base_params.apply_changes(
+            {
+                "daily_dd_pct": 0.055,
+                "weekly_dd_pct": 0.10,
+                "max_exposure_pct": 0.80,
+                "active_risk_pct": 0.10,
+                "pool_cap_pct": 0.30,
+                "defense_mult_min": 0.15,
+            }
+        )
         result = guard.validate(base_params, tweaked)
         assert result.is_valid is True
         assert result.risk_level == "high"
 
     def test_risk_score_capped_at_1(self, guard: GuardAgent, base_params: EvolvableParams):
         """아무리 많이 바꿔도 risk_score <= 1.0."""
-        all_changed = base_params.apply_changes({
-            "tf_sl_mult": 1.5,
-            "tf_tp_rr": 4.0,
-            "tf_cutoff": 85,
-            "tf_w_trend_align": 40.0,
-            "tf_w_macd": 35.0,
-            "tf_w_volume": 30.0,
-            "tf_w_rsi_pullback": 25.0,
-            "tf_w_supertrend": 20.0,
-            "mr_sl_mult": 9.0,
-            "mr_tp_rr": 3.5,
-        })
+        all_changed = base_params.apply_changes(
+            {
+                "tf_sl_mult": 1.5,
+                "tf_tp_rr": 4.0,
+                "tf_cutoff": 85,
+                "tf_w_trend_align": 40.0,
+                "tf_w_macd": 35.0,
+                "tf_w_volume": 30.0,
+                "tf_w_rsi_pullback": 25.0,
+                "tf_w_supertrend": 20.0,
+                "mr_sl_mult": 9.0,
+                "mr_tp_rr": 3.5,
+            }
+        )
         result = guard.validate(base_params, all_changed)
         assert result.risk_score <= 1.0
 

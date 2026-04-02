@@ -295,7 +295,7 @@ class DiscordBot:
                     wf_total=4,
                     mc_p5_pnl=(bd.mc_result.pnl_percentile_5 if bd.mc_result else 0),
                 )
-            except Exception:  # noqa: BLE001 — Discord 커맨드 핸들러, 봇 유지를 위한 의도적 광역 포착
+            except Exception:
                 await interaction.followup.send("LiveGate 검증 중 오류 발생. LIVE 전환 취소.")
                 return
 
@@ -345,7 +345,7 @@ class DiscordBot:
                 ticker_sym = matched_sym.replace("_KRW", "")
                 ticker = await self._bot._client.get_ticker(ticker_sym)
                 exit_price = float(ticker.get("closing_price", 0))
-            except Exception:  # noqa: BLE001 — Discord 커맨드 핸들러, 봇 유지를 위한 의도적 광역 포착
+            except Exception:
                 exit_price = 0
             if exit_price <= 0:
                 exit_price = pos.entry_price
@@ -390,19 +390,13 @@ class DiscordBot:
 
         # ── 자율 진화 명령어 ──────────────────────────────
 
-        @self._tree.command(
-            name="approve", description="진화 변경 승인", guild=guild
-        )
+        @self._tree.command(name="approve", description="진화 변경 승인", guild=guild)
         @admin_check
-        async def cmd_approve(
-            interaction: discord.Interaction, change_id: str
-        ) -> None:
+        async def cmd_approve(interaction: discord.Interaction, change_id: str) -> None:
             workflow = self._bot._approval_workflow
             change = workflow.get(change_id)
             if not change:
-                await interaction.response.send_message(
-                    f"변경 `{change_id}` 없음", ephemeral=True
-                )
+                await interaction.response.send_message(f"변경 `{change_id}` 없음", ephemeral=True)
                 return
             if change.status != "pending":
                 await interaction.response.send_message(
@@ -413,36 +407,25 @@ class DiscordBot:
             ok = workflow.approve(change_id)
             if ok:
                 await interaction.response.send_message(
-                    f"변경 `{change_id}` 승인 완료. "
-                    f"config.yaml 업데이트됨 (다음 사이클부터 반영)."
+                    f"변경 `{change_id}` 승인 완료. config.yaml 업데이트됨 (다음 사이클부터 반영)."
                 )
             else:
-                await interaction.response.send_message(
-                    f"승인 실패: `{change_id}`", ephemeral=True
-                )
+                await interaction.response.send_message(f"승인 실패: `{change_id}`", ephemeral=True)
 
-        @self._tree.command(
-            name="reject", description="진화 변경 거부", guild=guild
-        )
+        @self._tree.command(name="reject", description="진화 변경 거부", guild=guild)
         @admin_check
-        async def cmd_reject(
-            interaction: discord.Interaction, change_id: str
-        ) -> None:
+        async def cmd_reject(interaction: discord.Interaction, change_id: str) -> None:
             workflow = self._bot._approval_workflow
             ok = workflow.reject(change_id)
             if ok:
-                await interaction.response.send_message(
-                    f"변경 `{change_id}` 거부됨."
-                )
+                await interaction.response.send_message(f"변경 `{change_id}` 거부됨.")
             else:
                 await interaction.response.send_message(
                     f"거부 실패: `{change_id}` (없거나 pending 아님)",
                     ephemeral=True,
                 )
 
-        @self._tree.command(
-            name="pending", description="대기 중인 진화 변경 목록", guild=guild
-        )
+        @self._tree.command(name="pending", description="대기 중인 진화 변경 목록", guild=guild)
         @admin_check
         async def cmd_pending(interaction: discord.Interaction) -> None:
             workflow = self._bot._approval_workflow

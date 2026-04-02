@@ -19,8 +19,14 @@ CLAUDE_MD = ROOT / "CLAUDE.md"
 
 # 소스 디렉토리 (스캔 대상)
 SOURCE_DIRS = [
-    "app", "strategy", "market", "risk", "execution",
-    "backtesting", "bot_discord", "scripts",
+    "app",
+    "strategy",
+    "market",
+    "risk",
+    "execution",
+    "backtesting",
+    "bot_discord",
+    "scripts",
 ]
 
 # 자동생성 마커
@@ -85,7 +91,7 @@ def parse_claude_md_tree() -> dict[str, list[str]]:
         # 마커 없으면 기존 방식으로 파싱 시도
         return _parse_legacy_tree(content)
 
-    section = content[start_idx + len(TREE_START):end_idx]
+    section = content[start_idx + len(TREE_START) : end_idx]
 
     tree: dict[str, list[str]] = {}
     current_dir = ""
@@ -146,8 +152,14 @@ def generate_tree_section(tree: dict[str, list[tuple[str, str]]]) -> str:
     dir_list = list(tree.keys())
     # 고정 순서 + 나머지
     order = [
-        "app", "strategy", "market", "risk", "execution",
-        "backtesting", "bot_discord", "scripts",
+        "app",
+        "strategy",
+        "market",
+        "risk",
+        "execution",
+        "backtesting",
+        "bot_discord",
+        "scripts",
     ]
     sorted_dirs = [d for d in order if d in tree]
     for extra in dir_list:
@@ -156,12 +168,12 @@ def generate_tree_section(tree: dict[str, list[tuple[str, str]]]) -> str:
 
     for i, dir_name in enumerate(sorted_dirs):
         files = tree[dir_name]
-        is_last_dir = (i == len(sorted_dirs) - 1)
+        is_last_dir = i == len(sorted_dirs) - 1
         dir_prefix = "└──" if is_last_dir else "├──"
         lines.append(f"{dir_prefix} {dir_name}/")
 
         for j, (fname, desc) in enumerate(files):
-            is_last_file = (j == len(files) - 1)
+            is_last_file = j == len(files) - 1
             if is_last_dir:
                 file_prefix = "    └──" if is_last_file else "    ├──"
             else:
@@ -236,11 +248,7 @@ def update_claude_md(tree_section: str) -> None:
 
     if start_idx >= 0 and end_idx >= 0:
         # 기존 마커 영역 교체
-        new_content = (
-            content[:start_idx]
-            + tree_section
-            + content[end_idx + len(TREE_END):]
-        )
+        new_content = content[:start_idx] + tree_section + content[end_idx + len(TREE_END) :]
     else:
         # 마커 없으면 기존 프로젝트 구조 섹션을 찾아 교체
         pattern = r"(## 프로젝트 구조\n+)```\n.*?```"

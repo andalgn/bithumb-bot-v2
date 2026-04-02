@@ -3,6 +3,7 @@
 5종 전략(trend_follow, mean_reversion, breakout, scalping, dca)의
 점수를 계산하고 국면별 허용 전략만 반환한다.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -270,14 +271,19 @@ class StrategyScorer:
         # BB 스퀴즈 선행 확인 (+15/+7pt): 스퀴즈 후 확장 패턴
         # ADX 패널티 적용 전에 계산 — ADX < 20(추세 부재) 환경에서는 보너스 제외
         adx_val = _last_valid(ind_1h.adx.adx) if ind_1h.adx else 0.0
-        if adx_val >= 20 and ind_15m.bb and len(ind_15m.bb.upper) >= 22 and len(ind_15m.bb.lower) >= 22:
+        if (
+            adx_val >= 20
+            and ind_15m.bb
+            and len(ind_15m.bb.upper) >= 22
+            and len(ind_15m.bb.lower) >= 22
+        ):
             upper = ind_15m.bb.upper
             lower = ind_15m.bb.lower
             bandwidth = upper - lower
             valid_bw = bandwidth[~np.isnan(bandwidth)]
             if len(valid_bw) >= 22:
-                bw_min_recent = float(np.min(valid_bw[-5:-1]))   # 직전 완성봉 포함 4봉 최솟값
-                bw_min_20 = float(np.min(valid_bw[-22:-1]))      # 20봉 최솟값
+                bw_min_recent = float(np.min(valid_bw[-5:-1]))  # 직전 완성봉 포함 4봉 최솟값
+                bw_min_20 = float(np.min(valid_bw[-22:-1]))  # 20봉 최솟값
                 bw_prev = float(valid_bw[-2])
                 bw_curr = float(valid_bw[-1])
                 was_squeezed = bw_min_recent <= bw_min_20 * 1.15
@@ -414,6 +420,7 @@ class StrategyScorer:
 
 
 # ─── 모듈 수준 유틸 함수 ───
+
 
 def _last_valid(arr: np.ndarray) -> float:
     """배열에서 마지막 유효값을 반환한다."""

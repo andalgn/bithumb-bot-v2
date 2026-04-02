@@ -4,7 +4,70 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = [
+  "E",      # pycodestyle errors
+  "F",      # pyflakes
+  "W",      # pycodestyle warnings
+  "I",      # isort
+  "UP",     # pyupgrade (Python 3.12+ idioms)
+  "RUF",    # ruff-specific rules
+  "SIM",    # simplify
+  "ASYNC",  # flake8-async
+  "A",      # flake8-builtins shadowing
+  "C90",    # mccabe complexity
+]
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "UP042", "SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841", "SIM"]
+"scripts/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "strategy", "market", "execution", "risk", "backtesting", "bot_discord"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["app", "strategy", "market", "execution", "risk"]
+omit = ["tests/*", "scripts/*", "venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 50
+
+[tool.vulture]
+min_confidence = 80
+paths = ["app", "strategy", "market", "execution", "risk"]
+exclude = ["tests/", "venv/"]
+
+[tool.importlinter]
+root_packages = ["app", "strategy", "market", "execution", "risk", "backtesting"]
+
+[[tool.importlinter.contracts]]
+name = "market layer independence"
+type = "independence"
+modules = ["market"]
+
+[[tool.importlinter.contracts]]
+name = "risk does not import execution"
+type = "forbidden"
+source_modules = ["risk"]
+forbidden_modules = ["execution"]
+ignore_imports = ["risk.risk_gate -> execution.quarantine"]
+
+[[tool.importlinter.contracts]]
+name = "market does not import strategy"
+type = "forbidden"
+source_modules = ["market"]
+forbidden_modules = ["strategy", "execution", "risk"]

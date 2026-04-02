@@ -1,6 +1,5 @@
 """격리 시스템 테스트."""
 
-
 import pytest
 
 from execution.quarantine import QuarantineManager

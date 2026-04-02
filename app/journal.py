@@ -167,9 +167,7 @@ class Journal:
                 created_at INTEGER NOT NULL
             )
         """)
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_pipe_trace ON pipeline_events(trace_id)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_pipe_trace ON pipeline_events(trace_id)")
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_pipe_time ON pipeline_events(created_at)"
         )
@@ -360,16 +358,27 @@ class Journal:
                 break
         return count
 
-    def record_health_check(self, score: int, verdict: str, results: list[dict], alerts: list[dict]) -> None:
+    def record_health_check(
+        self, score: int, verdict: str, results: list[dict], alerts: list[dict]
+    ) -> None:
         """헬스 체크 결과를 기록한다."""
         self._conn.execute(
             "INSERT INTO health_checks (score, verdict, results_json, alerts_json) VALUES (?, ?, ?, ?)",
-            (score, verdict, json.dumps(results, ensure_ascii=False), json.dumps(alerts, ensure_ascii=False)),
+            (
+                score,
+                verdict,
+                json.dumps(results, ensure_ascii=False),
+                json.dumps(alerts, ensure_ascii=False),
+            ),
         )
         self._conn.commit()
 
     def record_pipeline_event(
-        self, trace_id: str, event_type: str, symbol: str = "", data: dict | None = None,
+        self,
+        trace_id: str,
+        event_type: str,
+        symbol: str = "",
+        data: dict | None = None,
     ) -> None:
         """파이프라인 이벤트를 기록한다."""
         now = int(time.time() * 1000)
@@ -395,7 +404,13 @@ class Journal:
             (limit,),
         ).fetchall()
         return [
-            {"score": r[0], "verdict": r[1], "results": json.loads(r[2]), "alerts": json.loads(r[3]), "created_at": r[4]}
+            {
+                "score": r[0],
+                "verdict": r[1],
+                "results": json.loads(r[2]),
+                "alerts": json.loads(r[3]),
+                "created_at": r[4],
+            }
             for r in rows
         ]
 
@@ -428,9 +443,14 @@ class Journal:
         ).fetchall()
         return [
             {
-                "trade_id": r[0], "strategy": r[1],
-                "regime_entry": r[2], "regime_exit": r[3], "tag": r[4],
-                "reflection_text": r[5], "lesson": r[6], "created_at": r[7],
+                "trade_id": r[0],
+                "strategy": r[1],
+                "regime_entry": r[2],
+                "regime_exit": r[3],
+                "tag": r[4],
+                "reflection_text": r[5],
+                "lesson": r[6],
+                "created_at": r[7],
             }
             for r in rows
         ]
@@ -443,9 +463,16 @@ class Journal:
         """
         cutoff = int(time.time() * 1000) - RETENTION_DAYS * DAY_MS
         total = 0
-        for table in ("signals", "executions", "risk_events", "shadow_trades", "feedback", "pipeline_events"):
+        for table in (
+            "signals",
+            "executions",
+            "risk_events",
+            "shadow_trades",
+            "feedback",
+            "pipeline_events",
+        ):
             cursor = self._conn.execute(
-                f"DELETE FROM {table} WHERE created_at < ?",  # noqa: S608
+                f"DELETE FROM {table} WHERE created_at < ?",
                 (cutoff,),
             )
             total += cursor.rowcount
@@ -458,10 +485,14 @@ class Journal:
         )
         total += cursor.rowcount
 
-        cursor = self._conn.execute("DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')")
+        cursor = self._conn.execute(
+            "DELETE FROM health_checks WHERE created_at < datetime('now', '-90 days')"
+        )
         total += cursor.rowcount
 
-        cursor = self._conn.execute("DELETE FROM reflections WHERE created_at < datetime('now', '-90 days')")
+        cursor = self._conn.execute(
+            "DELETE FROM reflections WHERE created_at < datetime('now', '-90 days')"
+        )
         total += cursor.rowcount
 
         self._conn.commit()

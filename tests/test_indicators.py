@@ -22,14 +22,16 @@ def _make_candles(closes: list[float], n: int = 0) -> list[Candle]:
     """테스트용 캔들 생성."""
     candles = []
     for i, c in enumerate(closes):
-        candles.append(Candle(
-            timestamp=1000 * (i + 1),
-            open=c * 0.999,
-            high=c * 1.01,
-            low=c * 0.99,
-            close=c,
-            volume=1000.0,
-        ))
+        candles.append(
+            Candle(
+                timestamp=1000 * (i + 1),
+                open=c * 0.999,
+                high=c * 1.01,
+                low=c * 0.99,
+                close=c,
+                volume=1000.0,
+            )
+        )
     return candles
 
 

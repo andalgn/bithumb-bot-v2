@@ -1,4 +1,5 @@
 """Walk-Forward 리팩토링 테스트."""
+
 from backtesting.walk_forward import WalkForward
 
 
@@ -19,14 +20,16 @@ def test_wf_run_with_6_segments():
     trades = []
     for day in range(180):
         pnl = 100 if day % 3 == 0 else -50
-        trades.append({
-            "day": day,
-            "strategy": "trend_follow",
-            "entry_price": 1000,
-            "exit_price": 1000 + pnl,
-            "quantity": 1.0,
-            "coin": "BTC",
-        })
+        trades.append(
+            {
+                "day": day,
+                "strategy": "trend_follow",
+                "entry_price": 1000,
+                "exit_price": 1000 + pnl,
+                "quantity": 1.0,
+                "coin": "BTC",
+            }
+        )
     wf = WalkForward(data_days=180, num_segments=6)
     result = wf.run(trades)
     assert result.total_segments == 6
@@ -37,14 +40,16 @@ def test_wf_verdict_75pct():
     """75% 이상 통과 시 'good' 이상 verdict."""
     trades = []
     for day in range(120):
-        trades.append({
-            "day": day,
-            "strategy": "trend_follow",
-            "entry_price": 1000,
-            "exit_price": 1100,
-            "quantity": 1.0,
-            "coin": "BTC",
-        })
+        trades.append(
+            {
+                "day": day,
+                "strategy": "trend_follow",
+                "entry_price": 1000,
+                "exit_price": 1100,
+                "quantity": 1.0,
+                "coin": "BTC",
+            }
+        )
     wf = WalkForward(data_days=120, num_segments=4)
     result = wf.run(trades)
     assert result.verdict in ("robust", "good")

@@ -1,15 +1,16 @@
 """TradeTagger — 거래 결과를 실패 유형으로 분류한다."""
+
 from __future__ import annotations
 
 from typing import Literal
 
 TradeTag = Literal[
     "regime_mismatch",  # 진입 국면 ≠ 청산 국면 (시장 급변)
-    "timing_error",     # 방향은 맞지만 SL 먼저 도달 (진입 타이밍 오류)
-    "sizing_error",     # 수익 < 수수료 (포지션 너무 작음)
-    "signal_quality",   # 방향 자체가 틀림 (신호 품질 불량)
-    "external",         # 거래소 오류, API 실패, 최소 주문금액
-    "winner",           # 수익 거래 (분류 불필요)
+    "timing_error",  # 방향은 맞지만 SL 먼저 도달 (진입 타이밍 오류)
+    "sizing_error",  # 수익 < 수수료 (포지션 너무 작음)
+    "signal_quality",  # 방향 자체가 틀림 (신호 품질 불량)
+    "external",  # 거래소 오류, API 실패, 최소 주문금액
+    "winner",  # 수익 거래 (분류 불필요)
 ]
 
 _EXTERNAL_KEYWORDS = ("api", "error", "timeout", "minimum", "reconcil")

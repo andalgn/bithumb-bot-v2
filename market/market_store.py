@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_RETENTION = {
     "5m": 180,
     "15m": -1,  # 영구
-    "1h": -1,   # 영구
+    "1h": -1,  # 영구
     "orderbook": 90,
 }
 
@@ -79,9 +79,7 @@ class MarketStore:
         """)
         self._conn.commit()
 
-    def store_candles(
-        self, symbol: str, interval: str, candles: list[Candle]
-    ) -> int:
+    def store_candles(self, symbol: str, interval: str, candles: list[Candle]) -> int:
         """캔들 데이터를 저장한다.
 
         Args:
@@ -114,12 +112,8 @@ class MarketStore:
             symbol: 코인 심볼.
             orderbook: 호가창 데이터.
         """
-        bids_json = json.dumps(
-            [{"price": b.price, "quantity": b.quantity} for b in orderbook.bids]
-        )
-        asks_json = json.dumps(
-            [{"price": a.price, "quantity": a.quantity} for a in orderbook.asks]
-        )
+        bids_json = json.dumps([{"price": b.price, "quantity": b.quantity} for b in orderbook.bids])
+        asks_json = json.dumps([{"price": a.price, "quantity": a.quantity} for a in orderbook.asks])
         self._conn.execute(
             """INSERT INTO orderbook_snapshots
                (symbol, timestamp, bids, asks, spread_pct, created_at)
@@ -135,9 +129,7 @@ class MarketStore:
         )
         self._conn.commit()
 
-    def get_candles(
-        self, symbol: str, interval: str, limit: int = 200
-    ) -> list[Candle]:
+    def get_candles(self, symbol: str, interval: str, limit: int = 200) -> list[Candle]:
         """저장된 캔들을 조회한다.
 
         Args:

@@ -1,12 +1,13 @@
 """ATR 기반 포지션 사이징 단위 테스트."""
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from app.config import SizingConfig
 from app.data_types import OrderSide, Pool, Regime, Signal, Tier
-from strategy.coin_profiler import TierParams, Tier as ProfilerTier
+from strategy.coin_profiler import Tier as ProfilerTier
+from strategy.coin_profiler import TierParams
 from strategy.correlation_monitor import CorrelationMonitor
 from strategy.indicators import IndicatorPack
 from strategy.pool_manager import PoolManager, PoolState

@@ -3,6 +3,7 @@
 각 함수는 해당 국면 판정을 확실하게 만드는 200봉 이상의 캔들을 반환한다.
 (IndicatorPack 계산에 최소 200봉 필요)
 """
+
 from __future__ import annotations
 
 import math
@@ -102,7 +103,7 @@ def crisis_candles(count: int = 250) -> list[Candle]:
                 timestamp=(normal_count + j) * 900_000,
                 open=crash_price * 1.02,
                 high=crash_price * 1.03,
-                low=crash_price * 0.95,   # ATR 크게
+                low=crash_price * 0.95,  # ATR 크게
                 close=crash_price,
                 volume=8000.0,
             )

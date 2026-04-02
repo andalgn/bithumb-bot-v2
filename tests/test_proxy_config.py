@@ -1,4 +1,5 @@
 """프록시 설정 로딩 테스트."""
+
 from app.config import load_config
 from market.bithumb_api import BithumbClient
 

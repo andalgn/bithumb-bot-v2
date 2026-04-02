@@ -25,21 +25,23 @@ _trade_counter = 0
 
 def _add_trades(journal: Journal, count: int, pnl: float) -> None:
     """테스트 거래 추가."""
-    global _trade_counter  # noqa: PLW0603
+    global _trade_counter
     for i in range(count):
         _trade_counter += 1
-        journal.record_trade({
-            "trade_id": f"test_{_trade_counter}",
-            "symbol": "BTC",
-            "strategy": "trend_follow",
-            "tier": 1,
-            "regime": "STRONG_UP",
-            "pool": "active",
-            "entry_price": 50_000_000,
-            "exit_price": 50_000_000 + pnl / 0.001,
-            "qty": 0.001,
-            "net_pnl_krw": pnl,
-        })
+        journal.record_trade(
+            {
+                "trade_id": f"test_{_trade_counter}",
+                "symbol": "BTC",
+                "strategy": "trend_follow",
+                "tier": 1,
+                "regime": "STRONG_UP",
+                "pool": "active",
+                "entry_price": 50_000_000,
+                "exit_price": 50_000_000 + pnl / 0.001,
+                "qty": 0.001,
+                "net_pnl_krw": pnl,
+            }
+        )
 
 
 class TestDailyReview:
@@ -99,8 +101,11 @@ class TestRules:
         """승률 < 40% → 임계값 상향."""
         stats = {
             "trend_follow": {
-                "count": 15, "wins": 4, "win_rate": 0.27,
-                "total_pnl": -500, "expectancy": -33,
+                "count": 15,
+                "wins": 4,
+                "win_rate": 0.27,
+                "total_pnl": -500,
+                "expectancy": -33,
             },
         }
         adjustments = engine._apply_rules(stats, [])
@@ -111,8 +116,11 @@ class TestRules:
         """승률 >= 40% → 조정 없음."""
         stats = {
             "trend_follow": {
-                "count": 15, "wins": 8, "win_rate": 0.53,
-                "total_pnl": 5000, "expectancy": 333,
+                "count": 15,
+                "wins": 8,
+                "win_rate": 0.53,
+                "total_pnl": 5000,
+                "expectancy": 333,
             },
         }
         adjustments = engine._apply_rules(stats, [])
@@ -145,7 +153,7 @@ class TestSuggestionParsing:
     def test_parse_embedded_json(self, engine: ReviewEngine) -> None:
         """텍스트 속 JSON 파싱."""
         content = (
-            'Here are my suggestions:\n'
+            "Here are my suggestions:\n"
             '[{"param": "atr", "action": "decrease",'
             ' "delta": 0.2, "reason": "too wide"}]\nThank you.'
         )
@@ -169,9 +177,7 @@ class TestWeeklyReview:
         assert result.deepseek_suggestions == []
 
     @pytest.mark.asyncio
-    async def test_weekly_with_data(
-        self, engine: ReviewEngine, journal: Journal
-    ) -> None:
+    async def test_weekly_with_data(self, engine: ReviewEngine, journal: Journal) -> None:
         """데이터 있을 때."""
         _add_trades(journal, 10, 500)
         engine._last_weekly = ""

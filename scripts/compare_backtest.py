@@ -6,12 +6,10 @@ B: probe_min 하향 + spread_limit tier3 완화
 
 from __future__ import annotations
 
-import copy
 import logging
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,7 +49,7 @@ def summarize(
     stats: dict[str, StrategyStats],
 ) -> list[str]:
     """결과를 텍스트로 요약."""
-    lines = [f"\n{'='*50}", f"  {label}", f"{'='*50}"]
+    lines = [f"\n{'=' * 50}", f"  {label}", f"{'=' * 50}"]
 
     total = len(all_trades)
     wins = sum(1 for t in all_trades if t.pnl > 0)
@@ -70,7 +68,7 @@ def summarize(
     }
 
     lines.append(f"  {'전략':<14} {'건수':>5} {'승률':>7} {'PF':>6} {'MDD':>7} {'PnL':>12}")
-    lines.append(f"  {'-'*55}")
+    lines.append(f"  {'-' * 55}")
 
     for key in ["trend_follow", "mean_reversion", "breakout", "scalping", "dca"]:
         s = stats.get(key)
@@ -79,8 +77,8 @@ def summarize(
             lines.append(f"  {name:<14} {'—':>5}")
             continue
         lines.append(
-            f"  {name:<14} {s.trades:>5} {s.win_rate*100:>6.1f}% {s.profit_factor:>6.2f}"
-            f" {s.max_drawdown*100:>6.1f}% {s.total_pnl:>11,.0f}원"
+            f"  {name:<14} {s.trades:>5} {s.win_rate * 100:>6.1f}% {s.profit_factor:>6.2f}"
+            f" {s.max_drawdown * 100:>6.1f}% {s.total_pnl:>11,.0f}원"
         )
 
     # 코인별 요약
@@ -90,12 +88,12 @@ def summarize(
         coin_data[t.symbol].append(t)
 
     lines.append(f"  {'코인':<8} {'건수':>5} {'승률':>7} {'PnL':>12}")
-    lines.append(f"  {'-'*35}")
+    lines.append(f"  {'-' * 35}")
     for sym in sorted(coin_data.keys()):
         trades = coin_data[sym]
         w = sum(1 for t in trades if t.pnl > 0)
         p = sum(t.pnl for t in trades)
-        lines.append(f"  {sym:<8} {len(trades):>5} {w/len(trades)*100:>6.1f}% {p:>11,.0f}원")
+        lines.append(f"  {sym:<8} {len(trades):>5} {w / len(trades) * 100:>6.1f}% {p:>11,.0f}원")
 
     return lines
 
@@ -155,9 +153,9 @@ def main() -> None:
     output.append("=" * 60)
     output.append("")
     output.append("  [A] 현재 설정")
-    output.append(f"      group1.probe_min=60, spread_tier3=0.0035")
+    output.append("      group1.probe_min=60, spread_tier3=0.0035")
     output.append("  [B] 완화 설정")
-    output.append(f"      group1.probe_min=55, spread_tier3=0.005")
+    output.append("      group1.probe_min=55, spread_tier3=0.005")
 
     for label, (trades, stats) in [
         ("[A] 현재 설정 (baseline)", results["A"]),
@@ -168,16 +166,16 @@ def main() -> None:
     # 델타 요약
     ta, sa = results["A"]
     tb, sb = results["B"]
-    output.append(f"\n{'='*50}")
+    output.append(f"\n{'=' * 50}")
     output.append("  변화량 (B - A)")
-    output.append(f"{'='*50}")
-    output.append(f"  거래 수: {len(ta)} → {len(tb)} ({len(tb)-len(ta):+d})")
+    output.append(f"{'=' * 50}")
+    output.append(f"  거래 수: {len(ta)} → {len(tb)} ({len(tb) - len(ta):+d})")
     pnl_a = sum(t.pnl for t in ta)
     pnl_b = sum(t.pnl for t in tb)
-    output.append(f"  총 PnL: {pnl_a:,.0f} → {pnl_b:,.0f} ({pnl_b-pnl_a:+,.0f}원)")
+    output.append(f"  총 PnL: {pnl_a:,.0f} → {pnl_b:,.0f} ({pnl_b - pnl_a:+,.0f}원)")
     wr_a = sum(1 for t in ta if t.pnl > 0) / len(ta) * 100 if ta else 0
     wr_b = sum(1 for t in tb if t.pnl > 0) / len(tb) * 100 if tb else 0
-    output.append(f"  승률: {wr_a:.1f}% → {wr_b:.1f}% ({wr_b-wr_a:+.1f}%p)")
+    output.append(f"  승률: {wr_a:.1f}% → {wr_b:.1f}% ({wr_b - wr_a:+.1f}%p)")
 
     text = "\n".join(output)
     sys.stdout.buffer.write((text + "\n").encode("utf-8"))

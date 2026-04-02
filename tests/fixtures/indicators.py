@@ -1,4 +1,5 @@
 """고정 캔들에서 IndicatorPack을 계산하는 헬퍼."""
+
 from __future__ import annotations
 
 from app.data_types import Candle

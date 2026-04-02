@@ -24,8 +24,8 @@ from strategy.evolution_orchestrator import (
 from strategy.guard_agent import GuardAgent
 from strategy.strategy_params import EvolvableParams
 
-
 # ── Mock 데이터 ────────────────────────────────────────────
+
 
 def _make_trade(net_pnl_pct: float, days_ago: int = 0) -> dict:
     """테스트용 거래 데이터 생성."""
@@ -86,6 +86,7 @@ class MockWFResult:
 
 # ── Fixture ────────────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_journal():
     journal = MagicMock()
@@ -127,9 +128,7 @@ def mock_walk_forward():
 def mock_feedback_loop():
     fl = MagicMock()
     fl.get_failure_patterns.return_value = [MockFailurePattern()]
-    fl.generate_hypotheses = AsyncMock(return_value=[
-        {"rationale": "SL 확대", "mr_sl_mult": 8.0}
-    ])
+    fl.generate_hypotheses = AsyncMock(return_value=[{"rationale": "SL 확대", "mr_sl_mult": 8.0}])
     return fl
 
 
@@ -142,8 +141,14 @@ def mock_experiment_store():
 
 @pytest.fixture
 def orchestrator(
-    mock_journal, mock_notifier, mock_market_store, mock_optimizer,
-    mock_walk_forward, mock_feedback_loop, mock_experiment_store, tmp_path
+    mock_journal,
+    mock_notifier,
+    mock_market_store,
+    mock_optimizer,
+    mock_walk_forward,
+    mock_feedback_loop,
+    mock_experiment_store,
+    tmp_path,
 ):
     from app.approval_workflow import ApprovalWorkflow
 
@@ -153,6 +158,7 @@ def orchestrator(
     )
     # 더미 config.yaml 생성
     import yaml
+
     (tmp_path / "config.yaml").write_text(
         yaml.dump({"strategy_params": {}, "risk_gate": {}, "sizing": {}}),
         encoding="utf-8",
@@ -175,6 +181,7 @@ def orchestrator(
 
 
 # ── 유틸리티 함수 테스트 ───────────────────────────────────
+
 
 class TestCompositeFitness:
     """Composite Fitness 계산."""
@@ -241,6 +248,7 @@ class TestDeflatedSharpe:
 
 # ── Phase별 테스트 ─────────────────────────────────────────
 
+
 class TestPhaseMonitor:
     """Phase 1: Monitor."""
 
@@ -270,9 +278,9 @@ class TestPhaseDiagnose:
             should_continue=True,
             fitness=0.3,
             profit_factor=1.0,  # 낮음 → strategy_params
-            sharpe=0.3,         # 낮음 → sizing_params
+            sharpe=0.3,  # 낮음 → sizing_params
             max_drawdown=0.12,  # 높음 → risk_thresholds
-            win_rate=0.40,      # 낮음 → entry_cutoff
+            win_rate=0.40,  # 낮음 → entry_cutoff
             trade_count=30,
         )
         areas = await orchestrator._phase_diagnose(baseline)
@@ -317,9 +325,7 @@ class TestPhaseHypothesize:
     @pytest.mark.asyncio
     async def test_max_candidates_limit(self, orchestrator):
         """후보 수는 max_experiments 이하."""
-        candidates = await orchestrator._phase_hypothesize(
-            ["strategy_params", "entry_cutoff"]
-        )
+        candidates = await orchestrator._phase_hypothesize(["strategy_params", "entry_cutoff"])
         assert len(candidates) <= orchestrator._max_experiments
 
 

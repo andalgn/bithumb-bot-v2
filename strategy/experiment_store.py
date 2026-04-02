@@ -153,9 +153,9 @@ class ExperimentStore:
             old_params = json.loads(old_raw)
             old_val = old_params.get(param_key, 0)
             new_val = params[param_key]
-            if direction == "increase" and new_val > old_val:
-                count += 1
-            elif direction == "decrease" and new_val < old_val:
+            if (direction == "increase" and new_val > old_val) or (
+                direction == "decrease" and new_val < old_val
+            ):
                 count += 1
         return count
 

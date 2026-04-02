@@ -2,9 +2,10 @@
 
 거부/통과 동작을 고정한다.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +16,6 @@ from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
 from strategy.spread_profiler import SpreadProfiler
 from tests.fixtures.candles import range_candles
-
 
 KST = timezone(timedelta(hours=9))
 
@@ -55,8 +55,7 @@ def _make_snap(candles, volume_override=None, spread_pct=0.001):
     """테스트용 스냅샷 생성."""
     if volume_override is not None:
         candles = [
-            Candle(c.timestamp, c.open, c.high, c.low, c.close, volume_override)
-            for c in candles
+            Candle(c.timestamp, c.open, c.high, c.low, c.close, volume_override) for c in candles
         ]
     price = candles[-1].close
     ob = Orderbook(
@@ -65,8 +64,7 @@ def _make_snap(candles, volume_override=None, spread_pct=0.001):
         asks=[OrderbookEntry(price=price * (1 + spread_pct / 2), quantity=100.0)],
     )
     return MarketSnapshot(
-        symbol="TEST", current_price=price,
-        candles_15m=candles, candles_1h=candles, orderbook=ob
+        symbol="TEST", current_price=price, candles_15m=candles, candles_1h=candles, orderbook=ob
     )
 
 

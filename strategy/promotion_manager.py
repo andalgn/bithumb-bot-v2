@@ -201,7 +201,9 @@ class PromotionManager:
 
         logger.info(
             "승격: %s Active→Core, SL: %.0f→%.0f",
-            position.symbol, position.stop_loss, core_stop_loss,
+            position.symbol,
+            position.stop_loss,
+            core_stop_loss,
         )
         position.stop_loss = core_stop_loss
         return core_pos
@@ -237,8 +239,9 @@ class PromotionManager:
                 cp.protection_bars += 1
                 # 손절선 이탈 → 즉시 청산
                 if price < cp.core_stop_loss:
-                    logger.warning("보호기간 손절: %s @ %.0f < SL %.0f",
-                                   symbol, price, cp.core_stop_loss)
+                    logger.warning(
+                        "보호기간 손절: %s @ %.0f < SL %.0f", symbol, price, cp.core_stop_loss
+                    )
                     demoted.append(symbol)
                     continue
                 # 보호기간 종료
@@ -265,8 +268,9 @@ class PromotionManager:
 
                 # 손절선 이탈
                 if price < cp.core_stop_loss:
-                    logger.warning("Core 손절: %s @ %.0f < SL %.0f",
-                                   symbol, price, cp.core_stop_loss)
+                    logger.warning(
+                        "Core 손절: %s @ %.0f < SL %.0f", symbol, price, cp.core_stop_loss
+                    )
                     demoted.append(symbol)
                     continue
 
@@ -355,9 +359,7 @@ class PromotionManager:
         if cp:
             cp.additional_buy_done = True
 
-    def check_partial_exit(
-        self, symbol: str, current_price: float
-    ) -> float:
+    def check_partial_exit(self, symbol: str, current_price: float) -> float:
         """부분 청산 비율을 확인한다.
 
         Args:

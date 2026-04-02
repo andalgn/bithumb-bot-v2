@@ -2,6 +2,7 @@
 
 run_cycle() 분해 후 각 메서드 간 데이터 전달에 사용한다.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

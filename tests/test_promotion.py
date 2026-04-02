@@ -36,14 +36,16 @@ def _make_candles(base: float, count: int, trend: float = 0.5) -> list[Candle]:
     price = base
     for i in range(count):
         price += trend
-        candles.append(Candle(
-            timestamp=1000 * (i + 1),
-            open=price * 0.999,
-            high=price * 1.01,
-            low=price * 0.99,
-            close=price,
-            volume=1000.0,
-        ))
+        candles.append(
+            Candle(
+                timestamp=1000 * (i + 1),
+                open=price * 0.999,
+                high=price * 1.01,
+                low=price * 0.99,
+                close=price,
+                volume=1000.0,
+            )
+        )
     return candles
 
 
@@ -124,9 +126,7 @@ class TestPromotionFlow:
 
         # 2봉 동안 손절선 위
         for _ in range(2):
-            pm.update_core_positions(
-                {"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
         cp = pm.get_core_position("BTC")
         assert cp is not None
         assert cp.phase == CorePhase.NORMAL
@@ -153,14 +153,10 @@ class TestPromotionFlow:
 
         # 보호기간 통과
         for _ in range(2):
-            pm.update_core_positions(
-                {"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
 
         # 국면 RANGE로 변경 → 강등
-        demoted = pm.update_core_positions(
-            {"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.RANGE}
-        )
+        demoted = pm.update_core_positions({"BTC": 51_000_000}, {"BTC": ind}, {"BTC": Regime.RANGE})
         assert "BTC" in demoted
 
 
@@ -176,9 +172,7 @@ class TestPartialExit:
 
         # NORMAL로 전환
         for _ in range(2):
-            pm.update_core_positions(
-                {"BTC": 51_500_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 51_500_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
 
         # +3% = 51,500,000
         exit_pct = pm.check_partial_exit("BTC", 51_500_000)
@@ -192,9 +186,7 @@ class TestPartialExit:
         pm.promote(pos, ind)
 
         for _ in range(2):
-            pm.update_core_positions(
-                {"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
 
         # 1차: +3%
         pm.check_partial_exit("BTC", 51_500_000)
@@ -215,9 +207,7 @@ class TestAdditionalBuy:
 
         # 2봉만 경과 (보호기간)
         for _ in range(2):
-            pm.update_core_positions(
-                {"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
 
         assert pm.check_additional_buy("BTC", 52_000_000, 60, candles[-4:]) is False
 
@@ -230,9 +220,7 @@ class TestAdditionalBuy:
 
         # 5봉 경과
         for _ in range(5):
-            pm.update_core_positions(
-                {"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP}
-            )
+            pm.update_core_positions({"BTC": 52_000_000}, {"BTC": ind}, {"BTC": Regime.STRONG_UP})
 
         # +4% 수익, 점수 60, VWAP 위
         result = pm.check_additional_buy("BTC", 52_000_000, 60, candles[-4:])

@@ -127,10 +127,12 @@ class TestApplyChanges:
         params = EvolvableParams()
         # daily_dd_pct(max=0.06) >= weekly_dd_pct(min=0.04) → 위반 가능
         with pytest.raises(ValueError, match="교차 필드 제약 위반"):
-            params.apply_changes({
-                "daily_dd_pct": 0.06,
-                "weekly_dd_pct": 0.04,
-            })
+            params.apply_changes(
+                {
+                    "daily_dd_pct": 0.06,
+                    "weekly_dd_pct": 0.04,
+                }
+            )
 
 
 class TestSerialization:
@@ -223,9 +225,7 @@ class TestFromConfig:
 
         @dataclass
         class MockScoreCutoff:
-            group1: MockScoreCutoffGroup = field(
-                default_factory=MockScoreCutoffGroup
-            )
+            group1: MockScoreCutoffGroup = field(default_factory=MockScoreCutoffGroup)
 
         @dataclass
         class MockRiskGate:
@@ -257,23 +257,23 @@ class TestFromConfig:
 
         @dataclass
         class MockConfig:
-            strategy_params: dict = field(default_factory=lambda: {
-                "trend_follow": {
-                    "sl_mult": 4.0,
-                    "tp_rr": 2.0,
-                    "w_trend_align": 30,
-                    "w_macd": 25,
-                    "w_volume": 20,
-                    "w_rsi_pullback": 15,
-                    "w_supertrend": 10,
-                },
-                "mean_reversion": {"sl_mult": 7.0, "tp_rr": 1.5},
-                "breakout": {"sl_mult": 2.0, "tp_rr": 3.0},
-                "dca": {"sl_pct": 0.05, "tp_pct": 0.03},
-            })
-            score_cutoff: MockScoreCutoff = field(
-                default_factory=MockScoreCutoff
+            strategy_params: dict = field(
+                default_factory=lambda: {
+                    "trend_follow": {
+                        "sl_mult": 4.0,
+                        "tp_rr": 2.0,
+                        "w_trend_align": 30,
+                        "w_macd": 25,
+                        "w_volume": 20,
+                        "w_rsi_pullback": 15,
+                        "w_supertrend": 10,
+                    },
+                    "mean_reversion": {"sl_mult": 7.0, "tp_rr": 1.5},
+                    "breakout": {"sl_mult": 2.0, "tp_rr": 3.0},
+                    "dca": {"sl_pct": 0.05, "tp_pct": 0.03},
+                }
             )
+            score_cutoff: MockScoreCutoff = field(default_factory=MockScoreCutoff)
             risk_gate: MockRiskGate = field(default_factory=MockRiskGate)
             sizing: MockSizing = field(default_factory=MockSizing)
             regime: MockRegime = field(default_factory=MockRegime)

@@ -9,3 +9,8 @@ __pycache__/
 
 # API 키 환경변수 파일
 scripts/bithumb-bot.env
+
+# Code Quality Tool Artifacts
+.mutmut-cache
+.hypothesis/
+reports/

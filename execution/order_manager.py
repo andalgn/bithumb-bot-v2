@@ -16,7 +16,6 @@ import uuid
 from pathlib import Path
 
 from app.data_types import OrderSide, OrderStatus, OrderTicket, RunMode
-from app.errors import OrderTimeoutError
 from market.bithumb_api import BithumbAPIError, BithumbClient
 from market.normalizer import validate_order
 
@@ -381,7 +380,7 @@ class OrderManager:
                     ticket.filled_price = ticket.price
             else:
                 ticket.status = OrderStatus.EXPIRED
-        except Exception:  # noqa: BLE001 — 상태 보호용
+        except Exception:
             ticket.status = OrderStatus.EXPIRED
 
         ticket.updated_at = int(time.time() * 1000)
@@ -411,7 +410,7 @@ class OrderManager:
                 ticket.symbol, ticket.exchange_order_id, ticket.side.value
             )
             ticket.status = OrderStatus.CANCELED
-        except BithumbAPIError as exc:
+        except BithumbAPIError:
             logger.exception("주문 취소 실패: %s", ticket.ticket_id)
             ticket.status = OrderStatus.FAILED
 

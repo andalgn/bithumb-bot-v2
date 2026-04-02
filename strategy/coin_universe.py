@@ -14,10 +14,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXCLUDE: frozenset[str] = frozenset({
-    "USDT", "USDC", "BUSD", "DAI", "TUSD", "USDP", "GUSD",
-    "KRW", "KRWC",
-})
+_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "USDT",
+        "USDC",
+        "BUSD",
+        "DAI",
+        "TUSD",
+        "USDP",
+        "GUSD",
+        "KRW",
+        "KRWC",
+    }
+)
 
 
 class CoinUniverse:
@@ -25,7 +34,7 @@ class CoinUniverse:
 
     def __init__(
         self,
-        client: "BithumbClient",
+        client: BithumbClient,
         top_n: int = 20,
         base_coins: list[str] | None = None,
     ) -> None:
@@ -78,6 +87,8 @@ class CoinUniverse:
         self._current = result
         logger.info(
             "코인 유니버스 갱신: %d개 (top%d + base%d)",
-            len(result), len(top_coins), len(extra),
+            len(result),
+            len(top_coins),
+            len(extra),
         )
         return result

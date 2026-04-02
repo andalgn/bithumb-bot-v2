@@ -19,6 +19,7 @@ from market.datafeed import CACHE_TTL_SEC, MAX_CANDLES, DataFeed, _CacheEntry
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_client() -> MagicMock:
     """BithumbClient 모킹 객체."""
@@ -39,6 +40,7 @@ def feed(mock_client: MagicMock) -> DataFeed:
 # _CacheEntry
 # ---------------------------------------------------------------------------
 
+
 class TestCacheEntry:
     """_CacheEntry 유효성 테스트."""
 
@@ -56,6 +58,7 @@ class TestCacheEntry:
 # ---------------------------------------------------------------------------
 # _get_cached / _set_cached
 # ---------------------------------------------------------------------------
+
 
 class TestCache:
     """캐시 get/set 테스트."""
@@ -92,6 +95,7 @@ class TestCache:
 # ---------------------------------------------------------------------------
 # _parse_candles
 # ---------------------------------------------------------------------------
+
 
 class TestParseCandles:
     """_parse_candles 테스트."""
@@ -154,6 +158,7 @@ class TestParseCandles:
 # _parse_ticker
 # ---------------------------------------------------------------------------
 
+
 class TestParseTicker:
     """_parse_ticker 테스트."""
 
@@ -187,6 +192,7 @@ class TestParseTicker:
 # ---------------------------------------------------------------------------
 # _parse_orderbook
 # ---------------------------------------------------------------------------
+
 
 class TestParseOrderbook:
     """_parse_orderbook 테스트."""
@@ -222,13 +228,12 @@ class TestParseOrderbook:
 # get_candles (async, 캐시 적용)
 # ---------------------------------------------------------------------------
 
+
 class TestGetCandles:
     """get_candles 비동기 테스트."""
 
     @pytest.mark.asyncio
-    async def test_fetches_and_caches(
-        self, feed: DataFeed, mock_client: MagicMock
-    ) -> None:
+    async def test_fetches_and_caches(self, feed: DataFeed, mock_client: MagicMock) -> None:
         """첫 호출은 API를 호출하고 캐시에 저장한다."""
         mock_client.get_candlestick.return_value = [
             [1000, "1", "2", "3", "0.5", "10"],
@@ -257,13 +262,12 @@ class TestGetCandles:
 # get_ticker (async)
 # ---------------------------------------------------------------------------
 
+
 class TestGetTicker:
     """get_ticker 비동기 테스트."""
 
     @pytest.mark.asyncio
-    async def test_fetches_ticker(
-        self, feed: DataFeed, mock_client: MagicMock
-    ) -> None:
+    async def test_fetches_ticker(self, feed: DataFeed, mock_client: MagicMock) -> None:
         """ticker를 정상 조회한다."""
         mock_client.get_ticker.return_value = {
             "closing_price": "50000000",
@@ -296,13 +300,12 @@ class TestGetTicker:
 # get_orderbook (async)
 # ---------------------------------------------------------------------------
 
+
 class TestGetOrderbook:
     """get_orderbook 비동기 테스트."""
 
     @pytest.mark.asyncio
-    async def test_fetches_orderbook(
-        self, feed: DataFeed, mock_client: MagicMock
-    ) -> None:
+    async def test_fetches_orderbook(self, feed: DataFeed, mock_client: MagicMock) -> None:
         """호가창을 정상 조회한다."""
         mock_client.get_orderbook.return_value = {
             "timestamp": 1700000000000,
@@ -328,13 +331,12 @@ class TestGetOrderbook:
 # get_snapshot (async)
 # ---------------------------------------------------------------------------
 
+
 class TestGetSnapshot:
     """get_snapshot 비동기 테스트."""
 
     @pytest.mark.asyncio
-    async def test_returns_market_snapshot(
-        self, feed: DataFeed, mock_client: MagicMock
-    ) -> None:
+    async def test_returns_market_snapshot(self, feed: DataFeed, mock_client: MagicMock) -> None:
         """MarketSnapshot을 올바르게 구성한다."""
         mock_client.get_ticker.return_value = {
             "closing_price": "50000000",

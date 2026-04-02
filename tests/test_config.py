@@ -38,12 +38,7 @@ def minimal_config_yaml(tmp_path: Path) -> Path:
     """최소 config.yaml 파일을 생성한다."""
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
-        "run_mode: PAPER\n"
-        "cycle_interval_sec: 300\n"
-        "paper_test: true\n"
-        "coins:\n"
-        "  - BTC\n"
-        "  - ETH\n",
+        "run_mode: PAPER\ncycle_interval_sec: 300\npaper_test: true\ncoins:\n  - BTC\n  - ETH\n",
         encoding="utf-8",
     )
     return cfg
@@ -125,6 +120,7 @@ bithumb:
 # SizingConfig defaults
 # ---------------------------------------------------------------------------
 
+
 class TestSizingConfigDefaults:
     """SizingConfig 기본값 테스트."""
 
@@ -147,6 +143,7 @@ class TestSizingConfigDefaults:
 # ---------------------------------------------------------------------------
 # ScoreCutoffGroup / ScoreCutoffConfig
 # ---------------------------------------------------------------------------
+
 
 class TestScoreCutoffConfig:
     """점수 컷오프 설정 테스트."""
@@ -182,6 +179,7 @@ class TestScoreCutoffConfig:
 # ---------------------------------------------------------------------------
 # load_config — minimal yaml
 # ---------------------------------------------------------------------------
+
 
 class TestLoadConfigMinimal:
     """최소 config.yaml 로딩 테스트."""
@@ -219,9 +217,7 @@ class TestLoadConfigMinimal:
         cfg = load_config(minimal_config_yaml)
         assert cfg.paper_test is True
 
-    def test_coins(
-        self, minimal_config_yaml: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_coins(self, minimal_config_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """코인 목록이 올바르게 로딩된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config(minimal_config_yaml)
@@ -240,12 +236,11 @@ class TestLoadConfigMinimal:
 # load_config — full yaml
 # ---------------------------------------------------------------------------
 
+
 class TestLoadConfigFull:
     """전체 config.yaml 로딩 테스트."""
 
-    def test_sizing_override(
-        self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sizing_override(self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """sizing 값이 yaml에서 오버라이드된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config(full_config_yaml)
@@ -285,17 +280,13 @@ class TestLoadConfigFull:
         assert cfg.execution.spread_limit_tier1 == 0.0020
         assert cfg.execution.orderbook_depth_mult_tier1 == 6
 
-    def test_bithumb_config(
-        self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bithumb_config(self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """bithumb 설정이 올바르게 로딩된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config(full_config_yaml)
         assert cfg.bithumb.public_rate_limit == 20
 
-    def test_discord_config(
-        self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_discord_config(self, full_config_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """discord 설정이 올바르게 로딩된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config(full_config_yaml)
@@ -306,6 +297,7 @@ class TestLoadConfigFull:
 # ---------------------------------------------------------------------------
 # Environment variable override
 # ---------------------------------------------------------------------------
+
 
 class TestEnvOverride:
     """환경변수 오버라이드 테스트."""
@@ -331,12 +323,11 @@ class TestEnvOverride:
 # paper_test flag
 # ---------------------------------------------------------------------------
 
+
 class TestPaperTestFlag:
     """paper_test 플래그 테스트."""
 
-    def test_paper_test_false(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_paper_test_false(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """paper_test: false가 올바르게 파싱된다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg_file = tmp_path / "config.yaml"
@@ -365,6 +356,7 @@ class TestPaperTestFlag:
 # Default config.yaml (프로젝트 실제 파일)
 # ---------------------------------------------------------------------------
 
+
 class TestDefaultConfigYaml:
     """프로젝트 기본 config.yaml 로딩 테스트."""
 
@@ -380,6 +372,5 @@ class TestDefaultConfigYaml:
         """기본 설정에 10개 코인이 있다."""
         monkeypatch.delenv("RUN_MODE", raising=False)
         cfg = load_config()
-        expected = ["BTC", "ETH", "XRP", "SOL", "RENDER",
-                     "VIRTUAL", "EIGEN", "ONDO", "TAO", "LDO"]
+        expected = ["BTC", "ETH", "XRP", "SOL", "RENDER", "VIRTUAL", "EIGEN", "ONDO", "TAO", "LDO"]
         assert cfg.coins == expected

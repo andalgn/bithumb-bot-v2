@@ -1,8 +1,9 @@
 """MomentumRanker 단위 테스트."""
+
 from __future__ import annotations
 
 import time
-import pytest
+
 from app.data_types import Candle
 from strategy.momentum_ranker import MomentumRanker
 
@@ -15,7 +16,16 @@ def _make_candles(n: int, base_price: float, drift: float = 0.0) -> list[Candle]
     for i in range(n):
         ts = now_ms - (n - i) * 3600 * 1000
         close = price * (1 + drift)
-        candles.append(Candle(timestamp=ts, open=price, high=close * 1.001, low=price * 0.999, close=close, volume=1000.0))
+        candles.append(
+            Candle(
+                timestamp=ts,
+                open=price,
+                high=close * 1.001,
+                low=price * 0.999,
+                close=close,
+                volume=1000.0,
+            )
+        )
         price = close
     return candles
 
@@ -38,7 +48,7 @@ def test_rank_strong_uptrend_coin_first():
     ranker = MomentumRanker()
     candles_map = {
         "RISING": _make_candles(200, 100_000, drift=0.003),
-        "FLAT":   _make_candles(200, 100_000, drift=0.0),
+        "FLAT": _make_candles(200, 100_000, drift=0.0),
         "FALLING": _make_candles(200, 100_000, drift=-0.003),
     }
     ranked = ranker.rank(candles_map)

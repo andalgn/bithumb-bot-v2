@@ -176,7 +176,7 @@ class BacktestDaemon:
                     self._last_pipeline = week_key
                     await self._run_evolution_pipeline()
 
-            except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
+            except Exception:
                 logger.exception("BacktestDaemon 오류")
 
             await asyncio.sleep(60)
@@ -204,7 +204,7 @@ class BacktestDaemon:
                     candles = parse_raw_candles(raw)
                     stored = self._store.store_candles(coin, interval, candles)
                     total += stored
-                except Exception:  # noqa: BLE001 — 백테스트 데몬 루프 가드, 프로세스 유지를 위한 의도적 광역 포착
+                except Exception:
                     logger.exception("캔들 수집 실패: %s %s", coin, interval)
                 await asyncio.sleep(0.15)
 
@@ -238,10 +238,7 @@ class BacktestDaemon:
 
         if self._notifier:
             if self.wf_result.verdict == "insufficient_data":
-                msg = (
-                    f"**Walk-Forward**: 거래 {len(wf_trades)}건 — "
-                    f"데이터 부족으로 검증 보류"
-                )
+                msg = f"**Walk-Forward**: 거래 {len(wf_trades)}건 — 데이터 부족으로 검증 보류"
             else:
                 msg = (
                     f"**Walk-Forward**: {self.wf_result.pass_count}/"
@@ -353,14 +350,16 @@ class BacktestDaemon:
                 best.profit_factor >= self._config.auto_apply_min_pf
                 and best.trades >= self._config.auto_apply_min_trades
             ):
-                candidates.append({
-                    "source": "auto_optimize",
-                    "strategy": strategy,
-                    "params": best.params,
-                    "pf": best.profit_factor,
-                    "trades": best.trades,
-                    "win_rate": best.win_rate,
-                })
+                candidates.append(
+                    {
+                        "source": "auto_optimize",
+                        "strategy": strategy,
+                        "params": best.params,
+                        "pf": best.profit_factor,
+                        "trades": best.trades,
+                        "win_rate": best.win_rate,
+                    }
+                )
             logger.info(
                 "최적화 %s: PF=%.2f WR=%.0f%% (%d건)",
                 strategy,
@@ -405,14 +404,16 @@ class BacktestDaemon:
                 best_pf[r.strategy] = r.result_pf
                 best_trades[r.strategy] = getattr(r, "result_trades", 0)
             for strategy, params in by_strategy.items():
-                candidates.append({
-                    "source": "auto_research",
-                    "strategy": strategy,
-                    "params": params,
-                    "pf": best_pf.get(strategy, 0.0),
-                    "trades": best_trades.get(strategy, 0),
-                    "win_rate": 0.0,
-                })
+                candidates.append(
+                    {
+                        "source": "auto_research",
+                        "strategy": strategy,
+                        "params": params,
+                        "pf": best_pf.get(strategy, 0.0),
+                        "trades": best_trades.get(strategy, 0),
+                        "win_rate": 0.0,
+                    }
+                )
 
         return candidates
 
@@ -466,16 +467,18 @@ class BacktestDaemon:
 
         candidates = []
         for strategy, params in champ_params.items():
-            candidates.append({
-                "source": "darwin",
-                "strategy": strategy,
-                "params": params,
-                "pf": perf.profit_factor,
-                "trades": perf.trade_count,
-                "win_rate": perf.win_rate,
-                "shadow_id": new_champion.shadow_id,
-                "_new_champion": new_champion,
-            })
+            candidates.append(
+                {
+                    "source": "darwin",
+                    "strategy": strategy,
+                    "params": params,
+                    "pf": perf.profit_factor,
+                    "trades": perf.trade_count,
+                    "win_rate": perf.win_rate,
+                    "shadow_id": new_champion.shadow_id,
+                    "_new_champion": new_champion,
+                }
+            )
 
         logger.info(
             "Darwin 후보: PF=%.2f WR=%.0f%% MDD=%.1f%% (%d건)",
@@ -501,8 +504,7 @@ class BacktestDaemon:
             logger.info("Evolution Pipeline: 거래 %d건 부족 (최소 10), 건너뜀", len(recent_trades))
             if self._notifier:
                 await self._notifier.send(
-                    "**Evolution Pipeline**: 거래 부족으로 건너뜀"
-                    f" ({len(recent_trades)}건 < 10)",
+                    f"**Evolution Pipeline**: 거래 부족으로 건너뜀 ({len(recent_trades)}건 < 10)",
                     channel="backtest",
                 )
             return
@@ -616,7 +618,8 @@ class BacktestDaemon:
             known = ", ".join(_STRATEGY_PREFIX.keys())
             logger.error(
                 "알 수 없는 전략: %s (지원: %s) — _STRATEGY_PREFIX에 추가 필요",
-                strategy, known,
+                strategy,
+                known,
             )
             raise ValueError(f"알 수 없는 전략: {strategy}. 지원: {known}")
 
@@ -643,12 +646,16 @@ class BacktestDaemon:
 
         # GuardAgent 검증 (risk_level 임계: low<0.2, medium<0.6, high≥0.6)
         guard_result = self._guard.validate(self._current_params, proposed)
-        logger.info("GuardAgent 검증 결과: %s (risk=%.2f, changes=%s)",
-                     guard_result.risk_level, guard_result.risk_score,
-                     list(guard_result.changes.keys()))
+        logger.info(
+            "GuardAgent 검증 결과: %s (risk=%.2f, changes=%s)",
+            guard_result.risk_level,
+            guard_result.risk_score,
+            list(guard_result.changes.keys()),
+        )
         if not guard_result.is_valid:
             logger.warning(
-                "GuardAgent 거부 (daemon): %s", guard_result.violations,
+                "GuardAgent 거부 (daemon): %s",
+                guard_result.violations,
             )
             return
         if guard_result.risk_level == "high":
@@ -665,10 +672,7 @@ class BacktestDaemon:
             change_id=uuid4().hex[:8],
             proposed_params=proposed.to_dict(),
             current_params=self._current_params.to_dict(),
-            changes={
-                k: [float(old), float(new)]
-                for k, (old, new) in guard_result.changes.items()
-            },
+            changes={k: [float(old), float(new)] for k, (old, new) in guard_result.changes.items()},
             risk_score=guard_result.risk_score,
             risk_level=guard_result.risk_level,
             fitness_improvement=candidate.get("pf", 0.0),
@@ -680,7 +684,9 @@ class BacktestDaemon:
         change_id = self._approval.propose(change)
         logger.info(
             "Daemon 후보 제안 완료: %s (strategy=%s, risk=%s)",
-            change_id, strategy, guard_result.risk_level,
+            change_id,
+            strategy,
+            guard_result.risk_level,
         )
 
         if self._notifier:

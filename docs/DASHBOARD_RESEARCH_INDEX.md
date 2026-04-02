@@ -451,4 +451,3 @@ Total: ~3,000 lines of trading dashboard research
 **Start here, read the appropriate document for your role, and you'll have everything you need to build a professional trading dashboard.**
 
 Good luck! 🚀
-

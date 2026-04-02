@@ -171,7 +171,7 @@ class SensitivityAnalyzer:
 
     def run_with_optimizer(
         self,
-        optimizer: "ParameterOptimizer",
+        optimizer: ParameterOptimizer,
         base_params: dict[str, float],
         strategy_name: str,
         entries: list,

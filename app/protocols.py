@@ -2,6 +2,7 @@
 
 테스트 시 Mock으로 교체 가능하도록 런타임 의존성을 추상화한다.
 """
+
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
@@ -14,9 +15,7 @@ from strategy.indicators import IndicatorPack
 class MarketDataProvider(Protocol):
     """캔들 + 오더북 데이터 제공."""
 
-    async def get_candles(
-        self, symbol: str, interval: str, limit: int
-    ) -> list[Candle]:
+    async def get_candles(self, symbol: str, interval: str, limit: int) -> list[Candle]:
         """캔들 리스트를 반환한다."""
         ...
 

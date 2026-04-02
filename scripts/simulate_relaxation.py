@@ -23,11 +23,10 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 
 from app.config import load_config
-from app.data_types import Candle, MarketSnapshot, Regime, Strategy, parse_raw_candles
+from app.data_types import Candle, MarketSnapshot, Strategy, parse_raw_candles
 from market.bithumb_api import BithumbClient
 from market.market_store import MarketStore
 from strategy.coin_profiler import CoinProfiler, TierParams
-from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
 
 logging.basicConfig(
@@ -221,7 +220,11 @@ def check_l1_filter(
     # 3. 시간대 필터 (캔들 타임스탬프 기반)
     candle_dt = datetime.fromtimestamp(candle_ts / 1000, tz=KST)
     is_night = 0 <= candle_dt.hour < 6
-    is_tier3 = tier_params.tier.value == "TIER3" if hasattr(tier_params.tier, "value") else str(tier_params.tier) == "TIER3"
+    is_tier3 = (
+        tier_params.tier.value == "TIER3"
+        if hasattr(tier_params.tier, "value")
+        else str(tier_params.tier) == "TIER3"
+    )
 
     if is_night and is_tier3:
         if config.night_policy == "block":
@@ -334,7 +337,7 @@ def run_scenario(
     result = SimResult(scenario=config.name)
     equity = float(INITIAL_CAPITAL)
     active_balance = equity * 0.5  # Active Pool 50%
-    core_balance = equity * 0.4    # Core Pool 40%
+    _core_balance = equity * 0.4  # Core Pool 40%  # noqa: F841
     positions: dict[str, SimPosition] = {}
     equity_history: list[float] = [equity]
     utilization_samples: list[float] = []
@@ -390,7 +393,7 @@ def run_scenario(
             if idx is None or idx + step >= len(coin_candles):
                 continue
 
-            future = coin_candles[idx: idx + step]
+            future = coin_candles[idx : idx + step]
             hit_sl = any(c.low <= pos.stop_loss for c in future)
             hit_tp = any(c.high >= pos.take_profit for c in future)
 
@@ -454,7 +457,7 @@ def run_scenario(
             if idx is None or idx < window_15m:
                 continue
 
-            slice_15m = coin_15m[idx - window_15m: idx]
+            slice_15m = coin_15m[idx - window_15m : idx]
             sync_1h = [c for c in coin_1h if c.timestamp <= current_ts]
             if len(sync_1h) < 50:
                 continue
@@ -465,7 +468,11 @@ def run_scenario(
 
             # L1 필터
             passed, reason, l1_mult = check_l1_filter(
-                slice_15m, sync_1h, tier_params, current_ts, config,
+                slice_15m,
+                sync_1h,
+                tier_params,
+                current_ts,
+                config,
             )
             if not passed:
                 continue
@@ -493,9 +500,13 @@ def run_scenario(
 
             # 사이징
             size_krw = calculate_size(
-                equity, active_balance,
-                size_dec, regime_str,
-                tier_params.position_mult, l1_mult, config,
+                equity,
+                active_balance,
+                size_dec,
+                regime_str,
+                tier_params.position_mult,
+                l1_mult,
+                config,
             )
             if size_krw <= 0:
                 continue
@@ -530,14 +541,22 @@ def run_scenario(
             pnl_pct = (exit_price - pos.entry_price) / pos.entry_price if pos.entry_price > 0 else 0
             pnl_krw = pos.size_krw * pnl_pct
             equity += pnl_krw
-            result.trades.append(SimTrade(
-                symbol=sym, strategy=pos.strategy, regime=pos.regime,
-                entry_price=pos.entry_price, exit_price=exit_price,
-                entry_ts=pos.entry_ts, exit_ts=int(time.time() * 1000),
-                stop_loss=pos.stop_loss, take_profit=pos.take_profit,
-                size_krw=pos.size_krw, pnl_krw=pnl_krw,
-                pnl_pct=pnl_pct * 100,
-            ))
+            result.trades.append(
+                SimTrade(
+                    symbol=sym,
+                    strategy=pos.strategy,
+                    regime=pos.regime,
+                    entry_price=pos.entry_price,
+                    exit_price=exit_price,
+                    entry_ts=pos.entry_ts,
+                    exit_ts=int(time.time() * 1000),
+                    stop_loss=pos.stop_loss,
+                    take_profit=pos.take_profit,
+                    size_krw=pos.size_krw,
+                    pnl_krw=pnl_krw,
+                    pnl_pct=pnl_pct * 100,
+                )
+            )
     positions.clear()
 
     # 결과 계산
@@ -656,7 +675,7 @@ def print_results(results: list[SimResult]) -> None:
     """비교 테이블을 출력한다."""
     print("\n" + "=" * 80)
     print("  파라미터 완화 시뮬레이션 결과 비교")
-    print("  자본금: {:,}원 | 데이터: ~40일".format(INITIAL_CAPITAL))
+    print(f"  자본금: {INITIAL_CAPITAL:,}원 | 데이터: ~40일")
     print("=" * 80)
 
     # 헤더
@@ -671,14 +690,14 @@ def print_results(results: list[SimResult]) -> None:
 
     row("총 거래 수", [str(r.trade_count) for r in results])
     row("일평균 거래", [f"{r.avg_daily_trades:.1f}" for r in results])
-    row("승률", [f"{r.win_rate*100:.1f}%" for r in results])
+    row("승률", [f"{r.win_rate * 100:.1f}%" for r in results])
     row("Profit Factor", [f"{r.profit_factor:.2f}" for r in results])
     row("Sharpe Ratio", [f"{r.sharpe:.2f}" for r in results])
-    row("MDD", [f"{r.max_drawdown*100:.1f}%" for r in results])
+    row("MDD", [f"{r.max_drawdown * 100:.1f}%" for r in results])
     row("총 PnL", [f"{r.total_pnl:,.0f}원" for r in results])
     row("최종 자산", [f"{r.final_equity:,.0f}원" for r in results])
-    row("수익률", [f"{(r.final_equity/INITIAL_CAPITAL-1)*100:.1f}%" for r in results])
-    row("자금활용률", [f"{r.capital_utilization*100:.1f}%" for r in results])
+    row("수익률", [f"{(r.final_equity / INITIAL_CAPITAL - 1) * 100:.1f}%" for r in results])
+    row("자금활용률", [f"{r.capital_utilization * 100:.1f}%" for r in results])
     row("최대 동시포지션", [str(r.max_concurrent) for r in results])
 
     print("-" * (20 + 14 * len(names)))
@@ -688,8 +707,10 @@ def print_results(results: list[SimResult]) -> None:
     if valid:
         best = max(valid, key=lambda r: r.total_pnl)
         print(f"\n★ 추천 시나리오: {best.scenario}")
-        print(f"  사유: PnL {best.total_pnl:,.0f}원, MDD {best.max_drawdown*100:.1f}%, "
-              f"PF {best.profit_factor:.2f}, 자금활용률 {best.capital_utilization*100:.1f}%")
+        print(
+            f"  사유: PnL {best.total_pnl:,.0f}원, MDD {best.max_drawdown * 100:.1f}%, "
+            f"PF {best.profit_factor:.2f}, 자금활용률 {best.capital_utilization * 100:.1f}%"
+        )
     else:
         print("\n⚠ 모든 시나리오가 MDD > 15% 또는 PnL <= 0. 추가 조정 필요.")
 
@@ -716,7 +737,9 @@ def print_results(results: list[SimResult]) -> None:
             gr_l = abs(sum(t.pnl_krw for t in trades if t.pnl_krw <= 0))
             pf = gr_w / gr_l if gr_l > 0 else 10.0
             wr = wins / len(trades) * 100 if trades else 0
-            print(f"    {strat:<18} {len(trades):>3}건 WR={wr:>5.1f}% PF={pf:>5.2f} PnL={total_pnl:>+10,.0f}원")
+            print(
+                f"    {strat:<18} {len(trades):>3}건 WR={wr:>5.1f}% PF={pf:>5.2f} PnL={total_pnl:>+10,.0f}원"
+            )
 
     # 코인별
     print("\n" + "=" * 80)
@@ -732,7 +755,9 @@ def print_results(results: list[SimResult]) -> None:
         trades = coin_trades[sym]
         wins = sum(1 for t in trades if t.pnl_krw > 0)
         total_pnl = sum(t.pnl_krw for t in trades)
-        print(f"  {sym:<10} {len(trades):>3}건 {wins}W/{len(trades)-wins}L PnL={total_pnl:>+10,.0f}원")
+        print(
+            f"  {sym:<10} {len(trades):>3}건 {wins}W/{len(trades) - wins}L PnL={total_pnl:>+10,.0f}원"
+        )
 
 
 # ═══════════════════════════════════════════
@@ -776,7 +801,10 @@ async def main() -> None:
         elapsed = time.time() - start
         logger.info(
             "  %s: %d건 거래, PnL=%+,.0f원, %.1f초",
-            scenario.name, result.trade_count, result.total_pnl, elapsed,
+            scenario.name,
+            result.trade_count,
+            result.total_pnl,
+            elapsed,
         )
         results.append(result)
 

@@ -58,7 +58,7 @@ async def ensure_data(
                 raw = await client.get_candlestick(coin, interval)
                 candles = parse_raw_candles(raw)
                 store.store_candles(coin, interval, candles)
-            except Exception:  # noqa: BLE001 — 스크립트 최상위 가드
+            except Exception:
                 logger.exception("%s %s 다운로드 실패", coin, interval)
             await asyncio.sleep(0.15)
 
@@ -146,12 +146,14 @@ def apply_to_config(results: dict[str, list], config_path: Path) -> None:
             continue
         logger.info(
             "[%s] 최적 파라미터 (PF=%.2f, %d건): %s",
-            strategy, best.profit_factor, best.trades, best.params,
+            strategy,
+            best.profit_factor,
+            best.trades,
+            best.params,
         )
 
     logger.info(
-        "config.yaml 직접 수정 비활성화됨. "
-        "ApprovalWorkflow를 통해 적용하세요: /approve <change_id>"
+        "config.yaml 직접 수정 비활성화됨. ApprovalWorkflow를 통해 적용하세요: /approve <change_id>"
     )
 
 

@@ -1,0 +1,27 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.8
+    hooks:
+      - id: ruff
+        args: [--fix, --select, "E,F,W,I", --ignore, "E501"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: claude-md-sync
+        name: CLAUDE.md sync check
+        entry: python3 scripts/sync_claude_md.py --check
+        language: system
+        pass_filenames: false
+        files: '(\.py$|CLAUDE\.md|config\.yaml|docs/.*\.md)'

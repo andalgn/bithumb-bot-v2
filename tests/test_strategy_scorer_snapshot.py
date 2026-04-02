@@ -2,15 +2,15 @@
 
 각 전략의 점수 계산 동작을 고정한다.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from app.config import load_config
-from app.data_types import MarketSnapshot, Regime, Strategy
+from app.data_types import MarketSnapshot, Strategy
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
-from tests.fixtures.candles import strong_up_candles, range_candles, weak_down_candles
+from tests.fixtures.candles import range_candles, strong_up_candles, weak_down_candles
 from tests.fixtures.snapshots import _make_orderbook
 
 
@@ -62,8 +62,10 @@ def test_score_cutoff_blocks_low_score(engine):
     """
     candles = range_candles()
     snap = MarketSnapshot(
-        symbol="BTC", current_price=candles[-1].close,
-        candles_15m=candles, candles_1h=candles,
+        symbol="BTC",
+        current_price=candles[-1].close,
+        candles_15m=candles,
+        candles_1h=candles,
         orderbook=_make_orderbook(candles[-1].close),
     )
     signals = engine.generate_signals({"BTC": snap})

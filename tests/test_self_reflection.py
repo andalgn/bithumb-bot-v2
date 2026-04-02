@@ -1,8 +1,11 @@
 """SelfReflection 단위 테스트."""
+
 from __future__ import annotations
+
 import pytest
-from strategy.self_reflection import generate_reflection, ReflectionStore
+
 from app.journal import Journal
+from strategy.self_reflection import ReflectionStore, generate_reflection
 
 
 def test_generate_reflection_regime_mismatch():
@@ -51,11 +54,12 @@ def test_get_weekly_synthesis_returns_top_lessons(journal):
     for _ in range(3):
         store.record_trade_reflection(
             {"strategy": "breakout", "net_pnl_krw": -3000},
-            "STRONG_UP", "WEAK_DOWN", "regime_mismatch"
+            "STRONG_UP",
+            "WEAK_DOWN",
+            "regime_mismatch",
         )
     store.record_trade_reflection(
-        {"strategy": "mean_reversion", "net_pnl_krw": -1000},
-        "RANGE", "RANGE", "signal_quality"
+        {"strategy": "mean_reversion", "net_pnl_krw": -1000}, "RANGE", "RANGE", "signal_quality"
     )
     synthesis = store.get_weekly_synthesis(days=7)
     assert len(synthesis) >= 1

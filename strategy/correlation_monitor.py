@@ -72,9 +72,7 @@ class CorrelationMonitor:
         for sym, candles in candles_map.items():
             if len(candles) < needed:
                 continue
-            closes = np.array(
-                [c.close for c in candles[-needed:]], dtype=np.float64
-            )
+            closes = np.array([c.close for c in candles[-needed:]], dtype=np.float64)
             # 일일 수익률 (24봉 단위로 리샘플링)
             daily_closes = closes[::BARS_PER_DAY]
             if len(daily_closes) < 3:
@@ -104,9 +102,7 @@ class CorrelationMonitor:
         self._last_update = time.time()
         logger.info("상관관계 매트릭스 갱신 완료: %d개 코인", len(valid_symbols))
 
-    def check_correlation(
-        self, new_coin: str, active_positions: list[str]
-    ) -> CorrelationResult:
+    def check_correlation(self, new_coin: str, active_positions: list[str]) -> CorrelationResult:
         """진입 전 상관관계를 확인한다.
 
         Args:
@@ -137,10 +133,7 @@ class CorrelationMonitor:
             return CorrelationResult(
                 allowed=False,
                 size_mult=0.0,
-                reason=(
-                    f"상관관계 {max_corr:.2f} > {self._skip}"
-                    f" ({new_coin}↔{correlated_with})"
-                ),
+                reason=(f"상관관계 {max_corr:.2f} > {self._skip} ({new_coin}↔{correlated_with})"),
                 max_corr=max_corr,
                 correlated_with=correlated_with,
             )

@@ -17,12 +17,14 @@ def _make_trades(count: int, profitable: bool = True) -> list[dict]:
     for i in range(count):
         entry = 50_000_000
         exit_p = entry * (1.01 if profitable else 0.99)
-        trades.append({
-            "entry_price": entry,
-            "exit_price": exit_p,
-            "qty": 0.001,
-            "day": i % 30,
-        })
+        trades.append(
+            {
+                "entry_price": entry,
+                "exit_price": exit_p,
+                "qty": 0.001,
+                "day": i % 30,
+            }
+        )
     return trades
 
 

@@ -124,8 +124,7 @@ class LiveGate:
         checks["slippage"] = abs(slippage_model_error_pct) <= self._slippage_error
         if not checks["slippage"]:
             failures.append(
-                f"슬리피지 오차 {slippage_model_error_pct:.0%} > "
-                f"\u00b1{self._slippage_error:.0%}"
+                f"슬리피지 오차 {slippage_model_error_pct:.0%} > \u00b1{self._slippage_error:.0%}"
             )
 
         # 9. Walk-Forward

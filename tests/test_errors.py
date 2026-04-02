@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import aiohttp
 import pytest
 
 from app.errors import (
@@ -78,7 +77,9 @@ async def test_bithumb_client_raises_api_auth_error_on_auth_failure(status_code:
 
     mock_resp = MagicMock()
     mock_resp.status = status_code
-    mock_resp.json = AsyncMock(return_value={"error": {"name": "unauthorized", "message": "인증 실패"}})
+    mock_resp.json = AsyncMock(
+        return_value={"error": {"name": "unauthorized", "message": "인증 실패"}}
+    )
     mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
     mock_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -103,7 +104,9 @@ async def test_bithumb_client_post_raises_api_auth_error_on_auth_failure(status_
 
     mock_resp = MagicMock()
     mock_resp.status = status_code
-    mock_resp.json = AsyncMock(return_value={"error": {"name": "unauthorized", "message": "인증 실패"}})
+    mock_resp.json = AsyncMock(
+        return_value={"error": {"name": "unauthorized", "message": "인증 실패"}}
+    )
     mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
     mock_resp.__aexit__ = AsyncMock(return_value=False)
 

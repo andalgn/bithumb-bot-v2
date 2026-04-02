@@ -1,9 +1,8 @@
 """TradeTagger 단위 테스트."""
+
 from __future__ import annotations
 
-import pytest
-
-from strategy.trade_tagger import TradeTag, tag_trade
+from strategy.trade_tagger import tag_trade
 
 
 def _make_trade(**kwargs) -> dict:
@@ -28,6 +27,7 @@ def _make_trade(**kwargs) -> dict:
 
 # ── 1. winner ────────────────────────────────────────────────────────────────
 
+
 def test_winner_tagged_correctly() -> None:
     """순수익 > 0 이면 winner로 분류된다."""
     trade = _make_trade(net_pnl_krw=3000)
@@ -42,6 +42,7 @@ def test_winner_zero_pnl_is_not_winner() -> None:
 
 
 # ── 2. external ──────────────────────────────────────────────────────────────
+
 
 def test_external_tagged_on_api_error() -> None:
     """exit_reason에 'api' 포함 시 external로 분류된다."""
@@ -75,6 +76,7 @@ def test_external_tagged_on_error() -> None:
 
 # ── 3. regime_mismatch ───────────────────────────────────────────────────────
 
+
 def test_regime_mismatch_tagged() -> None:
     """진입/청산 국면이 다르면 regime_mismatch로 분류된다."""
     trade = _make_trade(net_pnl_krw=-2000, exit_reason="sl")
@@ -96,6 +98,7 @@ def test_regime_same_no_mismatch() -> None:
 
 
 # ── 4. sizing_error ───────────────────────────────────────────────────────────
+
 
 def test_sizing_error_when_loss_smaller_than_fee() -> None:
     """손실이 수수료보다 작으면 sizing_error로 분류된다."""
@@ -126,6 +129,7 @@ def test_sizing_error_not_triggered_when_loss_exceeds_fee() -> None:
 
 
 # ── 5. timing_error ───────────────────────────────────────────────────────────
+
 
 def test_timing_error_sl_but_price_above_entry() -> None:
     """SL 청산이지만 exit_price > entry_price 이면 timing_error로 분류된다.
@@ -171,6 +175,7 @@ def test_timing_error_not_triggered_when_price_below_entry() -> None:
 
 # ── 6. signal_quality ────────────────────────────────────────────────────────
 
+
 def test_signal_quality_default() -> None:
     """그 외 손실 거래는 signal_quality로 분류된다."""
     trade = _make_trade(net_pnl_krw=-5000, exit_reason="stop_loss")
@@ -184,6 +189,7 @@ def test_signal_quality_regime_change_exit() -> None:
 
 
 # ── 7. priority order ────────────────────────────────────────────────────────
+
 
 def test_winner_takes_priority_over_external() -> None:
     """winner가 external보다 우선한다."""

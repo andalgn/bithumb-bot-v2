@@ -96,9 +96,9 @@ class ShadowPerformance:
     max_drawdown: float = 0.0
     peak_equity: float = 1_000_000.0
     current_equity: float = 1_000_000.0
-    sortino_ratio: float = 0.0        # 하방 변동성 대비 수익률
-    calmar_ratio: float = 0.0         # MDD 대비 연간 수익률
-    max_consecutive_loss: int = 0     # 최대 연속 손실 횟수
+    sortino_ratio: float = 0.0  # 하방 변동성 대비 수익률
+    calmar_ratio: float = 0.0  # MDD 대비 연간 수익률
+    max_consecutive_loss: int = 0  # 최대 연속 손실 횟수
 
     @property
     def expectancy(self) -> float:
@@ -243,9 +243,9 @@ class DarwinEngine:
         """
         # 시장 국면별 변이 범위 조정 (scale factor는 multiplier cap과 독립 적용)
         if regime in (Regime.CRISIS, Regime.WEAK_DOWN):
-            regime_scale = 1.5   # 위기 시 더 넓게 탐색
+            regime_scale = 1.5  # 위기 시 더 넓게 탐색
         elif regime in (Regime.STRONG_UP, Regime.WEAK_UP):
-            regime_scale = 0.7   # 강세 시 보수적 조정
+            regime_scale = 0.7  # 강세 시 보수적 조정
         else:
             regime_scale = 1.0  # RANGE 또는 None: 기본값
 
@@ -276,7 +276,11 @@ class DarwinEngine:
         numeric_fields = set(MUTATION_RANGES.keys())
         for field in dataclasses.fields(ShadowParams):
             if field.name in numeric_fields:
-                val = getattr(parent_a, field.name) if random.random() < 0.5 else getattr(parent_b, field.name)
+                val = (
+                    getattr(parent_a, field.name)
+                    if random.random() < 0.5
+                    else getattr(parent_b, field.name)
+                )
                 setattr(child, field.name, val)
         return child
 
@@ -454,11 +458,15 @@ class DarwinEngine:
                 # 교차: 두 부모를 선택한 뒤 uniform crossover → 소폭 변이
                 p_a, p_b = random.sample(survivor_pool, 2)
                 child = self._crossover(p_a, p_b)
-                child = self._mutate(child, variation=mutation_rate * 0.5, group="moderate", regime=market_regime)
+                child = self._mutate(
+                    child, variation=mutation_rate * 0.5, group="moderate", regime=market_regime
+                )
             else:
                 # 변이: 단일 부모 변이
                 parent = random.choice(survivor_pool)
-                child = self._mutate(parent, variation=mutation_rate, group="moderate", regime=market_regime)
+                child = self._mutate(
+                    parent, variation=mutation_rate, group="moderate", regime=market_regime
+                )
             child.shadow_id = str(uuid.uuid4())[:8]
             new_shadows.append(child)
             self._performances[child.shadow_id] = ShadowPerformance(shadow_id=child.shadow_id)

@@ -119,8 +119,11 @@ class PoolManager:
         if not self.can_allocate(pool, amount):
             logger.warning(
                 "Pool %s 할당 실패: 요청=%.0f, 가용=%.0f, 포지션=%d/%d",
-                pool.value, amount, self._pools[pool].available,
-                self._pools[pool].position_count, MAX_POSITIONS[pool],
+                pool.value,
+                amount,
+                self._pools[pool].available,
+                self._pools[pool].position_count,
+                MAX_POSITIONS[pool],
             )
             return False
 
@@ -173,9 +176,7 @@ class PoolManager:
 
         # 도착 풀에 allocated 증가
         if dst.position_count >= MAX_POSITIONS[to_pool]:
-            logger.warning(
-                "이관 실패: %s→%s, 도착 풀 포지션 초과", from_pool.value, to_pool.value
-            )
+            logger.warning("이관 실패: %s→%s, 도착 풀 포지션 초과", from_pool.value, to_pool.value)
             # 롤백
             src.allocated += amount
             src.position_count += 1
@@ -190,7 +191,9 @@ class PoolManager:
 
         logger.info(
             "Pool 이관: %s→%s, 금액=%.0f",
-            from_pool.value, to_pool.value, amount,
+            from_pool.value,
+            to_pool.value,
+            amount,
         )
         return True
 
@@ -255,13 +258,17 @@ class PoolManager:
         corrected = False
         for pool in Pool:
             state = self._pools[pool]
-            if (abs(state.allocated - actual_alloc[pool]) > 1.0
-                    or state.position_count != actual_count[pool]):
+            if (
+                abs(state.allocated - actual_alloc[pool]) > 1.0
+                or state.position_count != actual_count[pool]
+            ):
                 logger.warning(
                     "Pool %s 정합성 보정: allocated %.0f→%.0f, count %d→%d",
                     pool.value,
-                    state.allocated, actual_alloc[pool],
-                    state.position_count, actual_count[pool],
+                    state.allocated,
+                    actual_alloc[pool],
+                    state.position_count,
+                    actual_count[pool],
                 )
                 state.allocated = actual_alloc[pool]
                 state.position_count = actual_count[pool]

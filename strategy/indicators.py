@@ -178,9 +178,7 @@ def calc_macd(
     return MACDResult(macd_line=macd_line, signal_line=signal_line, histogram=histogram)
 
 
-def calc_atr(
-    high: NDArray, low: NDArray, close: NDArray, period: int = 14
-) -> NDArray:
+def calc_atr(high: NDArray, low: NDArray, close: NDArray, period: int = 14) -> NDArray:
     """ATR을 계산한다 (Wilder smoothing).
 
     Args:
@@ -204,9 +202,7 @@ def calc_atr(
     return np.concatenate([[np.nan], atr])
 
 
-def calc_adx(
-    high: NDArray, low: NDArray, close: NDArray, period: int = 14
-) -> ADXResult:
+def calc_adx(high: NDArray, low: NDArray, close: NDArray, period: int = 14) -> ADXResult:
     """ADX, +DI, -DI를 계산한다 (Wilder smoothing).
 
     Args:
@@ -279,8 +275,11 @@ def calc_adx(
 
 
 def calc_supertrend(
-    high: NDArray, low: NDArray, close: NDArray,
-    period: int = 10, multiplier: float = 3.0,
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    period: int = 10,
+    multiplier: float = 3.0,
 ) -> SuperTrendResult:
     """SuperTrend를 계산한다.
 
@@ -372,9 +371,7 @@ def calc_obv(close: NDArray, volume: NDArray) -> NDArray:
     return obv
 
 
-def calc_bollinger_bands(
-    close: NDArray, period: int = 20, std_mult: float = 2.0
-) -> BollingerBands:
+def calc_bollinger_bands(close: NDArray, period: int = 20, std_mult: float = 2.0) -> BollingerBands:
     """볼린저 밴드를 계산한다.
 
     Args:
