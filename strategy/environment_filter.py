@@ -9,7 +9,9 @@ from datetime import datetime, timedelta, timezone  # noqa: F401 (datetime: test
 
 import numpy as np
 
+from app.config import AppConfig
 from app.data_types import MarketSnapshot, Regime
+from market.normalizer import get_tick_size
 from strategy.coin_profiler import TierParams
 from strategy.indicators import IndicatorPack
 from strategy.spread_profiler import SpreadProfiler
@@ -20,13 +22,15 @@ KST = timezone(timedelta(hours=9))
 class EnvironmentFilter:
     """L1 환경 필터 담당."""
 
-    def __init__(self, spread_profiler: SpreadProfiler) -> None:
+    def __init__(self, spread_profiler: SpreadProfiler, config: AppConfig) -> None:
         """초기화.
 
         Args:
             spread_profiler: 코인별 동적 스프레드 임계값 관리자.
+            config: 전역 설정 (tick_size_max_pct 포함).
         """
         self._spread_profiler = spread_profiler
+        self._config = config
 
     def check(
         self,
@@ -40,6 +44,14 @@ class EnvironmentFilter:
         Returns:
             (통과 여부, 거부 사유) 튜플.
         """
+        # 0. Tick size 비율 검증 (새로 추가)
+        # Tick size > 2% of price → 자동매매 불가능한 쌍
+        tick_size = get_tick_size(snap.current_price)
+        tick_pct = (tick_size / snap.current_price) * 100 if snap.current_price > 0 else 100
+        max_tick_pct = self._config.environment_filter.tick_size_max_pct
+        if tick_pct > max_tick_pct:
+            return False, f"L1: Tick size 과대 ({tick_pct:.2f}% > {max_tick_pct:.2f}%)"
+
         # 1. 국면 != CRISIS
         if regime == Regime.CRISIS:
             return False, "L1: CRISIS 국면"

@@ -122,6 +122,12 @@ risk_gate:
   auth_error_quarantine_sec: 600
   consecutive_loss_limit: 3
   cooldown_min: 60
+environment_filter:
+  # Tick size ratio threshold (%) — tick_size / price > this → exclude pair
+  # Industry standard: > 2.0% means untradeable for automated trading
+  # Example: SKL at 10 KRW with 1 KRW tick = 10% → EXCLUDE
+  tick_size_max_pct: 2.0
+
 execution:
   order_timeout_sec: 30
   retry_count: 3

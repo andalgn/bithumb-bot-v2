@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from app.config import AppConfig, EnvironmentFilterConfig
 from app.data_types import (
     Candle,
     MarketSnapshot,
@@ -49,10 +50,20 @@ def _make_orderbook(spread_pct: float = 0.001, depth_qty: float = 100.0) -> Orde
     )
 
 
+def _make_test_config(tick_size_max_pct: float = 2.0) -> AppConfig:
+    """테스트용 AppConfig 생성."""
+    return AppConfig(
+        environment_filter=EnvironmentFilterConfig(tick_size_max_pct=tick_size_max_pct)
+    )
+
+
 @pytest.fixture
 def engine() -> RuleEngine:
     """테스트용 RuleEngine."""
-    return RuleEngine(spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
+    config = _make_test_config()
+    return RuleEngine(
+        spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"), config=config
+    )
 
 
 # ═══════════════════════════════════════════

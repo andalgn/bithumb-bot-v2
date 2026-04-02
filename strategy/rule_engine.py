@@ -87,6 +87,7 @@ class RuleEngine:
         execution_config: object | None = None,
         strategy_params: dict | None = None,
         spread_profiler: SpreadProfiler | None = None,
+        config: object | None = None,
     ) -> None:
         """초기화.
 
@@ -96,6 +97,7 @@ class RuleEngine:
             regime_config: RegimeConfig.
             execution_config: ExecutionConfig.
             strategy_params: 전략별 SL/TP 파라미터.
+            config: 전역 설정 (Config, EnvironmentFilter에 전달됨).
         """
         self._profiler = profiler or CoinProfiler()
         self._score_cutoff = score_cutoff
@@ -104,7 +106,7 @@ class RuleEngine:
         self._strategy_params = strategy_params or {}
         self._regime_classifier = RegimeClassifier()
         self._spread_profiler = spread_profiler or SpreadProfiler()
-        self._environment_filter = EnvironmentFilter(self._spread_profiler)
+        self._environment_filter = EnvironmentFilter(self._spread_profiler, config)
         self._strategy_scorer = StrategyScorer(strategy_params=self._strategy_params)
         self._size_decider = SizeDecider(score_cutoff=self._score_cutoff)
 

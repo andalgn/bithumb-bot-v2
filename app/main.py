@@ -187,6 +187,7 @@ class TradingBot:
             execution_config=config.execution,
             strategy_params=config.strategy_params,
             spread_profiler=self._spread_profiler,
+            config=config,
         )
 
         # Phase 3: Pool + Position + Promotion

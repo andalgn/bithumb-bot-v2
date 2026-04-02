@@ -250,6 +250,13 @@ class EvolutionConfig:
     drift_threshold: float = 0.25
 
 
+@dataclass(frozen=True)
+class EnvironmentFilterConfig:
+    """환경 필터 설정."""
+
+    tick_size_max_pct: float = 2.0
+
+
 @dataclass
 class AppConfig:
     """애플리케이션 전체 설정."""
@@ -274,6 +281,8 @@ class AppConfig:
     momentum_ranking: MomentumRankingConfig = field(default_factory=MomentumRankingConfig)
     coin_universe: CoinUniverseConfig = field(default_factory=CoinUniverseConfig)
     evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
+
+    environment_filter: EnvironmentFilterConfig = field(default_factory=EnvironmentFilterConfig)
 
 
 def _load_env() -> EnvSecrets:
@@ -415,6 +424,9 @@ def load_config(
         momentum_ranking=_build_momentum_ranking(raw.get("momentum_ranking", {})),
         coin_universe=_build_coin_universe(raw.get("coin_universe", {})),
         evolution=_build_evolution(raw.get("evolution", {})),
+        environment_filter=EnvironmentFilterConfig(
+            **{k: v for k, v in raw.get("environment_filter", {}).items() if v is not None}
+        ),
     )
 
 

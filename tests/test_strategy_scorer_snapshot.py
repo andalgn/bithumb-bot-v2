@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.config import AppConfig, EnvironmentFilterConfig
 from app.data_types import MarketSnapshot, Strategy
 from strategy.indicators import compute_indicators
 from strategy.rule_engine import RuleEngine
@@ -14,9 +15,17 @@ from tests.fixtures.candles import range_candles, strong_up_candles, weak_down_c
 from tests.fixtures.snapshots import _make_orderbook
 
 
+def _make_test_config(tick_size_max_pct: float = 2.0) -> AppConfig:
+    """테스트용 AppConfig 생성."""
+    return AppConfig(
+        environment_filter=EnvironmentFilterConfig(tick_size_max_pct=tick_size_max_pct)
+    )
+
+
 @pytest.fixture
 def engine():
-    return RuleEngine()
+    config = _make_test_config()
+    return RuleEngine(config=config)
 
 
 def test_trend_follow_scores_in_strong_up(engine):

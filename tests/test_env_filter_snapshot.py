@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.config import AppConfig, EnvironmentFilterConfig
 from app.data_types import Candle, MarketSnapshot, Orderbook, OrderbookEntry, Regime, Tier
 from strategy.coin_profiler import TierParams
 from strategy.indicators import compute_indicators
@@ -20,9 +21,19 @@ from tests.fixtures.candles import range_candles
 KST = timezone(timedelta(hours=9))
 
 
+def _make_test_config(tick_size_max_pct: float = 2.0) -> AppConfig:
+    """테스트용 AppConfig 생성."""
+    return AppConfig(
+        environment_filter=EnvironmentFilterConfig(tick_size_max_pct=tick_size_max_pct)
+    )
+
+
 @pytest.fixture
 def engine():
-    return RuleEngine(spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"))
+    config = _make_test_config()
+    return RuleEngine(
+        spread_profiler=SpreadProfiler(db_path="/tmp/nonexistent_test.db"), config=config
+    )
 
 
 @pytest.fixture
