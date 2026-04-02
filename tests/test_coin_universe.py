@@ -9,24 +9,40 @@ import pytest
 from strategy.coin_universe import CoinUniverse
 
 
-def _make_ticker_data(coins: list[tuple[str, float, float, float, float]]) -> dict:
+def _make_all_tickers_data(coins: list[tuple[str, float]]) -> dict:
     """
-    ticker 데이터 생성.
+    get_all_tickers() 응답 데이터 생성 (24h 거래량만 포함).
 
     Args:
-        coins: [(심볼, 24h_거래량, 가격, bid, ask), ...]
+        coins: [(심볼, 24h_거래량), ...]
 
     Returns:
-        {심볼: {acc_trade_value_24H, last, bid, ask}, ...}
+        {심볼: {acc_trade_value_24H}, ...}
     """
     return {
         sym: {
             "acc_trade_value_24H": str(vol_24h),
-            "last": str(price),
-            "bid": str(bid),
-            "ask": str(ask),
         }
-        for sym, vol_24h, price, bid, ask in coins
+        for sym, vol_24h in coins
+    }
+
+
+def _make_ticker_response(price: float, bid: float, ask: float) -> dict:
+    """
+    get_ticker(coin) 응답 데이터 생성 (가격 정보 포함).
+
+    Args:
+        price: closing_price
+        bid: 매수가
+        ask: 매도가
+
+    Returns:
+        {closing_price, bid, ask, ...}
+    """
+    return {
+        "closing_price": str(price),
+        "bid": str(bid),
+        "ask": str(ask),
     }
 
 
@@ -80,7 +96,7 @@ class MockCoinUniverse(CoinUniverse):
 
         # 2. TICK-PRICE FILTER with override
         try:
-            price = float(ticker.get("last", 0))
+            price = float(ticker.get("closing_price", 0))
             if price <= 0:
                 return False, "price <= 0"
 
@@ -107,20 +123,31 @@ class MockCoinUniverse(CoinUniverse):
 async def test_refresh_returns_top_n_by_volume():
     """상위 top_n 코인을 거래량 기준으로 반환한다 (hard cutoff 통과)."""
     client = MagicMock()
-    # Bid/ask spreads must be < 0.5% (< 0.005) to pass
-    # Formula: spread = 1 - (bid / ask)
-    # For <0.5% spread: bid/ask > 0.995 → bid = ask * 0.9951 (=0.3% spread)
+    # get_all_tickers: 24h 거래량 정보만 (top_n 선택 용)
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("BTC", 1_000_000_000, 50_000, 49_756, 50_000),  # spread ~0.3%
-                ("ETH", 800_000_000, 3_000, 2_986, 3_000),  # spread ~0.3%
-                ("XRP", 500_000_000, 1_500, 1_492_800, 1_500),  # spread ~0.3%
-                ("SOL", 300_000_000, 150, 147, 150),  # spread ~2% (reject)
-                ("DOGE", 100_000_000, 25, 24, 25),  # spread ~4% (reject)
+                ("BTC", 1_000_000_000),
+                ("ETH", 800_000_000),
+                ("XRP", 500_000_000),
+                ("SOL", 300_000_000),
+                ("DOGE", 100_000_000),
             ]
         )
     )
+
+    # get_ticker: 개별 코인의 가격 정보
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "BTC": _make_ticker_response(50_000, 49_756, 50_000),  # spread ~0.3%
+            "ETH": _make_ticker_response(3_000, 2_986, 3_000),  # spread ~0.3%
+            "XRP": _make_ticker_response(1_500, 1_492_800, 1_500),  # spread ~0.3%
+            "SOL": _make_ticker_response(150, 147, 150),  # spread ~2% (reject)
+            "DOGE": _make_ticker_response(25, 24, 25),  # spread ~4% (reject)
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
 
     async def mock_get_candlestick(coin: str, interval: str):
         volumes = {
@@ -165,18 +192,31 @@ async def test_refresh_includes_base_coins():
     """base_coins는 항상 포함된다 (필터링 제외)."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("BTC", 1_000_000_000, 50_000, 49_756, 50_000),
-                ("UNKNOWN", 10, 10, 5, 10),  # 매우 낮은 거래량
+                ("BTC", 1_000_000_000),
+                ("UNKNOWN", 10),
             ]
         )
     )
+
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "BTC": _make_ticker_response(50_000, 49_756, 50_000),
+            "UNKNOWN": _make_ticker_response(10, 5, 10),
+            "ETH": _make_ticker_response(3_000, 2_986, 3_000),
+            "XRP": _make_ticker_response(1_500, 1_492, 1_500),
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
     client.get_candlestick = AsyncMock(return_value=_make_candlestick_data(168, 50000, 1000))
 
     universe = MockCoinUniverse(client, top_n=2, base_coins=["ETH", "XRP"])
     universe.set_tick_override(50_000, 250)
     universe.set_tick_override(10, 0.1)
+    universe.set_tick_override(3_000, 15)
+    universe.set_tick_override(1_500, 7.5)
 
     result = await universe.refresh()
 
@@ -191,6 +231,7 @@ async def test_refresh_api_failure_returns_base_coins():
     """API 실패 시 base_coins 안전망이 작동한다."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(return_value={})
+    client.get_ticker = AsyncMock(side_effect=Exception("API error"))
 
     universe = MockCoinUniverse(client, top_n=5, base_coins=["BTC", "ETH"])
 
@@ -207,15 +248,26 @@ async def test_refresh_excludes_stable_coins():
     """USDT, USDC 등 스테이블코인은 제외된다."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("USDT", 10_000_000_000, 1_000, 995, 1_000),
-                ("USDC", 5_000_000_000, 1_000, 995, 1_000),
-                ("BTC", 1_000_000_000, 50_000, 49_756, 50_000),
-                ("ETH", 800_000_000, 3_000, 2_986, 3_000),
+                ("USDT", 10_000_000_000),
+                ("USDC", 5_000_000_000),
+                ("BTC", 1_000_000_000),
+                ("ETH", 800_000_000),
             ]
         )
     )
+
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "USDT": _make_ticker_response(1_000, 995, 1_000),
+            "USDC": _make_ticker_response(1_000, 995, 1_000),
+            "BTC": _make_ticker_response(50_000, 49_756, 50_000),
+            "ETH": _make_ticker_response(3_000, 2_986, 3_000),
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
 
     async def mock_get_candlestick(coin: str, interval: str):
         return _make_candlestick_data(168, 50000 if coin == "BTC" else 3_000, 1000)
@@ -240,13 +292,22 @@ async def test_hard_cutoff_spread_filter():
     """스프레드 > 0.5% 코인은 제외한다."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("GOOD", 1_000_000_000, 50_000, 49_756, 50_000),  # <0.5% spread
-                ("BADSPREAD", 500_000_000, 100, 50, 101),  # ~50% spread
+                ("GOOD", 1_000_000_000),
+                ("BADSPREAD", 500_000_000),
             ]
         )
     )
+
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "GOOD": _make_ticker_response(50_000, 49_756, 50_000),  # <0.5% spread
+            "BADSPREAD": _make_ticker_response(100, 50, 101),  # ~50% spread
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
 
     async def mock_get_candlestick(coin: str, interval: str):
         price = 50_000 if coin == "GOOD" else 100
@@ -271,31 +332,31 @@ async def test_hard_cutoff_tick_price_ratio():
     """tick_ratio > 1% 코인은 제외한다 (극저가 코인)."""
     client = MagicMock()
 
-    # GOODTICK at 50,000 KRW (will use override for 0.5% ratio)
-    # BADTICK at 50 KRW (real tick = 1 KRW, ratio = 2% > 1% threshold → REJECT)
-    ticker_data = {
-        "GOODTICK": {
-            "acc_trade_value_24H": "1000000000",
-            "last": "50000",
-            "bid": "49756",
-            "ask": "50000",
-        },
-        "BADTICK": {
-            "acc_trade_value_24H": "500000000",
-            "last": "50",  # Price in 1-100 range: tick = 1 KRW → 1/50 = 2% > 1%
-            "bid": "49",
-            "ask": "50",
-        },
-    }
+    client.get_all_tickers = AsyncMock(
+        return_value=_make_all_tickers_data(
+            [
+                ("GOODTICK", 1_000_000_000),
+                ("BADTICK", 500_000_000),
+            ]
+        )
+    )
 
-    client.get_all_tickers = AsyncMock(return_value=ticker_data)
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "GOODTICK": _make_ticker_response(50_000, 49_756, 50_000),
+            "BADTICK": _make_ticker_response(
+                50, 49, 50
+            ),  # Price in 1-100 range: tick = 1 KRW → 1/50 = 2% > 1%
+        }
+        return tickers.get(coin, {})
 
-    # Candlestick data returns appropriate price per coin
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
+
     async def mock_get_candlestick(coin: str, interval: str):
         if coin == "GOODTICK":
-            return _make_candlestick_data(168, 50000, 1000)  # Price for GOODTICK
+            return _make_candlestick_data(168, 50000, 1000)
         else:
-            return _make_candlestick_data(168, 50, 1000)  # Price for BADTICK
+            return _make_candlestick_data(168, 50, 1000)
 
     client.get_candlestick = AsyncMock(side_effect=mock_get_candlestick)
 
@@ -316,13 +377,18 @@ async def test_hard_cutoff_volume_filter():
     """7d rolling vol < 100M KRW 코인은 제외한다."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("HIGHVOL", 1_000_000_000, 50_000, 49_756, 50_000),
-                ("LOWVOL", 500_000_000, 50_000, 49_756, 50_000),
+                ("HIGHVOL", 1_000_000_000),
+                ("LOWVOL", 500_000_000),
             ]
         )
     )
+
+    async def mock_get_ticker(coin: str):
+        return _make_ticker_response(50_000, 49_756, 50_000)
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
 
     async def mock_get_candlestick(coin: str, interval: str):
         if coin == "HIGHVOL":
@@ -348,13 +414,22 @@ async def test_filtered_out_property():
     """filtered_out 프로퍼티는 제외된 코인 + 사유를 반환한다."""
     client = MagicMock()
     client.get_all_tickers = AsyncMock(
-        return_value=_make_ticker_data(
+        return_value=_make_all_tickers_data(
             [
-                ("BTC", 1_000_000_000, 50_000, 49_756, 50_000),
-                ("REJECTED", 500_000_000, 100, 50, 101),  # Bad spread
+                ("BTC", 1_000_000_000),
+                ("REJECTED", 500_000_000),
             ]
         )
     )
+
+    async def mock_get_ticker(coin: str):
+        tickers = {
+            "BTC": _make_ticker_response(50_000, 49_756, 50_000),
+            "REJECTED": _make_ticker_response(100, 50, 101),  # Bad spread
+        }
+        return tickers.get(coin, {})
+
+    client.get_ticker = AsyncMock(side_effect=mock_get_ticker)
 
     async def mock_get_candlestick(coin: str, interval: str):
         price = 50_000 if coin == "BTC" else 100
