@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from market.normalizer import get_tick_size as _get_tick_size
+
 if TYPE_CHECKING:
     from market.bithumb_api import BithumbClient
 
@@ -37,31 +39,6 @@ _EXCLUDE: frozenset[str] = frozenset(
         "KRWC",
     }
 )
-
-# Bithumb tick size table (가격대별 최소 호가 단위)
-# Reference: https://docs.bithumb.com/docs/price-precision
-_TICK_SIZE_TABLE: dict[tuple[float, float], float] = {
-    (0, 100): 1.0,  # 1-100 KRW: 1 KRW 단위
-    (100, 1_000): 10.0,  # 100-1,000 KRW: 10 KRW 단위
-    (1_000, 10_000): 100.0,  # 1,000-10,000 KRW: 100 KRW 단위
-    (10_000, 100_000): 1_000.0,  # 10,000-100,000 KRW: 1,000 KRW 단위
-    (100_000, float("inf")): 10_000.0,  # 100,000+ KRW: 10,000 KRW 단위
-}
-
-
-def _get_tick_size(price: float) -> float:
-    """가격대별 최소 호가 단위를 반환한다.
-
-    Args:
-        price: 현재가 (KRW).
-
-    Returns:
-        최소 호가 단위 (KRW).
-    """
-    for (min_price, max_price), tick in _TICK_SIZE_TABLE.items():
-        if min_price <= price < max_price:
-            return tick
-    return 10_000.0  # Fallback
 
 
 class CoinUniverse:
@@ -122,31 +99,22 @@ class CoinUniverse:
         """
         return dict(self._scores)
 
-    async def _compute_7d_rolling_volume(self, coin: str) -> float:
-        """7일 이동평균 거래량을 계산한다 (1시간 캔들 기반).
+    def _compute_7d_rolling_volume_from_candles(self, candles: list[list]) -> float:
+        """캔들 데이터에서 7일 거래대금을 계산한다.
 
         Args:
-            coin: 코인 심볼.
+            candles: 1시간 캔들 리스트.
 
         Returns:
-            7일 이동평균 거래량 (KRW). 실패 시 0.0.
+            7일 거래대금 (KRW). 데이터 부족 시 0.0.
         """
+        if not candles:
+            return 0.0
         try:
-            # get_candlestick returns list[list]: [timestamp, open, close, high, low, volume]
-            candles = await self._client.get_candlestick(coin, "1h")
-            if not candles:
-                return 0.0
-            # 최근 168시간 (7일)만 사용
-            recent_candles = candles[-168:] if len(candles) >= 168 else candles
-            # 거래량 KRW = close * volume (모든 1시간 캔들 합산)
-            vol_krw = sum(
-                float(c[2]) * float(c[5])  # c[2]=close, c[5]=volume
-                for c in recent_candles
-                if len(c) >= 6
-            )
-            return vol_krw
+            recent = candles[-168:] if len(candles) >= 168 else candles
+            return sum(float(c[2]) * float(c[5]) for c in recent if len(c) >= 6)
         except Exception as e:
-            logger.debug("7d rolling volume 계산 실패 (%s): %s", coin, e)
+            logger.warning("7d 거래량 계산 실패: %s", e)
             return 0.0
 
     def _compute_volatility(self, candles: list[list]) -> float:
@@ -275,9 +243,10 @@ class CoinUniverse:
         self._filtered_out = {}
         passed_coins: list[tuple[str, float]] = []
 
+        ticker_cache: dict[str, dict] = {}
+        candles_cache: dict[str, list[list]] = {}
+
         for coin in candidates:
-            # 개별 티커 조회 (가격/스프레드 정보 포함)
-            # get_ticker()는 closing_price, bid, ask 등을 포함한 전체 정보 반환
             try:
                 ticker = await self._client.get_ticker(coin)
             except Exception as e:
@@ -285,10 +254,16 @@ class CoinUniverse:
                 self._filtered_out[coin] = f"ticker_fetch_error: {e}"
                 continue
 
-            # 7일 이동평균 거래량 계산 (비동기)
-            rolling_vol = await self._compute_7d_rolling_volume(coin)
+            try:
+                candles = await self._client.get_candlestick(coin, "1h")
+            except Exception:
+                candles = []
 
-            # Hard cutoff 검사
+            ticker_cache[coin] = ticker
+            candles_cache[coin] = candles
+
+            rolling_vol = self._compute_7d_rolling_volume_from_candles(candles)
+
             passes, reason = self._passes_hard_cutoffs(coin, ticker, rolling_vol)
             if not passes:
                 self._filtered_out[coin] = reason or "unknown"
@@ -302,13 +277,8 @@ class CoinUniverse:
         self._scores = {}
 
         for coin, vol_24h in passed_coins:
-            try:
-                ticker = await self._client.get_ticker(coin)
-                candles = await self._client.get_candlestick(coin, "1h")
-            except Exception:
-                scored_coins.append((coin, 50.0, vol_24h))  # 기본 점수
-                self._scores[coin] = 50.0
-                continue
+            ticker = ticker_cache.get(coin, {})
+            candles = candles_cache.get(coin, [])
 
             bid = float(ticker.get("bid", 0))
             ask = float(ticker.get("ask", 0))
@@ -318,7 +288,7 @@ class CoinUniverse:
             tick = _get_tick_size(price) if price > 0 else 1.0
             tick_r = (tick / price) if price > 0 else 0.01
 
-            rolling_vol = await self._compute_7d_rolling_volume(coin)
+            rolling_vol = self._compute_7d_rolling_volume_from_candles(candles)
             volatility = self._compute_volatility(candles) if candles else 0.03
             consistency = self._compute_volume_consistency(candles) if candles else 0.5
 
