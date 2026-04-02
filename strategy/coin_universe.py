@@ -157,8 +157,9 @@ class CoinUniverse:
             return False, "invalid bid/ask"
 
         # 2. TICK-PRICE FILTER (극저가 코인 제외) ← CRITICAL
+        # get_ticker() 응답에서 "closing_price"를 사용
         try:
-            price = float(ticker.get("last", 0))
+            price = float(ticker.get("closing_price", 0))
             if price <= 0:
                 return False, "price <= 0"
             tick = _get_tick_size(price)
@@ -209,7 +210,14 @@ class CoinUniverse:
         passed_coins: list[tuple[str, float]] = []
 
         for coin in candidates:
-            ticker = all_tickers.get(coin, {})
+            # 개별 티커 조회 (가격/스프레드 정보 포함)
+            # get_ticker()는 closing_price, bid, ask 등을 포함한 전체 정보 반환
+            try:
+                ticker = await self._client.get_ticker(coin)
+            except Exception as e:
+                logger.debug("개별 티커 조회 실패 (%s): %s", coin, e)
+                self._filtered_out[coin] = f"ticker_fetch_error: {e}"
+                continue
 
             # 7일 이동평균 거래량 계산 (비동기)
             rolling_vol = await self._compute_7d_rolling_volume(coin)
@@ -220,8 +228,8 @@ class CoinUniverse:
                 self._filtered_out[coin] = reason or "unknown"
                 logger.debug("코인 제외 (%s): %s", coin, reason)
             else:
-                vol_7d = float(ticker.get("acc_trade_value_24H", 0))
-                passed_coins.append((coin, vol_7d))
+                vol_24h = float(all_tickers.get(coin, {}).get("acc_trade_value_24H", 0))
+                passed_coins.append((coin, vol_24h))
 
         # Step 3: base_coins 안전망 추가
         passed_set = {c for c, _ in passed_coins}
