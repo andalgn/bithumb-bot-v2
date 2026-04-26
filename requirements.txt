@@ -16,7 +16,7 @@ httpx>=0.27
 sdnotify==0.3.2
 
 # Code Quality Tools
-pre-commit>=3.0
+pre-commit>=4.6.0
 hypothesis>=6.0
 vulture>=2.0
 radon>=6.0
