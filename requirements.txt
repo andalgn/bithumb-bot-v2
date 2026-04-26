@@ -17,7 +17,7 @@ sdnotify==0.3.2
 
 # Code Quality Tools
 pre-commit>=3.0
-hypothesis>=6.0
+hypothesis>=6.152.3
 vulture>=2.0
 radon>=6.0
 import-linter>=2.0
